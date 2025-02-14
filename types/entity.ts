@@ -11,9 +11,7 @@ export interface UserInfo {
 	username: string;
 	password?: string;
 	avatar?: string;
-	role?: Role;
-	status?: BasicStatus;
-	permissions?: Permission[];
+	role?: string[];
 }
 
 export interface Organization {
@@ -51,4 +49,28 @@ export interface Role {
 	order?: number;
 	desc?: string;
 	permission?: Permission[];
+}
+
+interface BaseEntity {
+	id: string;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface Application extends BaseEntity {
+	name: string;
+	description?: string;
+}
+
+export interface ApplicationVersion extends BaseEntity {
+	versionNumber: string;
+	description?: string;
+	applicationId: string;
+}
+
+export interface FileMetadata extends BaseEntity {
+	path: string;
+	hash: string;
+	size: number;
+	url: string;
 }

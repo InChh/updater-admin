@@ -1,11 +1,9 @@
 import { isEmpty } from "ramda";
-import { Suspense, lazy, useMemo } from "react";
+import { Suspense, lazy } from "react";
 import { Navigate, Outlet } from "react-router";
 
 import { Iconify } from "@/components/icon";
 import { CircleLoading } from "@/components/loading";
-import { useUserPermission } from "@/store/userStore";
-import { flattenTrees } from "@/utils/tree";
 
 import { Tag } from "antd";
 import type { Permission } from "#/entity";
@@ -141,17 +139,17 @@ function transformPermissionsToRoutes(permissions: Permission[], flattenedPermis
 	});
 }
 
-const ROUTE_MODE = import.meta.env.VITE_APP_ROUTER_MODE;
+// const ROUTE_MODE = import.meta.env.VITE_APP_ROUTER_MODE;
 export function usePermissionRoutes() {
-	if (ROUTE_MODE === "module") {
-		return getRoutesFromModules();
-	}
+	// if (ROUTE_MODE === "module") {
+	return getRoutesFromModules();
+	// }
 
-	const permissions = useUserPermission();
-	return useMemo(() => {
-		if (!permissions) return [];
+	// const permissions = useUserPermission();
+	// return useMemo(() => {
+	// 	if (!permissions) return [];
 
-		const flattenedPermissions = flattenTrees(permissions);
-		return transformPermissionsToRoutes(permissions, flattenedPermissions);
-	}, [permissions]);
+	// 	const flattenedPermissions = flattenTrees(permissions);
+	// 	return transformPermissionsToRoutes(permissions, flattenedPermissions);
+	// }, [permissions]);
 }

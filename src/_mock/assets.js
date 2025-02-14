@@ -558,8 +558,7 @@ export const DEFAULT_USER = {
 	createdAt: faker.date.anytime(),
 	updatedAt: faker.date.recent(),
 	password: "demo1234",
-	role: ADMIN_ROLE,
-	permissions: ADMIN_ROLE.permission,
+	role: ["admin"],
 };
 export const TEST_USER = {
 	id: "efaa20ea-4dc5-47ee-a200-8a899be29494",
@@ -569,8 +568,7 @@ export const TEST_USER = {
 	avatar: faker.image.avatarGitHub(),
 	createdAt: faker.date.anytime(),
 	updatedAt: faker.date.recent(),
-	role: TEST_ROLE,
-	permissions: TEST_ROLE.permission,
+	role: ["test"],
 };
 export const USER_LIST = [DEFAULT_USER, TEST_USER];
 
