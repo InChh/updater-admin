@@ -53,8 +53,10 @@ export interface Role {
 
 interface BaseEntity {
 	id: string;
-	createdAt: Date;
-	updatedAt: Date;
+	creationTime: Date;
+	creatorId: string;
+	lastModificationTime: Date;
+	lastModifierId: string;
 }
 
 export interface Application extends BaseEntity {
@@ -65,12 +67,17 @@ export interface Application extends BaseEntity {
 export interface ApplicationVersion extends BaseEntity {
 	versionNumber: string;
 	description?: string;
-	applicationId: string;
+	isActive: boolean;
 }
 
 export interface FileMetadata extends BaseEntity {
 	path: string;
 	hash: string;
 	size: number;
+	url: string;
+}
+
+export interface FileDownloadUrl {
+	hash: string;
 	url: string;
 }

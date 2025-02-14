@@ -18,3 +18,17 @@ export interface ValidationError {
 	message: string;
 	members: string[];
 }
+
+export interface PagedResult<T> {
+	totalCount: number;
+	items: T[];
+}
+
+export interface PagedRequest {
+	skipCount: number;
+	maxResultCount: number;
+}
+
+export interface PagedAndSortedRequest extends PagedRequest {
+	sorting: string;
+}
