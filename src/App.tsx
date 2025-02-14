@@ -3,12 +3,12 @@ import { Helmet } from "react-helmet-async";
 import Logo from "@/assets/images/logo.png";
 import Router from "@/router/index";
 
+import { useEffect, useState } from "react";
 import { hasAuthParams, useAuth } from "react-oidc-context";
 import { MotionLazy } from "./components/animate/motion-lazy";
 import Toast from "./components/toast";
 import { AntdAdapter } from "./theme/adapter/antd.adapter";
 import { ThemeProvider } from "./theme/theme-provider";
-import { useEffect, useState } from "react";
 
 function App() {
 	const auth = useAuth();

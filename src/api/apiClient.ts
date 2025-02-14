@@ -3,9 +3,9 @@ import axios, { type AxiosRequestConfig, type AxiosError, type AxiosResponse } f
 import { t } from "@/locales/i18n";
 import userStore, { useUserToken } from "@/store/userStore";
 
+import { useAuth } from "react-oidc-context";
 import { toast } from "sonner";
 import type { ErrorResponse } from "#/api";
-import { useAuth } from "react-oidc-context";
 
 // 创建 axios 实例
 const axiosInstance = axios.create({
