@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 dependencies:
+  '@alicloud/sts20150401':
+    specifier: ^1.1.4
+    version: 1.1.4
   '@ant-design/cssinjs':
     specifier: ^1.23.0
     version: 1.23.0(react-dom@18.2.0)(react@18.2.0)
@@ -267,6 +270,100 @@ devDependencies:
     version: 5.1.4(typescript@5.7.3)(vite@5.4.14)
 
 packages:
+
+  /@alicloud/credentials@2.4.0:
+    resolution: {integrity: sha512-TeAyiXnqv9ZudpeMMHbGah5Gyey8Rr9i7hydesyT07zYwBAOd+yWfR6dnFH8e3l1LfRbZU/AQ+6j0DsmfIQ+KQ==}
+    dependencies:
+      '@alicloud/tea-typescript': 1.8.0
+      httpx: 2.3.3
+      ini: 1.3.8
+      kitx: 2.2.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/endpoint-util@0.0.1:
+    resolution: {integrity: sha512-+pH7/KEXup84cHzIL6UJAaPqETvln4yXlD9JzlrqioyCSaWxbug5FUobsiI6fuUOpw5WwoB3fWAtGbFnJ1K3Yg==}
+    dependencies:
+      '@alicloud/tea-typescript': 1.8.0
+      kitx: 2.2.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/gateway-spi@0.0.8:
+    resolution: {integrity: sha512-KM7fu5asjxZPmrz9sJGHJeSU+cNQNOxW+SFmgmAIrITui5hXL2LB+KNRuzWmlwPjnuA2X3/keq9h6++S9jcV5g==}
+    dependencies:
+      '@alicloud/credentials': 2.4.0
+      '@alicloud/tea-typescript': 1.8.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/openapi-client@0.4.12:
+    resolution: {integrity: sha512-WuKfFqwY3/+wuNawzfJAirNA00XDI7fm9fUhWK7siGZEh0R2XJR0Y54MLW7WWItX06fAghUvnDhKWZH3AgN+yg==}
+    dependencies:
+      '@alicloud/credentials': 2.4.0
+      '@alicloud/gateway-spi': 0.0.8
+      '@alicloud/openapi-util': 0.3.2
+      '@alicloud/tea-typescript': 1.8.0
+      '@alicloud/tea-util': 1.4.10
+      '@alicloud/tea-xml': 0.0.3
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/openapi-util@0.3.2:
+    resolution: {integrity: sha512-EC2JvxdcOgMlBAEG0+joOh2IB1um8CPz9EdYuRfTfd1uP8Yc9D8QRUWVGjP6scnj6fWSOaHFlit9H6PrJSyFow==}
+    dependencies:
+      '@alicloud/tea-typescript': 1.8.0
+      '@alicloud/tea-util': 1.4.10
+      kitx: 2.2.0
+      sm3: 1.0.3
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/sts20150401@1.1.4:
+    resolution: {integrity: sha512-YWkrV7286P20bB3tjlyHO8Z23qhpr2MYRE1N2ZsoOHEhpV56oIWNcrBsqT4pW9/porq49oDNtkULM1WUn3J+YA==}
+    dependencies:
+      '@alicloud/endpoint-util': 0.0.1
+      '@alicloud/openapi-client': 0.4.12
+      '@alicloud/openapi-util': 0.3.2
+      '@alicloud/tea-typescript': 1.8.0
+      '@alicloud/tea-util': 1.4.10
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/tea-typescript@1.8.0:
+    resolution: {integrity: sha512-CWXWaquauJf0sW30mgJRVu9aaXyBth5uMBCUc+5vKTK1zlgf3hIqRUjJZbjlwHwQ5y9anwcu18r48nOZb7l2QQ==}
+    dependencies:
+      '@types/node': 12.20.55
+      httpx: 2.3.3
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/tea-util@1.4.10:
+    resolution: {integrity: sha512-VEsXWP2dlJLvsY2THj+sH++zwxQRz3Y5BQ8EkfnFems36RkngQKYOLsoto5nR6ej1Gf6I+0IOgBXrkRdpNCQ1g==}
+    dependencies:
+      '@alicloud/tea-typescript': 1.8.0
+      '@darabonba/typescript': 1.0.2
+      kitx: 2.2.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@alicloud/tea-xml@0.0.3:
+    resolution: {integrity: sha512-+/9GliugjrLglsXVrd1D80EqqKgGpyA0eQ6+1ZdUOYCaRguaSwz44trX3PaxPu/HhIPJg9PsGQQ3cSLXWZjbAA==}
+    dependencies:
+      '@alicloud/tea-typescript': 1.8.0
+      '@types/xml2js': 0.4.14
+      xml2js: 0.6.2
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
 
   /@alloc/quick-lru@5.2.0:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
@@ -838,6 +935,18 @@ packages:
     dependencies:
       postcss-selector-parser: 6.1.2
     dev: true
+
+  /@darabonba/typescript@1.0.2:
+    resolution: {integrity: sha512-sTMBt+nC4aUSDfHy+Hl/nWbrHXuNMsgr8qN5xb0/QrvBR2U6ckko/In1N88Pj8bqbsrV1TtpKRGZDHDhZ3UVpA==}
+    dependencies:
+      httpx: 2.3.3
+      lodash: 4.17.21
+      moment: 2.30.1
+      moment-timezone: 0.5.47
+      xml2js: 0.6.2
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
 
   /@dnd-kit/accessibility@3.1.1(react@18.2.0):
     resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
@@ -2103,9 +2212,12 @@ packages:
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
     dev: false
 
+  /@types/node@12.20.55:
+    resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
+    dev: false
+
   /@types/node@20.5.1:
     resolution: {integrity: sha512-4tT2UrL5LBqDwoed9wZ6N3umC4Yhz3W3FloMmiiG4JwmUJWpie0c7lcnUNd4gtMKuDEO4wRVS8B6Xa0uMRsMKg==}
-    dev: true
 
   /@types/node@22.13.1:
     resolution: {integrity: sha512-jK8uzQlrvXqEU91UxiK5J7pKHyzgnI1Qnl0QDHIgVGuolJhRb9EEl28Cj9b3rGR8B2lhFCtvIm5os8lFnO/1Ew==}
@@ -2189,6 +2301,12 @@ packages:
 
   /@types/unist@2.0.11:
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
+    dev: false
+
+  /@types/xml2js@0.4.14:
+    resolution: {integrity: sha512-4YnrRemBShWRO2QjvUin8ESA41rH+9nQGLUGZV/1IDhi3SL9OhdpNC/MrulTWuptXKwhx/aDxE7toV0f/ypIXQ==}
+    dependencies:
+      '@types/node': 22.13.1
     dev: false
 
   /@vanilla-extract/babel-plugin-debug-ids@1.2.0:
@@ -4177,6 +4295,15 @@ packages:
       readable-stream: 3.6.2
     dev: true
 
+  /httpx@2.3.3:
+    resolution: {integrity: sha512-k1qv94u1b6e+XKCxVbLgYlOypVP9MPGpnN5G/vxFf6tDO4V3xpz3d6FUOY/s8NtPgaq5RBVVgSB+7IHpVxMYzw==}
+    dependencies:
+      '@types/node': 20.5.1
+      debug: 4.4.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
   /human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
@@ -4222,7 +4349,6 @@ packages:
 
   /ini@1.3.8:
     resolution: {integrity: sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew==}
-    dev: true
 
   /inline-style-parser@0.1.1:
     resolution: {integrity: sha512-7NXolsK4CAS5+xvdj5OMMbI962hU/wvwoxk+LWR9Ek9bVtyuuYScDN6eS0rUm6TxApFpw7CX1o4uJzcd4AyD3Q==}
@@ -4696,6 +4822,12 @@ packages:
     resolution: {integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==}
     engines: {node: '>=0.10.0'}
     dev: true
+
+  /kitx@2.2.0:
+    resolution: {integrity: sha512-tBMwe6AALTBQJb0woQDD40734NKzb0Kzi3k7wQj9ar3AbP9oqhoVrdXPh7rk2r00/glIgd0YbToIUJsnxWMiIg==}
+    dependencies:
+      '@types/node': 22.13.1
+    dev: false
 
   /kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
@@ -5456,6 +5588,16 @@ packages:
 
   /modern-ahocorasick@1.1.0:
     resolution: {integrity: sha512-sEKPVl2rM+MNVkGQt3ChdmD8YsigmXdn5NifZn6jiwn9LRJpWm8F3guhaqrJT/JOat6pwpbXEk6kv+b9DMIjsQ==}
+    dev: false
+
+  /moment-timezone@0.5.47:
+    resolution: {integrity: sha512-UbNt/JAWS0m/NJOebR0QMRHBk0hu03r5dx9GK8Cs0AS3I81yDcOc9k+DytPItgVvBP7J6Mf6U2n3BPAacAV9oA==}
+    dependencies:
+      moment: 2.30.1
+    dev: false
+
+  /moment@2.30.1:
+    resolution: {integrity: sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==}
     dev: false
 
   /mri@1.2.0:
@@ -7105,6 +7247,10 @@ packages:
       ret: 0.1.15
     dev: true
 
+  /sax@1.4.1:
+    resolution: {integrity: sha512-+aWOz7yVScEGoKNd4PA10LZ8sk0A/z5+nXQG5giUO5rprX9jgYsTdov9qCchZiPIZezbZH+jRut8nPodFAX4Jg==}
+    dev: false
+
   /scheduler@0.23.2:
     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
     dependencies:
@@ -7283,6 +7429,10 @@ packages:
     dependencies:
       react: 18.2.0
       simplebar-core: 1.3.0
+    dev: false
+
+  /sm3@1.0.3:
+    resolution: {integrity: sha512-KyFkIfr8QBlFG3uc3NaljaXdYcsbRy1KrSfc4tsQV8jW68jAktGeOcifu530Vx/5LC+PULHT0Rv8LiI8Gw+c1g==}
     dev: false
 
   /snapdragon-node@2.1.1:
@@ -8374,6 +8524,19 @@ packages:
       string-width: 5.1.2
       strip-ansi: 7.1.0
     dev: true
+
+  /xml2js@0.6.2:
+    resolution: {integrity: sha512-T4rieHaC1EXcES0Kxxj4JWgaUQHDk+qwHcYOCFHfiwKz7tOVPLq7Hjq9dM1WCMhylqMEfP7hMcOIChvotiZegA==}
+    engines: {node: '>=4.0.0'}
+    dependencies:
+      sax: 1.4.1
+      xmlbuilder: 11.0.1
+    dev: false
+
+  /xmlbuilder@11.0.1:
+    resolution: {integrity: sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA==}
+    engines: {node: '>=4.0'}
+    dev: false
 
   /y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}

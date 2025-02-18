@@ -30,5 +30,9 @@ export interface PagedRequest {
 }
 
 export interface PagedAndSortedRequest extends PagedRequest {
-	sorting: string;
+	sorting?: string;
+}
+
+export interface PagedSortedAndFilteredRequest extends PagedAndSortedRequest {
+	filter?: string;
 }

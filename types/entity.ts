@@ -51,33 +51,10 @@ export interface Role {
 	permission?: Permission[];
 }
 
-interface BaseEntity {
+export interface BaseEntity {
 	id: string;
 	creationTime: Date;
 	creatorId: string;
 	lastModificationTime: Date;
 	lastModifierId: string;
-}
-
-export interface Application extends BaseEntity {
-	name: string;
-	description?: string;
-}
-
-export interface ApplicationVersion extends BaseEntity {
-	versionNumber: string;
-	description?: string;
-	isActive: boolean;
-}
-
-export interface FileMetadata extends BaseEntity {
-	path: string;
-	hash: string;
-	size: number;
-	url: string;
-}
-
-export interface FileDownloadUrl {
-	hash: string;
-	url: string;
 }
