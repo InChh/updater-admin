@@ -8,6 +8,8 @@ interface ImportMetaEnv {
 	readonly VITE_APP_ENV: "development" | "production";
 	readonly VITE_APP_OIDC_AUTHORITY: string;
 	readonly VITE_APP_OIDC_CLIENT_ID: string;
+	readonly VITE_APP_OSS_REGION: string;
+	readonly VITE_APP_OSS_BUCKET: string;
 }
 
 interface ImportMeta {
