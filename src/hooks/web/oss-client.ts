@@ -1,5 +1,5 @@
-﻿import OSS from "ali-oss";
-import stsService from "@/api/services/stsService.ts";
+﻿import stsService from "@/api/services/stsService.ts";
+import OSS from "ali-oss";
 
 let ossClient: OSS | undefined = undefined;
 

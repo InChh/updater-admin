@@ -38,7 +38,7 @@ const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement)
 const oidcConfig: AuthProviderProps = {
 	authority: import.meta.env.VITE_APP_OIDC_AUTHORITY,
 	client_id: import.meta.env.VITE_APP_OIDC_CLIENT_ID,
-	scope: "openid profile email offline_access roles UpdaterServer",
+	scope: "profile email roles UpdaterServer",
 	redirect_uri: `${window.location.origin}/signin-oidc`,
 	userStore: new WebStorageStateStore({ store: window.localStorage }),
 	onSigninCallback: (user: User | undefined): void => {

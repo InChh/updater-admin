@@ -1,8 +1,9 @@
 import axios, { type AxiosRequestConfig, type AxiosError, type AxiosResponse } from "axios";
 
 import { t } from "@/locales/i18n";
-import userStore, { useUserToken } from "@/store/userStore";
+import userStore from "@/store/userStore";
 
+import { User } from "oidc-client-ts";
 import { useAuth } from "react-oidc-context";
 import { toast } from "sonner";
 import type { ErrorResponse } from "#/api";
@@ -14,12 +15,23 @@ const axiosInstance = axios.create({
 	headers: { "Content-Type": "application/json;charset=utf-8" },
 });
 
+function getToken() {
+	const oidcStorage = localStorage.getItem(
+		`oidc.user:${import.meta.env.VITE_APP_OIDC_AUTHORITY}:${import.meta.env.VITE_APP_OIDC_CLIENT_ID}`,
+	);
+	if (!oidcStorage) {
+		return null;
+	}
+
+	return User.fromStorageString(oidcStorage).access_token;
+}
+
 // 请求拦截
 axiosInstance.interceptors.request.use(
 	(config) => {
 		// 在请求被发送之前做些什么
-		const token = useUserToken();
-		config.headers.Authorization = `Bearer ${token.accessToken}`;
+		const token = getToken();
+		config.headers.Authorization = `Bearer ${token}`;
 		return config;
 	},
 	(error) => {
@@ -90,4 +102,5 @@ class APIClient {
 		});
 	}
 }
+
 export default new APIClient();

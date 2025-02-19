@@ -83,6 +83,7 @@
 		},
 		"menu": {
 			"dashboard": "仪表",
+			"applications": "应用管理",
 			"workbench": "工作台",
 			"analysis": "分析",
 			"management": "管理",

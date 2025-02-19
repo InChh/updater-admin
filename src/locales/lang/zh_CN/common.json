@@ -9,14 +9,18 @@
 		"resetText": "重置",
 		"searchText": "搜索",
 		"queryText": "查询",
-
 		"inputText": "请输入",
 		"chooseText": "请选择",
-
 		"redo": "刷新",
 		"back": "返回",
-
 		"light": "亮色主题",
-		"dark": "黑暗主题"
+		"dark": "黑暗主题",
+		"deleteConfirmText": "确定删除吗？",
+		"name": "名称",
+		"description": "描述",
+		"createTime": "创建时间",
+		"create": "创建",
+		"delete": "删除",
+		"edit": "编辑"
 	}
 }

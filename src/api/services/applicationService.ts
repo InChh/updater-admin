@@ -1,4 +1,4 @@
-import type { PagedSortedAndFilteredRequest } from "#/api";
+import type { PagedResult, PagedSortedAndFilteredRequest } from "#/api";
 import type { BaseEntity } from "#/entity";
 import apiClient from "../apiClient";
 
@@ -19,7 +19,7 @@ export interface CreateUpdateApplicationRequest {
 const getApplicationById = (id: string) => apiClient.get<Application>({ url: `${ApplicationApi.Application}/${id}` });
 
 const getApplicationList = (params: PagedSortedAndFilteredRequest) =>
-	apiClient.get<Application[]>({
+	apiClient.get<PagedResult<Application>>({
 		url: ApplicationApi.Application,
 		params,
 	});
