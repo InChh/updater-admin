@@ -194,9 +194,12 @@ dependencies:
   tailwind-merge:
     specifier: ^2.6.0
     version: 2.6.0
+  use-immer:
+    specifier: ^0.11.0
+    version: 0.11.0(immer@10.1.1)(react@18.2.0)
   zustand:
     specifier: ^4.5.6
-    version: 4.5.6(@types/react@18.3.18)(react@18.2.0)
+    version: 4.5.6(@types/react@18.3.18)(immer@10.1.1)(react@18.2.0)
 
 devDependencies:
   '@biomejs/biome':
@@ -4785,6 +4788,10 @@ packages:
     hasBin: true
     dev: true
 
+  /immer@10.1.1:
+    resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}
+    dev: false
+
   /import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
     engines: {node: '>=6'}
@@ -8950,6 +8957,16 @@ packages:
       utility: 1.18.0
     dev: false
 
+  /use-immer@0.11.0(immer@10.1.1)(react@18.2.0):
+    resolution: {integrity: sha512-RNAqi3GqsWJ4bcCd4LMBgdzvPmTABam24DUaFiKfX9s3MSorNRz9RDZYJkllJoMHUxVLMDetwAuCDeyWNrp1yA==}
+    peerDependencies:
+      immer: '>=8.0.0'
+      react: ^16.8.0 || ^17.0.1 || ^18.0.0 || ^19.0.0
+    dependencies:
+      immer: 10.1.1
+      react: 18.2.0
+    dev: false
+
   /use-sync-external-store@1.4.0(react@18.2.0):
     resolution: {integrity: sha512-9WXSPC5fMv61vaupRkCKCxsPxBocVnwakBEkMIHHpkTTg6icbJtg6jzgtLDm4bl3cSHAca52rYWih0k4K3PfHw==}
     peerDependencies:
@@ -9314,7 +9331,7 @@ packages:
     engines: {node: '>=18'}
     dev: true
 
-  /zustand@4.5.6(@types/react@18.3.18)(react@18.2.0):
+  /zustand@4.5.6(@types/react@18.3.18)(immer@10.1.1)(react@18.2.0):
     resolution: {integrity: sha512-ibr/n1hBzLLj5Y+yUcU7dYw8p6WnIVzdJbnX+1YpaScvZVF2ziugqHs+LAmHw4lWO9c/zRj+K1ncgWDQuthEdQ==}
     engines: {node: '>=12.7.0'}
     peerDependencies:
@@ -9330,6 +9347,7 @@ packages:
         optional: true
     dependencies:
       '@types/react': 18.3.18
+      immer: 10.1.1
       react: 18.2.0
       use-sync-external-store: 1.4.0(react@18.2.0)
     dev: false

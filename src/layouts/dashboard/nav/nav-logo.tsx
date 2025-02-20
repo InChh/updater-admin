@@ -4,6 +4,7 @@ import { cn } from "@/utils";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { ThemeLayout } from "#/enum";
 import { HEADER_HEIGHT } from "../config";
+import { t } from "@/locales/i18n";
 
 type Props = {
 	collapsed: boolean;
@@ -16,7 +17,9 @@ export default function NavLogo({ collapsed, onToggle }: Props) {
 		<div style={{ height: `${HEADER_HEIGHT}px` }} className="relative flex items-center justify-center py-4">
 			<div className="flex items-center">
 				<Logo />
-				{themeLayout !== ThemeLayout.Mini && <span className="ml-2 text-xl font-bold text-primary">Slash Admin</span>}
+				{themeLayout !== ThemeLayout.Mini && (
+					<span className="ml-2 text-xl font-bold text-primary">{t("common.title")}</span>
+				)}
 			</div>
 			<div
 				onClick={onToggle}

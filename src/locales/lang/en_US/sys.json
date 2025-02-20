@@ -85,6 +85,8 @@
 		"menu": {
 			"dashboard": "Dashboard",
 			"workbench": "Workbench",
+			"applications": "Application",
+			"applicationVersions": "ApplicationVersion",
 			"analysis": "Analysis",
 			"management": "Management",
 			"user": {

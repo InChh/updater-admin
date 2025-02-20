@@ -1,4 +1,4 @@
-import type { PagedAndSortedRequest } from "#/api";
+import type { PagedAndSortedRequest, PagedResult } from "#/api";
 import type { BaseEntity } from "#/entity";
 import apiClient from "../apiClient";
 
@@ -20,15 +20,18 @@ export interface CreateUpdateApplicationVersion {
 	fileMetadataIds: string[];
 }
 
-const getApplicationById = (id: string) =>
+const getApplicationVersionById = (id: string) =>
 	apiClient.get<ApplicationVersion>({
 		url: `${ApplicationVersionApi.ApplicationVersion}/${id}`,
 	});
 
 const getApplicationVersionList = (applicationId: string, params: PagedAndSortedRequest) =>
-	apiClient.get<ApplicationVersion[]>({
-		url: `${ApplicationVersionApi.ApplicationVersion}/${applicationId}`,
-		params,
+	apiClient.get<PagedResult<ApplicationVersion>>({
+		url: ApplicationVersionApi.ApplicationVersion,
+		params: {
+			applicationId,
+			...params,
+		},
 	});
 
 const createApplicationVersion = (data: CreateUpdateApplicationVersion) =>
@@ -49,17 +52,17 @@ const deleteApplicationVersion = (id: string) =>
 	});
 
 const activeApplicationVersion = (id: string) =>
-	apiClient.put<ApplicationVersion>({
+	apiClient.post<ApplicationVersion>({
 		url: `${ApplicationVersionApi.ApplicationVersion}/${id}/active`,
 	});
 
 const deactiveApplicationVersion = (id: string) =>
-	apiClient.put<ApplicationVersion>({
+	apiClient.post<ApplicationVersion>({
 		url: `${ApplicationVersionApi.ApplicationVersion}/${id}/deactive`,
 	});
 
 export default {
-	getApplicationById,
+	getApplicationVersionById,
 	getApplicationVersionList,
 	createApplicationVersion,
 	updateApplicationVersion,

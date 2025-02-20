@@ -1,0 +1,18 @@
+{
+	"account": {
+		"personalInformation": "个人信息",
+		"changePassword": "修改密码",
+		"username": "用户名",
+		"email": "邮箱",
+		"currentPassword": "当前密码",
+		"newPassword": "新密码",
+		"confirmPassword": "确认密码",
+		"passwordChangeSuccess": "密码修改成功",
+		"passwordChangeFailed": "密码修改失败",
+		"pleaseInputCurrentPassword": "请输入当前密码",
+		"pleaseInputNewPassword": "请输入新密码",
+		"pleaseConfirmPassword": "请确认密码",
+		"passwordsDoNotMatch": "密码不匹配",
+		"passwordMinLength": "密码至少8位"
+	}
+}

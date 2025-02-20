@@ -47,7 +47,7 @@ axiosInstance.interceptors.response.use(
 		// // 业务请求成功
 		// const hasSuccess = data && Reflect.has(res.data, "status") && status === ResultEnum.SUCCESS;
 		// if (hasSuccess) {
-		return res;
+		return res.data;
 		// }
 
 		// 业务请求错误
@@ -57,6 +57,7 @@ axiosInstance.interceptors.response.use(
 		const { response, message } = error || {};
 
 		const errMsg = response?.data.error.message || message || t("sys.api.errorMessage");
+		const details = response?.data.error.details;
 		const status = response?.status;
 		if (status === 401) {
 			const auth = useAuth();
@@ -64,7 +65,7 @@ axiosInstance.interceptors.response.use(
 			auth.signinRedirect();
 		}
 		if (status !== 404) {
-			toast.error(errMsg, {
+			toast.error(`${errMsg}${details ? `: ${details}` : ""}`, {
 				position: "top-center",
 			});
 		}

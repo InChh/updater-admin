@@ -1,0 +1,12 @@
+﻿{
+	"application": {
+		"title": "Application Management",
+		"version": {
+			"title": "Version Management",
+			"versionNumber": "Version Number",
+			"files": "Application Files",
+			"isActive": "Is Active",
+			"noId": "No Application ID"
+		}
+	}
+}

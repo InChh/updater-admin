@@ -31,10 +31,15 @@ const getFileMetadataList = (params: PagedSortedAndFilteredRequest) =>
 		params,
 	});
 
-const getFileMetadataByHash = (hash: string, size?: number) =>
+const getFileMetadataByHash = (hash: string, size?: number, path?: string) =>
 	apiClient.get<FileMetadata>({
 		url: `${FileServiceApi.File}/by-hash`,
-		params: { hash, size },
+		params: { hash, size, path },
+	});
+
+const getFileMetadatasByVersionId = (versionId: string) =>
+	apiClient.get<FileMetadata[]>({
+		url: `${FileServiceApi.File}/by-version-id/${versionId}`,
 	});
 
 const createFileMetadata = (data: CreateFileMetadataRequest) =>
@@ -52,6 +57,7 @@ const getFileDownloadUrl = (hash: string, size?: number) =>
 export default {
 	getFileMetadataList,
 	getFileMetadataByHash,
+	getFileMetadatasByVersionId,
 	createFileMetadata,
 	getFileDownloadUrl,
 };

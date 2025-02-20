@@ -1,21 +1,24 @@
-﻿import applicationService from "@/api/services/applicationService.ts";
-import type { Application } from "@/api/services/applicationService.ts";
+import applicationService from "@/api/services/applicationService";
+import applicationVersionService from "@/api/services/applicationVersionService.ts";
+import type { ApplicationVersion, CreateUpdateApplicationVersion } from "@/api/services/applicationVersionService.ts";
 import { IconButton, Iconify } from "@/components/icon";
 import { t } from "@/locales/i18n";
 import { PlusOutlined } from "@ant-design/icons";
 import { type ActionType, type ProColumns, ProTable } from "@ant-design/pro-components";
-import { Button, Card, Popconfirm } from "antd";
+import { Button, Card, Popconfirm, Switch } from "antd";
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useParams } from "react-router";
+import { useMount } from "react-use";
 import { toast } from "sonner";
+import type { PagedResult } from "#/api";
 import CreateUpdateModal from "./create-update-modal";
 
-export default function ApplicationPage() {
-	const navigate = useNavigate();
+export default function ApplicationVersionPage() {
+	const { applicationId } = useParams<{ applicationId: string }>();
 	const [modalVisible, setModalVisible] = useState(false);
-	const [currentRecord, setCurrentRecord] = useState<Application>();
+	const [currentRecord, setCurrentRecord] = useState<ApplicationVersion>();
 
-	const columns: ProColumns<Application>[] = [
+	const columns: ProColumns<ApplicationVersion>[] = [
 		{
 			dataIndex: "index",
 			valueType: "indexBorder",
@@ -30,10 +33,11 @@ export default function ApplicationPage() {
 			hideInSearch: true,
 		},
 		{
-			title: t("common.name"),
-			dataIndex: "name",
+			title: t("application.version.versionNumber"),
+			dataIndex: "versionNumber",
 			width: 120,
 			valueType: "text",
+			hideInSearch: true,
 		},
 		{
 			title: t("common.description"),
@@ -43,6 +47,31 @@ export default function ApplicationPage() {
 			valueType: "text",
 			search: false,
 			hideInSearch: true,
+		},
+		{
+			title: t("application.version.isActive"),
+			dataIndex: "isActive",
+			width: 120,
+			valueType: "switch",
+			hideInSearch: true,
+			render: (_, record) => (
+				<Switch
+					checked={record.isActive}
+					onChange={async (checked) => {
+						try {
+							if (checked) {
+								await applicationVersionService.activeApplicationVersion(record.id);
+							} else {
+								await applicationVersionService.deactiveApplicationVersion(record.id);
+							}
+							toast.success(t("common.operationSuccess"));
+							action.current?.reload();
+						} catch (error) {
+							toast.error(`${t("common.operationFailed")}: ${error}`);
+						}
+					}}
+				/>
+			),
 		},
 		{
 			title: t("common.createTime"),
@@ -56,17 +85,10 @@ export default function ApplicationPage() {
 			title: t("common.action"),
 			key: "operation",
 			align: "center",
-			width: 180,
+			width: 100,
 			valueType: "option",
 			render: (_, record) => (
-				<div className="flex w-full justify-center text-gray-500 gap-2">
-					<IconButton
-						onClick={() => {
-							navigate(`/version/${record.id}`);
-						}}
-					>
-						<Iconify icon="stash:version-solid" size={18} />
-					</IconButton>
+				<div className="flex w-full justify-center text-gray-500">
 					<IconButton
 						onClick={() => {
 							setCurrentRecord(record);
@@ -81,7 +103,7 @@ export default function ApplicationPage() {
 						cancelText={t("common.cancelText")}
 						placement="left"
 						onConfirm={async () => {
-							await applicationService.deleteApplication(record.id);
+							await applicationVersionService.deleteApplicationVersion(record.id);
 							action.current?.reload();
 						}}
 					>
@@ -96,18 +118,38 @@ export default function ApplicationPage() {
 
 	const action = useRef<ActionType>();
 
-	const fetchApplications = async (page: number, pageSize: number, sorting?: string, searchKeyword?: string) => {
-		return await applicationService.getApplicationList({
+	const fetchApplicationVersions = async (
+		page: number,
+		pageSize: number,
+		sorting?: string,
+	): Promise<PagedResult<ApplicationVersion>> => {
+		if (!applicationId) {
+			return { items: [], totalCount: 0 };
+		}
+		return await applicationVersionService.getApplicationVersionList(applicationId, {
 			sorting,
-			filter: searchKeyword,
 			skipCount: (page - 1) * pageSize,
 			maxResultCount: pageSize,
 		});
 	};
 
+	if (!applicationId) {
+		return <Card>{t("application.version.noId")}</Card>;
+	}
+
+	const [title, setTitle] = useState<string>("");
+
+	// 获取应用程序名称
+	useMount(async () => {
+		const application = await applicationService.getApplicationById(applicationId);
+		if (application) {
+			setTitle(application.name);
+		}
+	});
+
 	return (
-		<Card title={t("application.title")}>
-			<ProTable<Application>
+		<Card title={t("application.version.title")}>
+			<ProTable<ApplicationVersion>
 				actionRef={action}
 				rowKey="id"
 				columns={columns}
@@ -116,21 +158,17 @@ export default function ApplicationPage() {
 					if (sort.creationTime) {
 						sorting = `CreationTime ${sort.creationTime === "ascend" ? "asc" : "desc"}`;
 					}
-					const applications = await fetchApplications(
-						params.current || 1,
-						params.pageSize || 10,
-						sorting,
-						params.name,
-					);
+					const versions = await fetchApplicationVersions(params.current || 1, params.pageSize || 10, sorting);
 					return {
-						data: applications.items,
-						total: applications.totalCount,
+						data: versions.items,
+						total: versions.totalCount,
 						success: true,
 					};
 				}}
 				toolbar={{
-					title: t("application.title"),
+					title: title,
 				}}
+				search={false}
 				toolBarRender={() => [
 					<Button
 						key="button"
@@ -153,12 +191,16 @@ export default function ApplicationPage() {
 					setModalVisible(false);
 					setCurrentRecord(undefined);
 				}}
-				onFinish={async (values) => {
+				onFinish={async (values: Omit<CreateUpdateApplicationVersion, "applicationId">) => {
+					const data: CreateUpdateApplicationVersion = {
+						...values,
+						applicationId,
+					};
 					if (currentRecord) {
-						await applicationService.updateApplication(currentRecord.id, values);
+						await applicationVersionService.updateApplicationVersion(currentRecord.id, data);
 						toast.success(t("common.editSuccess"));
 					} else {
-						await applicationService.createApplication(values);
+						await applicationVersionService.createApplicationVersion(data);
 						toast.success(t("common.createSuccess"));
 					}
 					setModalVisible(false);

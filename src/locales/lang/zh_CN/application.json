@@ -1,5 +1,12 @@
 ﻿{
 	"application": {
-		"title": "程序管理"
+		"title": "程序管理",
+		"version": {
+			"title": "版本管理",
+			"versionNumber": "版本号",
+			"files": "程序文件",
+			"isActive": "是否启用",
+			"noId": "无应用程序ID"
+		}
 	}
 }

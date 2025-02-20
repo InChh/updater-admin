@@ -1,5 +1,6 @@
 {
 	"common": {
+		"title": "Version Management System",
 		"okText": "OK",
 		"closeText": "Close",
 		"cancelText": "Cancel",
@@ -17,6 +18,21 @@
 		"back": "Back",
 
 		"light": "Light",
-		"dark": "Dark"
+		"dark": "Dark",
+		"deleteConfirmText": "Are you sure you want to delete it?",
+		"name": "Name",
+		"description": "Description",
+		"createTime": "Create Time",
+		"action": "Action",
+		"create": "Create",
+		"delete": "Delete",
+		"edit": "Edit",
+		"createSuccess": "Create Success",
+		"editSuccess": "Edit Success",
+		"operationSuccess": "Operation Success",
+		"operationFailed": "Operation Failed",
+		"required": "Required",
+		"selectFolder": "Select Folder",
+		"upload": "upload"
 	}
 }

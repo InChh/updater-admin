@@ -38,11 +38,13 @@ const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement)
 const oidcConfig: AuthProviderProps = {
 	authority: import.meta.env.VITE_APP_OIDC_AUTHORITY,
 	client_id: import.meta.env.VITE_APP_OIDC_CLIENT_ID,
-	scope: "profile email roles UpdaterServer",
+	scope: "openid profile email roles UpdaterServer",
 	redirect_uri: `${window.location.origin}/signin-oidc`,
+	post_logout_redirect_uri: window.location.origin,
+	automaticSilentRenew: true,
 	userStore: new WebStorageStateStore({ store: window.localStorage }),
 	onSigninCallback: (user: User | undefined): void => {
-		window.history.replaceState({}, document.title, window.location.pathname);
+		window.history.replaceState({}, document.title, "/");
 		if (user) {
 			const userStore = useUserStore.getState();
 			userStore.actions.setUserToken({
@@ -53,7 +55,6 @@ const oidcConfig: AuthProviderProps = {
 				id: user.profile.sub,
 				email: user.profile.email ?? "",
 				username: user.profile.preferred_username ?? "",
-				avatar: user.profile.picture,
 				role: user.profile.roles as string[],
 			});
 			console.info("🚀 Successfully signed in", user);

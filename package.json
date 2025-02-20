@@ -9,7 +9,7 @@
 		"build": "tsc && vite build",
 		"preview": "vite preview",
 		"preinstall": "lefthook install",
-		"lint": "biome lint ./src."
+		"lint": "biome check ./src."
 	},
 	"dependencies": {
 		"@alicloud/sts20150401": "^1.1.4",
@@ -75,6 +75,7 @@
 		"sonner": "^1.7.4",
 		"styled-components": "^6.1.15",
 		"tailwind-merge": "^2.6.0",
+		"use-immer": "^0.11.0",
 		"zustand": "^4.5.6"
 	},
 	"devDependencies": {

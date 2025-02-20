@@ -70,7 +70,7 @@
 			"registerAndAgree": "注册即我同意",
 			"termsOfService": " 服务条款 ",
 			"privacyPolicy": " 隐私政策 ",
-			"logout": "退出"
+			"logout": "退出登录"
 		},
 		"tab": {
 			"fullscreen": "内容全屏",
@@ -83,7 +83,8 @@
 		},
 		"menu": {
 			"dashboard": "仪表",
-			"applications": "应用管理",
+			"applications": "程序",
+			"applicationVersions": "程序版本",
 			"workbench": "工作台",
 			"analysis": "分析",
 			"management": "管理",

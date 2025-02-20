@@ -2,9 +2,9 @@ import { Tabs, type TabsProps } from "antd";
 
 import { Iconify } from "@/components/icon";
 
-import GeneralTab from "./general-tab";
-import NotificationsTab from "./notifications-tab";
-import SecurityTab from "./security-tab";
+import { t } from "@/locales/i18n";
+import PersonalInfoTab from "./personal-info-tab";
+import ChangePasswordTab from "./change-password-tab";
 
 function UserAccount() {
 	const items: TabsProps["items"] = [
@@ -13,30 +13,20 @@ function UserAccount() {
 			label: (
 				<div className="flex items-center">
 					<Iconify icon="solar:user-id-bold" size={24} className="mr-2" />
-					<span>General</span>
+					<span>{t("account.personalInformation")}</span>
 				</div>
 			),
-			children: <GeneralTab />,
+			children: <PersonalInfoTab />,
 		},
 		{
 			key: "2",
 			label: (
 				<div className="flex items-center">
-					<Iconify icon="solar:bell-bing-bold-duotone" size={24} className="mr-2" />
-					<span>Notifications</span>
+					<Iconify icon="solar:lock-bold" size={24} className="mr-2" />
+					<span>{t("account.changePassword")}</span>
 				</div>
 			),
-			children: <NotificationsTab />,
-		},
-		{
-			key: "3",
-			label: (
-				<div className="flex items-center">
-					<Iconify icon="solar:key-minimalistic-square-3-bold-duotone" size={24} className="mr-2" />
-					<span>Security</span>
-				</div>
-			),
-			children: <SecurityTab />,
+			children: <ChangePasswordTab />,
 		},
 	];
 

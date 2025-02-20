@@ -1,5 +1,6 @@
 {
 	"common": {
+		"title": "版本管理系统",
 		"okText": "确认",
 		"closeText": "关闭",
 		"cancelText": "取消",
@@ -19,8 +20,17 @@
 		"name": "名称",
 		"description": "描述",
 		"createTime": "创建时间",
+		"action": "操作",
 		"create": "创建",
 		"delete": "删除",
-		"edit": "编辑"
+		"edit": "编辑",
+		"createSuccess": "创建成功",
+		"editSuccess": "修改成功",
+		"operationSuccess": "操作成功",
+		"operationFailed": "操作失败",
+		"required": "必填项",
+		"selectFolder": "选择文件夹",
+		"upload": "上传",
+		"submit": "提交"
 	}
 }
