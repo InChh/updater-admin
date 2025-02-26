@@ -205,14 +205,16 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 							// onChange={handleChange}
 							beforeUpload={(_, files) => {
 								updateFileList(() =>
-									files.map(
-										(file) =>
-											({
-												uid: file.uid,
-												name: file.name,
-												originFileObj: file,
-											}) as UploadFile,
-									),
+									files
+										.filter((file) => file.name !== "manifest" || file.name.matchAll(/.*logs[/\\].*UpdaterLog.*/))
+										.map(
+											(file) =>
+												({
+													uid: file.uid,
+													name: file.name,
+													originFileObj: file,
+												}) as UploadFile,
+										),
 								);
 								return false;
 							}}

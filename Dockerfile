@@ -6,7 +6,8 @@ WORKDIR /app
 ENV NODE_OPTIONS=--max_old_space_size=8192
 # config pnpm, install dependencies
 COPY package.json pnpm-lock.yaml* ./
-RUN npm install pnpm@9.x -g && \
+RUN apk add git && \ 
+    npm install pnpm@10.x -g && \
     pnpm install --frozen-lockfile
 # copy project files and folders to the current working directory (i.e. 'app' folder)
 COPY . ./
@@ -17,6 +18,7 @@ RUN echo "build successful  🎉 🎉 🎉"
 
 # Stage 2: production stage
 FROM nginx:latest as production-stage
+COPY nginx.conf /etc/nginx/nginx.conf 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
