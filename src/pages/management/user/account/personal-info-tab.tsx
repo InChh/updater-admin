@@ -28,7 +28,7 @@ export default function PersonalInfoTab() {
 					<Form layout="vertical" initialValues={initFormValues} labelCol={{ span: 8 }} className="w-full">
 						<Row gutter={16}>
 							<Col span={12}>
-								<Form.Item label={t("account.userName")} name="username">
+								<Form.Item label={t("account.username")} name="username">
 									<Input />
 								</Form.Item>
 							</Col>

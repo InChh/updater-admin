@@ -21,6 +21,7 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 
 	const [fileList, updateFileList] = useImmer<UploadFile[]>([]);
 	const [overallProgress, updateOverallProgress] = useImmer<number>(0);
+	const [isUploading, updateIsUploading] = useImmer<boolean>(false);
 
 	// 计算总体进度
 	useEffect(() => {
@@ -46,6 +47,10 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 						url: fileMetadata.url,
 					}));
 					updateFileList(() => files);
+					form.setFieldValue(
+						"fileMetadataIds",
+						fileMetadatas.map((fileMetadata) => fileMetadata.id),
+					);
 				});
 			} else {
 				form.resetFields();
@@ -64,11 +69,15 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 	};
 
 	const handleUpload = async () => {
-		console.log("Upload files:", fileList);
+		updateIsUploading(() => true);
 		const client = await useOssClient();
 		const fileMetadataIds: string[] = [];
 
 		for (const currentFile of fileList) {
+			// 如果文件已经上传完成，跳过
+			if (currentFile.status === "done") {
+				continue;
+			}
 			// 更新上传状态为开始上传
 			updateFileList((draft) => {
 				for (const file of draft) {
@@ -160,6 +169,7 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 				}
 			}
 		}
+		updateIsUploading(() => false);
 		form.setFieldsValue({ fileMetadataIds });
 	};
 
@@ -199,31 +209,53 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 					validateStatus={overallProgress !== 100 ? "error" : "success"}
 					help={fileList.length === 0 ? t("common.required") : undefined}
 				>
-					<div className="flex gap=2">
+					<div className="flex flex-col gap=2 justify-center content-start" style={{ maxHeight: 300 }}>
 						<Upload
 							directory
 							// onChange={handleChange}
-							beforeUpload={(_, files) => {
-								updateFileList(() =>
-									files
-										.filter((file) => file.name !== "manifest" || file.name.matchAll(/.*logs[/\\].*UpdaterLog.*/))
-										.map(
-											(file) =>
-												({
-													uid: file.uid,
-													name: file.name,
-													originFileObj: file,
-												}) as UploadFile,
-										),
-								);
+							beforeUpload={(file, _) => {
+								updateFileList((draft) => {
+									const path = file.webkitRelativePath;
+									// 去除根文件夹
+									const paths = path.split(/[/\\]/);
+									if (paths.length > 1) {
+										paths.shift();
+									}
+									const relativePath = paths.join("/");
+									if (
+										file.name !== "manifest" &&
+										!file.webkitRelativePath.match(/.*logs[/\\].*UpdaterLog.*/)?.length &&
+										draft.every((f) => f.name !== relativePath)
+									) {
+										draft.push({
+											uid: file.uid,
+											name: relativePath,
+											status: "none" as UploadFileStatus,
+											percent: 0,
+											originFileObj: file,
+										});
+									}
+								});
 								return false;
 							}}
 							fileList={fileList}
+							showUploadList={false}
 						>
-							<Button icon={<FolderOutlined />}>{t("common.selectFolder")}</Button>
-							{fileList.length > 0 && <Progress percent={overallProgress} />}
+							<div className="flex flex-col gap-2">
+								<Button icon={<FolderOutlined />}>{t("common.selectFolder")}</Button>
+								{fileList.length > 0 && (
+									<span>已选择文件夹：{fileList[0].originFileObj?.webkitRelativePath.split(/[/\\]/).at(0)}</span>
+								)}
+								{fileList.length > 0 && <Progress percent={overallProgress} />}
+							</div>
 						</Upload>
-						<Button icon={<UploadOutlined />} type="primary" onClick={handleUpload} disabled={fileList.length === 0}>
+						<Button
+							icon={<UploadOutlined />}
+							type="primary"
+							onClick={handleUpload}
+							loading={isUploading}
+							disabled={fileList.length === 0}
+						>
 							{t("common.upload")}
 						</Button>
 					</div>

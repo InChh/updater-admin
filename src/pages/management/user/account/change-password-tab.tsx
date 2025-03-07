@@ -1,6 +1,7 @@
 import { Button, Form, Input, message } from "antd";
 import { useState } from "react";
 
+import userService from "@/api/services/userService";
 import { t } from "@/locales/i18n";
 
 function ChangePasswordTab() {
@@ -14,11 +15,12 @@ function ChangePasswordTab() {
 	}) => {
 		try {
 			setLoading(true);
-			// TODO: 调用修改密码API
+			await userService.changePassword({
+				currentPassword: _values.currentPassword,
+				newPassword: _values.newPassword,
+			});
 			message.success(t("account.passwordChangeSuccess"));
 			form.resetFields();
-		} catch (error) {
-			message.error(t("account.passwordChangeFailed"));
 		} finally {
 			setLoading(false);
 		}

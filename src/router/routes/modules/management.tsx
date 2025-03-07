@@ -6,7 +6,6 @@ import { CircleLoading } from "@/components/loading";
 
 import type { AppRouteObject } from "#/router";
 
-const ProfilePage = lazy(() => import("@/pages/management/user/profile"));
 const AccountPage = lazy(() => import("@/pages/management/user/account"));
 
 const management: AppRouteObject = {
@@ -33,15 +32,7 @@ const management: AppRouteObject = {
 			children: [
 				{
 					index: true,
-					element: <Navigate to="profile" replace />,
-				},
-				{
-					path: "profile",
-					element: <ProfilePage />,
-					meta: {
-						label: "sys.menu.user.profile",
-						key: "/management/user/profile",
-					},
+					element: <Navigate to="account" replace />,
 				},
 				{
 					path: "account",
