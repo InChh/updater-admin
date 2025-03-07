@@ -28,7 +28,7 @@ jobs:
         tags: crpi-lymsz4btgausoaex.cn-shanghai.personal.cr.aliyuncs.com/updaterserver/admin:latest,crpi-lymsz4btgausoaex.cn-shanghai.personal.cr.aliyuncs.com/updaterserver/admin:${{ github.sha }}
 
   deploy:
-    needs: build-image
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
