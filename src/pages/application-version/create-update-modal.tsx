@@ -112,7 +112,7 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 			let fileMetadata: FileMetadata;
 
 			try {
-				fileMetadata = await fileService.getFileMetadataByHash(hash, currentFile.originFileObj?.size);
+				fileMetadata = await fileService.getFileMetadataByHash(hash, currentFile.originFileObj?.size, relativePath);
 				fileMetadataIds.push(fileMetadata.id);
 				updateFileList((draft) => {
 					for (const file of draft) {
@@ -224,6 +224,8 @@ export default function CreateUpdateModal({ open, record, onCancel, onFinish }: 
 									const relativePath = paths.join("/");
 									if (
 										file.name !== "manifest" &&
+										file.name !== "workdir" &&
+										!relativePath.includes("lib/acad.dat") &&
 										!file.webkitRelativePath.match(/.*logs[/\\].*UpdaterLog.*/)?.length &&
 										draft.every((f) => f.name !== relativePath)
 									) {
