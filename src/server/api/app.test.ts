@@ -14,6 +14,7 @@ import {
 import type { SafeSessionView } from "../auth/session.server";
 import type { AppendAuditEventInput } from "../db/repositories/audit.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
 import {
 	type ApiAppDependencies,
@@ -114,6 +115,19 @@ function filesService(overrides: Partial<FilesService> = {}): FilesService {
 	};
 }
 
+function uploadsService(
+	overrides: Partial<UploadsService> = {},
+): UploadsService {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected uploads service call.");
+	};
+	return {
+		complete: notImplemented,
+		issueCredentials: notImplemented,
+		...overrides,
+	};
+}
+
 function testDependencies(
 	overrides: ApiAppDependencies = {},
 ): ApiAppDependencies {
@@ -168,6 +182,7 @@ describe("Elysia API foundation", () => {
 			getPasswordAuthApi: forbiddenDependency,
 			getProgramsService: forbiddenDependency,
 			getSession: forbiddenDependency,
+			getUploadsService: forbiddenDependency,
 		});
 
 		const response = await app.handle(new Request("http://localhost/health"));
@@ -312,6 +327,78 @@ describe("Elysia API foundation", () => {
 			pageSize: 100,
 			path: "installer",
 			sort: "path:desc",
+		});
+	});
+
+	it("mounts rate-limited upload credentials while keeping OSS and database work lazy for health", async () => {
+		const sha256 = "a".repeat(64);
+		const issueCredentials = vi.fn(async () => ({
+			bucket: "updater-artifacts",
+			credentials: {
+				accessKeyId: "STS.temporary",
+				accessKeySecret: "temporary-secret",
+				expiration: "2026-07-14T01:15:00.000Z",
+				securityToken: "temporary-token",
+			},
+			objects: [
+				{
+					objectKey: `releases/${sha256}/desktop/app.bin`,
+					path: "desktop/app.bin",
+				},
+			],
+			region: "oss-cn-hangzhou",
+		}));
+		const getUploadsService = vi.fn(() => uploadsService({ issueCredentials }));
+		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
+		const app = createApiApp(
+			testDependencies({ consumeRateLimit, getUploadsService }),
+		);
+
+		const health = await app.handle(new Request("http://localhost/health"));
+		expect(health.status).toBe(200);
+		expect(getUploadsService).not.toHaveBeenCalled();
+		expect(consumeRateLimit).not.toHaveBeenCalled();
+
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/uploads/credentials", {
+				body: JSON.stringify({
+					files: [
+						{
+							mimeType: "application/octet-stream",
+							path: "desktop/app.bin",
+							sha256,
+							size: "42",
+						},
+					],
+				}),
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(await response.json()).toMatchObject({
+			bucket: "updater-artifacts",
+			objects: [{ path: "desktop/app.bin" }],
+		});
+		expect(getUploadsService).toHaveBeenCalledOnce();
+		expect(issueCredentials).toHaveBeenCalledWith(
+			expect.objectContaining({ files: [expect.objectContaining({ sha256 })] }),
+			expect.objectContaining({
+				actorId: USER_ID,
+				requestId: "req_test",
+			}),
+		);
+		expect(consumeRateLimit).toHaveBeenCalledWith({
+			endpoint: "uploads.credentials",
+			limit: 10,
+			now: new Date("2026-07-14T01:00:00.000Z"),
+			subjectKey: USER_ID,
+			windowSeconds: 5 * 60,
 		});
 	});
 
@@ -510,6 +597,88 @@ describe("Elysia API foundation", () => {
 		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
 			"also-not-audited",
 		);
+	});
+
+	it("audits upload credential and completion failures with canonical actions and no metadata values", async () => {
+		const appendFailureAudit = vi.fn(
+			async (_input: AppendAuditEventInput) => {},
+		);
+		const app = createApiApp(testDependencies({ appendFailureAudit }));
+		const sha256 = "a".repeat(64);
+		const base = {
+			mimeType: "application/octet-stream",
+			path: "private/must-not-be-audited.bin",
+			sha256,
+			size: "42",
+		};
+
+		for (const [path, body] of [
+			[
+				"credentials",
+				{
+					files: [{ ...base, body: "must-not-cross-netlify" }],
+				},
+			],
+			[
+				"complete",
+				{
+					files: [
+						{
+							...base,
+							objectEtag: "secret-etag",
+							objectKey: "secret-object-key",
+							secret: "must-not-be-audited",
+						},
+					],
+				},
+			],
+		] as const) {
+			const response = await app.handle(
+				new Request(`http://localhost/api/v1/uploads/${path}`, {
+					body: JSON.stringify(body),
+					headers: {
+						"content-type": "application/json",
+						origin: "http://localhost",
+					},
+					method: "POST",
+				}),
+			);
+			expect(response.status).toBe(422);
+		}
+
+		expect(appendFailureAudit.mock.calls.map(([input]) => input)).toEqual([
+			{
+				action: "upload.credentials.issued",
+				actorId: USER_ID,
+				after: { code: "VALIDATION_FAILED", method: "POST" },
+				ip: null,
+				requestId: "req_test",
+				resourceId: "unassigned",
+				resourceType: "upload",
+				result: "failure",
+				userAgent: null,
+			},
+			{
+				action: "upload.completed",
+				actorId: USER_ID,
+				after: { code: "VALIDATION_FAILED", method: "POST" },
+				ip: null,
+				requestId: "req_test",
+				resourceId: "unassigned",
+				resourceType: "upload",
+				result: "failure",
+				userAgent: null,
+			},
+		]);
+		const serializedAudit = JSON.stringify(appendFailureAudit.mock.calls);
+		for (const forbidden of [
+			"private/must-not-be-audited.bin",
+			"must-not-cross-netlify",
+			"secret-etag",
+			"secret-object-key",
+		]) {
+			expect(serializedAudit).not.toContain(forbidden);
+		}
 	});
 
 	it("preserves the original problem when failure auditing also fails", async () => {

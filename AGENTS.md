@@ -13,7 +13,7 @@ Before editing files for a substantial task:
 
 ## Current phase and hard gate
 
-This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–7 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 8 direct OSS upload is the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
+This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–8 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 9 nested version management UI is the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
 
 Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes still prove integrations that do not yet have production owners and are retired together in Batch 14. The authenticated shell, Better Auth/Neon connection, Elysia foundation, database schema, localization, and dynamic tabs are production-owned now.
 
@@ -77,6 +77,8 @@ The existing upload model obtains Aliyun OSS STS credentials and uploads directl
 - `2026-07-14 — Frontend/backend contract`: redesign communication around `/api/v1/*`, camelCase DTOs, `{ items, page, pageSize, total }` lists, ETag/If-Match concurrency, and a compact Problem Details error model. Do not copy UpdaterServer paths, DTO envelopes, authentication markers, or `App:*` business error codes.
 - `2026-07-14 — Program-management contract`: program lists accept pages `1..1,000,000`, page sizes `20`, `50`, or `100`, case-sensitive literal substring name filters, and stable `createdAt` plus `id` sorting. Program mutations use opaque weak ETags and `If-Match`; successful delete returns `204` without a response ETag. Name and description limits are measured in Unicode code points, and validation paths are bounded, control-free, and well-formed Unicode.
 - `2026-07-14 — Upload/storage`: preserve direct browser-to-Aliyun OSS upload with short-lived STS credentials. Support folder selection, relative paths, SHA-256, byte size, MIME type, per-file progress, retry, and idempotent metadata registration. Do not proxy release files through Netlify Functions.
+- `2026-07-14 — Upload proof/security`: cap each release file at the intentional 5 TiB product limit and each object key at the OSS limit of 1,023 UTF-8 bytes. Browser STS receives prefix-scoped `PutObject`, `AbortMultipartUpload`, and `ListParts` only. The permanent server principal separately receives prefix-scoped `GetObject` for metadata HEAD verification; it never crosses the browser boundary.
+- `2026-07-14 — Upload state/audit`: canonical lock order prevents reversed-batch deadlocks while caller response order is preserved. Credential issuance is a security-sensitive success audit containing only file count and request context; completion success remains atomic with metadata registration. `File` and multipart checkpoint values remain memory-only, and sessionStorage contains only non-sensitive serializable UI preferences.
 - `2026-07-14 — Deletion/audit/concurrency`: soft-delete business records, record actor and before/after audit data, never automatically delete OSS objects, and reject stale mutations with optimistic concurrency versions. Program deletion soft-deletes its live versions while preserving file metadata, version-file history, and OSS objects.
 - `2026-07-14 — Audit ownership exception`: repositories append successful program-operation audits inside the same transaction as the mutation so state and success evidence remain atomic. The Elysia audit plugin owns redacted failure intents; failure-audit persistence or reporting errors never replace or mask the original API response.
 - `2026-07-14 — Version format`: accept only canonical numeric `major.minor.patch` values with no leading zeros. Values remain numerically unique per program. Multiple versions may remain active; latest means the numerically highest active version.
@@ -124,7 +126,7 @@ pnpm intent:list
 pnpm generate-routes
 ```
 
-Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 7 gate covers 158 Biome files and 265 unit/contract/repository/domain/API/app-integration tests across 41 files; typecheck and the Netlify client/SSR build pass. Four disposable database suites remain explicitly credential-gated.
+Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 8 gate covers 184 Biome files and 337 unit/contract/repository/domain/API/component tests across 52 files; typecheck and the Netlify client/SSR build pass. Five disposable database suites remain explicitly credential-gated. The optional live OSS STS/multipart smoke also requires an authorized sandbox; mocked provider contracts are part of the passing suite.
 
 ## Netlify deployment
 
@@ -149,11 +151,14 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - Successful program audits are an intentional repository ownership exception because they must commit atomically with the mutation. Redacted failure audit intent stays in the API plugin, and any audit failure must leave the original error response unchanged.
 - Version creation and renumbering lock the live parent program. Check an exact duplicate of another live row before enforcing the all-history maximum so `VERSION_NUMBER_CONFLICT` remains reachable; the historical maximum intentionally includes soft-deleted rows and the row being renumbered.
 - Version-file replacement is tri-state: omitted `fileIds` preserves the existing relation set, `[]` removes it, and a non-empty list validates every live file before replacement. Keep full before/after ID sets in the atomic success audit.
+- Aliyun OSS object-key length is measured in UTF-8 bytes, not JavaScript string length. Validate every deterministic destination before requesting STS so an invalid folder cannot consume credentials. Keep server metadata verification permission on the permanent RAM principal and out of the temporary browser policy.
+- Upload completion transactions acquire file identities in canonical `(path, sha256, size)` order and restore caller order in the response. Preserve that invariant when changing batch registration or uniqueness rules.
+- Browser upload code must continue hashing bounded 4 MiB slices rather than calling whole-file `arrayBuffer()`. Do not persist `File`, credentials, object ETags, or ali-oss checkpoints to web storage.
 - The authenticated locale starts from server-owned `admin_metadata.locale`. Browser changes are session-local until Batch 10 adds the approved profile locale mutation; do not reintroduce a localStorage override that can beat the server profile.
 - Program-version tabs intentionally show the program ID prefix until the program query exists; Batch 9 replaces it with the program name while preserving the concrete href and program-scoped key.
 
 ## Current implementation sequence
 
-1. Implement Batch 8 short-lived OSS STS, metadata verification, incremental hashing, and direct multipart upload.
-2. Continue Batches 9–13 in dependency order, parallelizing non-overlapping version UI, account, settings, monitoring, and deployment slices.
+1. Implement Batch 9 nested version management UI, upload-to-create orchestration, and serialized optimistic activation.
+2. Continue Batches 10–13 in dependency order, parallelizing non-overlapping account, settings, monitoring, and deployment slices.
 3. In Batch 14 retire demos, run the complete DB/E2E/build/secret-scan matrix, compare against the supplied screenshots, and update this file with final cloud setup and remaining external actions.

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch8-uploads",
+  "type": "verification",
+  "source": "pnpm check; pnpm typecheck; pnpm test; pnpm test:db; pnpm build; git diff --check",
+  "summary": "Batch 8 passed Biome over 184 files, TypeScript, 337 unit/contract/repository/domain/API/component tests across 52 files, the guarded disposable-database harness, the Netlify client and SSR production build, and diff-check. Five destructive database suites explicitly skipped without TEST_DATABASE_URL. Independent server, domain/API, and client reviews passed after OSS permission, lock-order, byte-limit, STS mapping, audit, and MIME hardening.",
+  "verifier": "root"
+}

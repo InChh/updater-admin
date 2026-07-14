@@ -6,7 +6,16 @@ import type {
 	WeakEntityTag,
 } from "../../shared/api/common";
 
-export type ApiProblemStatus = 400 | 401 | 403 | 404 | 409 | 422 | 428 | 429;
+export type ApiProblemStatus =
+	| 400
+	| 401
+	| 403
+	| 404
+	| 409
+	| 422
+	| 428
+	| 429
+	| 503;
 
 const PROBLEM_TITLES: Readonly<Record<string, string>> = {
 	BAD_REQUEST: "The request could not be parsed",
@@ -18,6 +27,12 @@ const PROBLEM_TITLES: Readonly<Record<string, string>> = {
 	RATE_LIMITED: "Too many requests",
 	STALE_WRITE: "The resource changed since it was loaded",
 	UNAUTHENTICATED: "Authentication is required",
+	UPLOAD_CREDENTIALS_UNAVAILABLE:
+		"Upload credentials are temporarily unavailable",
+	UPLOAD_METADATA_CONFLICT:
+		"The uploaded object does not match its metadata proof",
+	UPLOAD_VERIFICATION_UNAVAILABLE:
+		"Upload object verification is temporarily unavailable",
 	VALIDATION_FAILED: "One or more fields are invalid",
 	VERSION_NOT_GREATER:
 		"The version number must be greater than every prior version",

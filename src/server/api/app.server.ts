@@ -13,11 +13,13 @@ import type {
 	RateLimitInput,
 } from "../db/repositories/rate-limit.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
 import { ApiRequestContextStore } from "./context.server";
 import { createFilesModule } from "./modules/files";
 import { createProfileModule, type PasswordAuthApi } from "./modules/profile";
 import { createProgramsModule } from "./modules/programs";
+import { createUploadsModule } from "./modules/uploads";
 import { createVersionsModule } from "./modules/versions";
 import { createAuditPlugin } from "./plugins/audit.server";
 import { createOriginPlugin } from "./plugins/origin.server";
@@ -49,6 +51,7 @@ export interface ApiAppDependencies {
 	readonly getPasswordAuthApi?: () => PasswordAuthApi;
 	readonly getProgramsService?: () => ProgramsService;
 	readonly getSession?: (headers: Headers) => Promise<SafeSessionView | null>;
+	readonly getUploadsService?: () => UploadsService;
 	readonly getVersionsService?: () => VersionsService;
 	readonly now?: () => Date;
 	readonly rateLimitPolicies?: ReadonlyMap<string, RateLimitPolicy>;
@@ -162,6 +165,14 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 						contextStore,
 						...(dependencies.getFilesService
 							? { getFilesService: dependencies.getFilesService }
+							: {}),
+					}),
+				)
+				.use(
+					createUploadsModule({
+						contextStore,
+						...(dependencies.getUploadsService
+							? { getUploadsService: dependencies.getUploadsService }
 							: {}),
 					}),
 				),

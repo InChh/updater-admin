@@ -26,8 +26,19 @@ const PROFILE_CHANGE_PASSWORD_POLICY: RateLimitPolicy = {
 	windowSeconds: 15 * 60,
 };
 
+/**
+ * One credentials response can authorize a 1,000-file batch, so a small shared
+ * issuance budget still permits retries without turning STS into an oracle.
+ */
+export const UPLOAD_CREDENTIALS_POLICY: RateLimitPolicy = {
+	endpoint: "uploads.credentials",
+	limit: 10,
+	windowSeconds: 5 * 60,
+};
+
 const RATE_LIMIT_POLICIES = new Map<string, RateLimitPolicy>([
 	["POST /api/v1/profile/change-password", PROFILE_CHANGE_PASSWORD_POLICY],
+	["POST /api/v1/uploads/credentials", UPLOAD_CREDENTIALS_POLICY],
 ]);
 
 export interface RateLimitPluginDependencies {

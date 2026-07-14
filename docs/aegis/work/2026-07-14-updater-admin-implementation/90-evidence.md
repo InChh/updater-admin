@@ -1,6 +1,6 @@
 # Updater Admin Implementation - Evidence
 
-No evidence has been recorded yet.
+Verification evidence is appended by completed implementation batch.
 
 ## EvidenceBundleDraft
 
@@ -16,6 +16,14 @@ No evidence has been recorded yet.
 - Type: verification
 - Source: pnpm install --frozen-lockfile; pnpm check; pnpm typecheck; pnpm test; pnpm build
 - Summary: Fresh isolated implementation worktree passed frozen install, Biome check, TypeScript typecheck, baseline Vitest invocation, and Netlify production build; baseline test had no test files and is explicitly not treated as coverage.
+- Verifier: root
+
+## EvidenceBundleDraft
+
+- Artifact key: batch8-uploads
+- Type: verification
+- Source: pnpm check; pnpm typecheck; pnpm test; pnpm test:db; pnpm build; git diff --check
+- Summary: Batch 8 passed Biome over 184 files, TypeScript, 337 unit/contract/repository/domain/API/component tests across 52 files, the guarded disposable-database harness, the Netlify client and SSR production build, and diff-check. Five destructive database suites explicitly skipped without TEST_DATABASE_URL. Independent server, domain/API, and client reviews passed after fixes for server-only OSS read permission, canonical lock order, 1,023-byte object keys, pre-STS validation, stable provider-outage mapping, credential success auditing, and MIME grammar/fallback.
 - Verifier: root
 
 ## EvidenceBundleDraft

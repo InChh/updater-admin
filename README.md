@@ -1,81 +1,55 @@
-Welcome to your new TanStack Start app!
+# Updater Admin
 
-> Project status: the scaffold is complete and business implementation is
-> paused pending approval of [the detailed requirements design](docs/aegis/specs/2026-07-14-updater-admin-design.md).
+Single-tenant updater administration system built with Solid, TanStack Start,
+Router, Query, Table, Form and Store; Elysia; Better Auth; Drizzle; Neon; and
+Netlify. The authenticated entry page is `/programs`; Dashboard, Billing,
+multi-tenancy, legacy updater-client compatibility and automatic OSS deletion
+are intentionally out of scope.
 
-# Getting Started
+The approved product and architecture contract is in
+[`docs/aegis/specs/2026-07-14-updater-admin-design.md`](docs/aegis/specs/2026-07-14-updater-admin-design.md).
+Durable implementation context, environment requirements and current batch
+status live in [`AGENTS.md`](AGENTS.md).
 
-To run this application:
+## Local development
+
+Copy `.env.example` to `.env.local`, provision a disposable/local Neon database,
+apply migrations, and bootstrap the first administrator before starting the app:
 
 ```bash
 pnpm install
+pnpm db:migrate
+pnpm bootstrap:admin
 pnpm dev
 ```
 
-# Building For Production
+The bootstrap password is one-time configuration. Remove
+`BOOTSTRAP_ADMIN_PASSWORD` from every environment immediately after the command
+succeeds. Public signup is disabled.
 
-To build this application for production:
+## Verification
 
 ```bash
+pnpm intent:list
+pnpm check
+pnpm typecheck
+pnpm test
+pnpm test:db
+pnpm test:e2e
 pnpm build
 ```
 
-## Styling
+`pnpm test:db` is destructive and will run only when both `TEST_DATABASE_URL`
+points to a disposable branch and `TEST_DATABASE_CONFIRM_DISPOSABLE` equals
+`updater-admin-destructive-tests`. Authenticated E2E suites similarly require a
+seeded `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD`.
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+## Production build
 
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `pnpm add @tailwindcss/vite tailwindcss --dev`
-
-
-## Solid-UI
-
-This installation of Solid-UI follows the manual instructions but was modified to work with Tailwind V4.
-
-To install the components, run the following command (this install button):
+Builds produce the browser artifact and Netlify SSR function:
 
 ```bash
-pnpm dlx solidui-cli@latest add button
-```
-
-
-## Setting up Better Auth
-
-1. Generate and set the `BETTER_AUTH_SECRET` environment variable in your `.env.local`:
-
-   ```bash
-   pnpm dlx @better-auth/cli secret
-   ```
-
-2. Visit the [Better Auth documentation](https://www.better-auth.com) to unlock the full potential of authentication in your app.
-
-### Wiring the Database (After Design Approval)
-
-Better Auth can work in stateless mode, but to persist user data, add a database:
-
-```typescript
-// src/lib/auth.ts
-import { betterAuth } from "better-auth";
-import { Pool } from "pg";
-
-export const auth = betterAuth({
-  database: new Pool({
-    connectionString: process.env.DATABASE_URL,
-  }),
-  // ... rest of config
-});
-```
-
-Then run migrations:
-
-```bash
-pnpm dlx @better-auth/cli migrate
+pnpm build
 ```
 
 
@@ -90,6 +64,49 @@ This project ships with `netlify.toml` configured for a Netlify site:
 5. Trigger the first deploy
 
 Server functions and API routes run on Netlify Functions. For lower-latency request handling, see Netlify Edge Functions: https://docs.netlify.com/edge-functions/overview.
+
+## Aliyun OSS direct-upload setup
+
+Release file bodies move directly from the browser to OSS. Netlify receives
+only path, SHA-256, byte size, MIME type, deterministic object key and ETag
+metadata. Configure a dedicated bucket prefix per environment and do not grant
+automatic object deletion.
+
+The permanent RAM principal stored in Netlify needs two separate, narrowly
+scoped grants:
+
+- `sts:AssumeRole` on `OSS_UPLOAD_RAM_ROLE_ARN`, so the API can create browser
+  upload sessions.
+- `oss:GetObject` on
+  `acs:oss:*:*:<OSS_BUCKET>/<OSS_UPLOAD_PREFIX>*`, so the server can perform a
+  metadata-only HEAD verification before registering an upload.
+
+The second grant belongs only to the permanent server principal and is never
+included in browser credentials. The assumed upload role's inline/base
+permission must allow only these actions under
+`acs:oss:*:*:<OSS_BUCKET>/<OSS_UPLOAD_PREFIX>*`:
+
+- `oss:PutObject`
+- `oss:AbortMultipartUpload`
+- `oss:ListParts`
+
+The API further supplies a short-lived 900-second session policy with the same
+scope. Permanent access keys stay server-only; the browser receives only the
+temporary AccessKey ID, secret, security token and expiration.
+
+Configure OSS bucket CORS for each exact local, Netlify Production and Preview
+origin that may upload:
+
+- allowed methods: `PUT`, `POST`, `DELETE`
+- allowed headers: `Authorization`, `Content-Type`, `Content-MD5`, and `x-oss-*`
+  (or the OSS console's `*` header setting when exact wildcard syntax is not
+  supported)
+- exposed response headers: `ETag`
+- cache/preflight max age: a bounded value such as `600`
+
+Without exposed `ETag`, the client deliberately rejects completion because the
+server cannot bind registered metadata to the uploaded object proof. Preview
+deployments must use a separate Neon branch and a separate OSS prefix.
 
 
 

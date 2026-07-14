@@ -175,3 +175,28 @@
 - Data-retention status: Soft-deleting a program and its live versions preserves file metadata, relation history, and OSS objects.
 - Verification status: Batch 7 passed the root static/unit/build gate; only the explicitly environment-gated disposable-DB execution remains external follow-up evidence for this backend-only slice.
 - Advisory decision: continue to Batch 8
+
+## Checkpoint Update
+
+- Current todo: Batch 9: nested version management UI
+- Active slice: Query-backed program/version route, upload-to-create orchestration, edit/delete dialogs, and optimistic activation
+- Completed todos:
+- Batches 0–7: scaffold/tooling, database/auth/API/shell, program management, and version/file backend
+- Batch 8: short-lived OSS STS, deterministic destinations, server HEAD verification, atomic idempotent metadata registration, incremental worker hashing, ali-oss multipart upload, and memory-only TanStack Store queue
+- Evidence refs:
+- Upload requests accept metadata only, enforce canonical relative POSIX paths, lowercase SHA-256, a deliberate 5 TiB product limit, MIME type/subtype grammar, and 1,023 UTF-8-byte OSS keys.
+- Temporary browser policy contains only `PutObject`, `AbortMultipartUpload`, and `ListParts`; the permanent server principal separately needs prefix-scoped `GetObject` for metadata verification. README documents RAM/CORS and keeps permanent credentials server-only.
+- Completion verifies object key, size, and ETag before deterministic lock-ordered repository registration. Matching concurrent replays share IDs; conflicting proofs fail with a sanitized Problem Details response and success audit commits atomically.
+- Hashing reads 4 MiB slices in a worker. Multipart upload uses per-file clients, concurrency four, checkpoint/progress/cancel/retry, and required ETag. Files and checkpoints remain in memory; sessionStorage stores only the completed-item display preference.
+- Root gate passed `pnpm check` over 184 files, `pnpm typecheck`, 52 test files/337 tests, guarded DB harness with 5 explicit skips, Netlify client/SSR build, and `git diff --check`.
+- Independent server, domain/API, and client re-reviews passed after byte-limit, deterministic lock-order, STS outage, credential audit, and MIME fallback hardening.
+- Blocked on: Disposable database proof, authenticated Playwright, and optional live OSS smoke require approved external credentials; their guarded/mocked suites are present and passing.
+- Next step: Build the nested version page and connect the verified upload foundation to version create/edit flows.
+
+## DriftCheckDraft
+
+- Scope status: Batch 8 stayed within direct release upload, proof registration, browser upload state, security policy, and deployment documentation.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy client/API compatibility, file-body proxying, download credentials, or automatic OSS deletion was added.
+- Ownership status: Elysia owns upload APIs, Drizzle repositories own metadata/audit writes, OSS stores bodies, Query will own remote version state, and TanStack Store owns only ephemeral upload workflow state.
+- Verification status: Root static/unit/build gate and two independent server reviews passed; live DB/OSS/browser environments remain explicit external gates rather than hidden assumptions.
+- Advisory decision: continue to Batch 9

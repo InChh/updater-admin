@@ -1,7 +1,7 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Batch 8: direct OSS release uploads",
+  "currentTodo": "Batch 9: nested version management UI",
   "completedTodos": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
@@ -10,9 +10,10 @@
     "Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed",
     "Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed",
     "Batch 6: strict program contracts, transactional repository/domain/API behavior, Query/Table/Form UI, guarded DB and browser verification seams, and the programs layout/index split",
-    "Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain/API, mounted Elysia routes, and guarded DB verification seams"
+    "Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain/API, mounted Elysia routes, and guarded DB verification seams",
+    "Batch 8: short-lived OSS STS, deterministic verified metadata registration, incremental worker hashing, browser-direct multipart upload, and in-memory TanStack Store queue"
   ],
-  "activeSlice": "Batch 8 STS policy, object verification, metadata registration, worker hashing, multipart upload, and in-memory upload queue",
+  "activeSlice": "Batch 9 nested version route, Query-backed table and forms, upload orchestration, and optimistic activation",
   "evidenceRefs": [
     "Batch 6 program contract fixes page values to 1..1,000,000, page sizes to 20/50/100, literal case-sensitive filtering, stable createdAt plus id sorting, weak ETag/If-Match mutations, and DELETE 204 without a response ETag",
     "Batch 6 validation counts Unicode code points and emits bounded control-free well-formed validation paths; program soft delete preserves file metadata, relation history, and OSS objects",
@@ -21,9 +22,12 @@
     "The destructive database suites skipped without a disposable TEST_DATABASE_URL, while authenticated shell and program CRUD Playwright suites skipped without seeded E2E credentials",
     "Batch 7 accepts only canonical numeric major.minor.patch, distinguishes exact live duplicate conflicts from all-history monotonicity failures, and derives the highest active numeric version as latest without disabling peers",
     "Batch 7 omitted fileIds preserves relations and an explicit empty list removes all; soft deletion preserves file metadata and relation history, while full before/after sets are audited atomically",
-    "Batch 7 passed Biome, typecheck, unit/contract/repository/domain/API/app-integration tests, guarded DB harness, Netlify client/SSR build, and diff-check; independent repository and backend re-reviews passed"
+    "Batch 7 passed Biome, typecheck, unit/contract/repository/domain/API/app-integration tests, guarded DB harness, Netlify client/SSR build, and diff-check; independent repository and backend re-reviews passed",
+    "Batch 8 enforces canonical relative POSIX paths, a 5 TiB product file limit, 1,023-byte OSS keys, deterministic lock ordering, server-only HEAD verification, and atomic idempotent completion",
+    "Batch 8 keeps permanent RAM keys server-only, grants browser STS only PutObject/AbortMultipartUpload/ListParts, documents separate server GetObject verification permission, and audits credential issuance without paths or secrets",
+    "Batch 8 root gate passed Biome over 184 files, typecheck, 52 test files with 337 tests, guarded DB harness with 5 explicit skips, Netlify client/SSR build, and diff-check; server, domain/API, and client re-reviews passed"
   ],
-  "blockedOn": "Disposable DB execution requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests. Authenticated Playwright execution requires E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD in a seeded environment; both remain explicit environment-gated checks when unavailable.",
-  "nextStep": "Implement short-lived OSS STS, deterministic object keys, verified idempotent metadata registration, incremental worker hashing, browser-direct multipart upload, and upload queue behavior.",
+  "blockedOn": "Disposable DB execution requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests. Authenticated Playwright execution requires E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD in a seeded environment. An authorized OSS sandbox is required for the optional live STS and small multipart smoke; all remain explicit environment-gated checks when unavailable.",
+  "nextStep": "Build the nested program-version page, connect folder upload through completion and version creation, and implement serialized optimistic activation with rollback.",
   "updatedAt": "2026-07-14"
 }

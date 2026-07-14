@@ -2,7 +2,7 @@
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
   "lastCheckpointRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
-  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation from the completed Batch 7 checkpoint; confirm the root gate and Batch 7 commit are present, then implement Batch 8 direct OSS release uploads",
+  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation from the completed Batch 8 checkpoint; confirm the root gate and Batch 8 commit are present, then implement Batch 9 nested version management UI",
   "knownPartialWork": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
@@ -11,7 +11,8 @@
     "Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed",
     "Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed",
     "Batch 6: strict program contracts, transactional repository/domain/API behavior, Query/Table/Form UI, guarded DB and browser verification seams, and the programs layout/index split",
-    "Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain/API, mounted Elysia routes, and guarded DB verification seams"
+    "Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain/API, mounted Elysia routes, and guarded DB verification seams",
+    "Batch 8: short-lived OSS STS, deterministic verified metadata registration, incremental hashing, browser-direct multipart upload, and memory-only upload queue state"
   ],
   "mustReadBeforeContinuing": [
     "docs/aegis/work/2026-07-14-updater-admin-implementation/10-intent.md",
@@ -20,6 +21,7 @@
   ],
   "unsafeToAssume": [
     "A disposable database is available; DB-backed concurrency proof requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests and remains an explicit environmental gate when unavailable",
-    "Seeded E2E administrator credentials are available; authenticated multi-page browser coverage remains credential-gated"
+    "Seeded E2E administrator credentials are available; authenticated multi-page browser coverage remains credential-gated",
+    "An authorized OSS sandbox is available; the optional live STS and multipart smoke remains external while mocked provider contracts are verified"
   ]
 }
