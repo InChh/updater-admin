@@ -52,6 +52,7 @@ export interface AliOssMultipartResult {
 export interface AliOssMultipartOptions {
 	readonly checkpoint?: OssMultipartCheckpoint;
 	readonly disabledMD5: true;
+	readonly headers: Readonly<{ "x-oss-forbid-overwrite": "true" }>;
 	readonly mime?: string;
 	readonly parallel: typeof OSS_MULTIPART_PARALLELISM;
 	readonly partSize?: number;
@@ -191,6 +192,7 @@ export function startOssMultipartUpload(
 	const options: AliOssMultipartOptions = {
 		...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
 		disabledMD5: true,
+		headers: { "x-oss-forbid-overwrite": "true" },
 		...(input.mimeType ? { mime: input.mimeType } : {}),
 		parallel: OSS_MULTIPART_PARALLELISM,
 		...(input.partSize === undefined ? {} : { partSize: input.partSize }),

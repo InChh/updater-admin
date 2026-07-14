@@ -72,6 +72,7 @@ describe("browser OSS multipart uploader", () => {
 		});
 		expect(options).toMatchObject({
 			disabledMD5: true,
+			headers: { "x-oss-forbid-overwrite": "true" },
 			parallel: OSS_MULTIPART_PARALLELISM,
 			partSize: 1024 * 1024,
 		});

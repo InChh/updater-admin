@@ -93,6 +93,9 @@ permission must allow only these actions under
 The API further supplies a short-lived 900-second session policy with the same
 scope. Permanent access keys stay server-only; the browser receives only the
 temporary AccessKey ID, secret, security token and expiration.
+Multipart requests also send `x-oss-forbid-overwrite: true`; a buggy or hostile
+client therefore cannot replace an object that an existing version already
+references through the deterministic key.
 
 Configure OSS bucket CORS for each exact local, Netlify Production and Preview
 origin that may upload:
