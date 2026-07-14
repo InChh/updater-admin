@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch1-tooling",
+  "type": "verification",
+  "source": "pnpm install --frozen-lockfile --offline; pnpm intent:list; pnpm check; pnpm typecheck; pnpm test; pnpm exec playwright install --dry-run; pnpm build; git diff --check",
+  "summary": "Batch 1 passed the full tooling gate with a real 2-test Solid/jsdom suite, an explicit Intent allowlist, serial DB-test config, isolated Playwright E2E discovery, and successful Netlify production output. Independent specification and code-quality reviews passed after fixes.",
+  "verifier": "root"
+}

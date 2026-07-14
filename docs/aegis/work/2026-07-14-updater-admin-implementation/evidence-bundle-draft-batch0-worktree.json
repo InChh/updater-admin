@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch0-worktree",
+  "type": "verification",
+  "source": "pnpm install --frozen-lockfile; pnpm check; pnpm typecheck; pnpm test; pnpm build",
+  "summary": "Fresh isolated implementation worktree passed frozen install, Biome check, TypeScript typecheck, baseline Vitest invocation, and Netlify production build; baseline test had no test files and is explicitly not treated as coverage.",
+  "verifier": "root"
+}

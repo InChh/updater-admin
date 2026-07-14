@@ -1,11 +1,17 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Batch 0 baseline commit and isolated worktree",
-  "completedTodos": [],
-  "activeSlice": "Foundation preflight",
-  "evidenceRefs": [],
+  "currentTodo": "Batch 2: validated environment access, Drizzle schema, and initial migration",
+  "completedTodos": [
+    "Batch 0: isolated worktree and fresh baseline verification",
+    "Batch 1: dependencies, Intent allowlist, deterministic Vitest/DB/Playwright harness; spec and quality reviews passed"
+  ],
+  "activeSlice": "Batch 2 database foundation",
+  "evidenceRefs": [
+    "Batch 1: offline frozen install, intent:list, check, typecheck, 2 Vitest tests, Playwright dry-run, build, diff-check all exit 0",
+    "Batch 1 spec review PASS; quality review PASS after test-discovery and hardening fixes"
+  ],
   "blockedOn": null,
-  "nextStep": "Run Intent and scaffold verification, commit baseline, create .worktrees/codex-updater-admin-implementation",
+  "nextStep": "Implement the approved schema/environment slice from current local Drizzle, Neon, and Better Auth APIs",
   "updatedAt": "2026-07-14"
 }

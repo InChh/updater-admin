@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-07-14-updater-admin-implementation",
+  "lastCheckpointRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
+  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation; Batch 1 is ready to commit before Batch 2 edits",
+  "knownPartialWork": [
+    "Batch 0: isolated worktree and fresh baseline verification",
+    "Batch 1: dependencies, Intent allowlist, deterministic Vitest/DB/Playwright harness; spec and quality reviews passed"
+  ],
+  "mustReadBeforeContinuing": [
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/10-intent.md",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/20-checkpoint.md",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json"
+  ],
+  "unsafeToAssume": [
+    "A disposable TEST_DATABASE_URL is available; DB integration tests must skip with an explicit reason when absent"
+  ]
+}

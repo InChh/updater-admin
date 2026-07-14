@@ -12,3 +12,7 @@ dist-ssr
 .vinxi
 __unconfig*
 .worktrees/
+coverage/
+playwright-report/
+blob-report/
+test-results/
