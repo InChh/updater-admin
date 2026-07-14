@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { auth } from "../../../lib/auth";
+
+import { getAuth } from "../../../server/auth/auth.server";
 
 export const Route = createFileRoute("/api/auth/$")({
 	server: {
 		handlers: {
-			GET: ({ request }) => auth.handler(request),
-			POST: ({ request }) => auth.handler(request),
+			GET: ({ request }) => getAuth().handler(request),
+			POST: ({ request }) => getAuth().handler(request),
 		},
 	},
 });

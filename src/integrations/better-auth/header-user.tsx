@@ -1,19 +1,22 @@
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
 import { Show } from "solid-js";
 import { authClient } from "../../lib/auth-client";
+import { sessionQueryKey, sessionQueryOptions } from "../../lib/session-query";
 
 export default function BetterAuthHeader() {
-	const session = authClient.useSession();
+	const session = createQuery(sessionQueryOptions);
+	const queryClient = useQueryClient();
 
 	return (
 		<Show
-			when={!session().isPending}
+			when={!session.isPending}
 			fallback={
 				<div class="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
 			}
 		>
 			<Show
-				when={session().data?.user}
+				when={session.data?.user}
 				fallback={
 					<Link
 						to="/demo/better-auth"
@@ -40,7 +43,11 @@ export default function BetterAuthHeader() {
 						<button
 							type="button"
 							onClick={() => {
-								void authClient.signOut();
+								void authClient.signOut().then(() =>
+									queryClient.invalidateQueries({
+										queryKey: sessionQueryKey,
+									}),
+								);
 							}}
 							class="flex-1 h-9 px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
 						>

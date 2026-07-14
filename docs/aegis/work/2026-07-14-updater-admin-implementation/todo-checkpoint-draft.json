@@ -1,18 +1,19 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Batch 3: Better Auth runtime, bootstrap, and safe session boundary",
+  "currentTodo": "Batch 4: Elysia API foundation, raw transport adapter, and security plugins",
   "completedTodos": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
-    "Batch 2: validated environment access, 13-table Drizzle schema, guarded destructive DB tests, and sole initial migration; spec and quality reviews passed"
+    "Batch 2: environment, Drizzle schema, guarded DB tests, and sole migration",
+    "Batch 3: Better Auth runtime, raw auth surface restrictions, safe session/query owner, transactional bootstrap, and temporary-password helpers; spec and quality reviews passed"
   ],
-  "activeSlice": "Batch 3 authentication foundation",
+  "activeSlice": "Batch 4 API and security foundation",
   "evidenceRefs": [
-    "Batch 2: db:generate, db:check, 31 unit tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0",
-    "Batch 2 independent specification and code-quality re-reviews PASS"
+    "Batch 3: 81 unit tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0",
+    "Batch 3 independent spec and quality re-reviews PASS after temporary-password helper remediation"
   ],
-  "blockedOn": "Disposable TEST_DATABASE_URL unavailable; destructive DB integration test remains explicitly skipped",
-  "nextStep": "Implement Better Auth as sole session owner, idempotent bootstrap, protected admin mutation surface, and safe session projection",
+  "blockedOn": "Disposable TEST_DATABASE_URL unavailable; real bootstrap-twice DB proof remains explicitly unexecuted",
+  "nextStep": "Implement injected Elysia app, guarded request pipeline, Problem Details, profile/password rotation, audit/rate repositories, raw Start forwarding, and health",
   "updatedAt": "2026-07-14"
 }

@@ -80,3 +80,27 @@
 - Batch 2 independent specification and code-quality re-reviews PASS
 - Blocked on: Disposable TEST_DATABASE_URL unavailable; destructive DB integration test remains explicitly skipped
 - Next step: Implement Better Auth as sole session owner, idempotent bootstrap, protected admin mutation surface, and safe session projection
+
+## Checkpoint Update
+
+- Current todo: Batch 4: Elysia API foundation, raw transport adapter, and security plugins
+- Active slice: Batch 4 API and security foundation
+- Completed todos:
+- Batch 0: isolated worktree and fresh baseline verification
+- Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness
+- Batch 2: environment, Drizzle schema, guarded DB tests, and sole migration
+- Batch 3: Better Auth runtime, raw auth surface restrictions, safe session/query owner, transactional bootstrap, and temporary-password helpers; spec and quality reviews passed
+- Evidence refs:
+- Batch 3: 81 unit tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0
+- Batch 3 independent spec and quality re-reviews PASS after temporary-password helper remediation
+- Blocked on: Disposable TEST_DATABASE_URL unavailable; real bootstrap-twice DB proof remains explicitly unexecuted
+- Next step: Implement injected Elysia app, guarded request pipeline, Problem Details, profile/password rotation, audit/rate repositories, raw Start forwarding, and health
+
+## DriftCheckDraft
+
+- Scope status: Batch 3 stayed within Better Auth, bootstrap, safe session/query ownership, and administrator credential helper scope.
+- Compatibility status: No Billing, tenancy, legacy compatibility, Dashboard, business API, or alternate session owner added.
+- Retirement status: Auth demo remains only as temporary scaffold UI with signup removed and canonical Query session ownership; full demo retirement remains Batch 14.
+- New risk signals:
+- Disposable DB bootstrap-twice proof remains unexecuted because TEST_DATABASE_URL is absent; transactional seams and idempotency are unit-tested.
+- Advisory decision: continue

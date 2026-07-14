@@ -33,3 +33,11 @@ No evidence has been recorded yet.
 - Source: pnpm db:generate; pnpm db:check; pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check
 - Summary: Batch 2 passed schema generation/check, 31 unit tests, Biome, TypeScript, Netlify production build, and diff-check. DB integration was explicitly skipped without TEST_DATABASE_URL. Guard probes reject missing confirmation and pooled/direct production aliases before connection. Independent spec and quality reviews passed.
 - Verifier: root
+
+## EvidenceBundleDraft
+
+- Artifact key: batch3-auth
+- Type: verification
+- Source: pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check
+- Summary: Batch 3 passed 81 unit tests, Biome, TypeScript, Netlify production build, and diff-check. Database suite explicitly skipped without TEST_DATABASE_URL. Disabled Better Auth HTTP mutation routes, safe session projection, transactional bootstrap, and transaction-bound temporary-password create/reset helpers were independently reviewed; spec and quality reviews passed after remediation.
+- Verifier: root

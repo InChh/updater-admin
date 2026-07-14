@@ -128,7 +128,7 @@ const isStrongAuthSecret: EnvironmentValidator = (value) => {
 	);
 };
 
-const isStrongBootstrapPassword: EnvironmentValidator = (value) =>
+export const isStrongAdministratorPassword: EnvironmentValidator = (value) =>
 	isDiverseNonRepeatedValue(value, {
 		maximumLength: 128,
 		minimumLength: 12,
@@ -187,7 +187,7 @@ export function readBootstrapAdminEnvironment(
 	const values = readRequiredEnvironment(source, {
 		BOOTSTRAP_ADMIN_EMAIL: (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
 		BOOTSTRAP_ADMIN_NAME: isPresent,
-		BOOTSTRAP_ADMIN_PASSWORD: isStrongBootstrapPassword,
+		BOOTSTRAP_ADMIN_PASSWORD: isStrongAdministratorPassword,
 	});
 	return {
 		email: values.BOOTSTRAP_ADMIN_EMAIL,

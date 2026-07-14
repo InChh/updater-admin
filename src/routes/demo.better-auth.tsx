@@ -1,17 +1,18 @@
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute } from "@tanstack/solid-router";
 import { createSignal, Show } from "solid-js";
 import { authClient } from "../lib/auth-client";
+import { sessionQueryKey, sessionQueryOptions } from "../lib/session-query";
 
 export const Route = createFileRoute("/demo/better-auth")({
 	component: BetterAuthDemo,
 });
 
 function BetterAuthDemo() {
-	const session = authClient.useSession();
-	const [isSignUp, setIsSignUp] = createSignal(false);
+	const session = createQuery(sessionQueryOptions);
+	const queryClient = useQueryClient();
 	const [email, setEmail] = createSignal("");
 	const [password, setPassword] = createSignal("");
-	const [name, setName] = createSignal("");
 	const [error, setError] = createSignal("");
 	const [loading, setLoading] = createSignal(false);
 
@@ -21,23 +22,14 @@ function BetterAuthDemo() {
 		setLoading(true);
 
 		try {
-			if (isSignUp()) {
-				const result = await authClient.signUp.email({
-					email: email(),
-					password: password(),
-					name: name(),
-				});
-				if (result.error) {
-					setError(result.error.message || "Sign up failed");
-				}
+			const result = await authClient.signIn.email({
+				email: email(),
+				password: password(),
+			});
+			if (result.error) {
+				setError(result.error.message || "Sign in failed");
 			} else {
-				const result = await authClient.signIn.email({
-					email: email(),
-					password: password(),
-				});
-				if (result.error) {
-					setError(result.error.message || "Sign in failed");
-				}
+				await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
 			}
 		} catch (_err) {
 			setError("An unexpected error occurred");
@@ -48,7 +40,7 @@ function BetterAuthDemo() {
 
 	return (
 		<Show
-			when={!session().isPending}
+			when={!session.isPending}
 			fallback={
 				<main class="demo-page demo-center">
 					<div class="h-5 w-5 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-900 dark:border-neutral-800 dark:border-t-neutral-100" />
@@ -56,37 +48,17 @@ function BetterAuthDemo() {
 			}
 		>
 			<Show
-				when={session().data?.user}
+				when={session.data?.user}
 				fallback={
 					<main class="demo-page demo-center">
 						<section class="demo-panel w-full max-w-md">
 							<p class="island-kicker mb-2">Better Auth</p>
-							<h1 class="demo-title">
-								{isSignUp() ? "Create an account" : "Sign in"}
-							</h1>
+							<h1 class="demo-title">Sign in</h1>
 							<p class="demo-muted mt-2 mb-6 text-sm">
-								{isSignUp()
-									? "Enter your information to create an account"
-									: "Enter your email below to login to your account"}
+								Enter your administrator email and password
 							</p>
 
 							<form onSubmit={handleSubmit} class="grid gap-4">
-								<Show when={isSignUp()}>
-									<div class="grid gap-2">
-										<label for="name" class="text-sm font-medium leading-none">
-											Name
-										</label>
-										<input
-											id="name"
-											type="text"
-											value={name()}
-											onInput={(e) => setName(e.currentTarget.value)}
-											class="demo-input"
-											required
-										/>
-									</div>
-								</Show>
-
 								<div class="grid gap-2">
 									<label for="email" class="text-sm font-medium leading-none">
 										Email
@@ -115,7 +87,7 @@ function BetterAuthDemo() {
 										onInput={(e) => setPassword(e.currentTarget.value)}
 										class="demo-input"
 										required
-										minLength={8}
+										minLength={12}
 									/>
 								</div>
 
@@ -139,25 +111,10 @@ function BetterAuthDemo() {
 											</span>
 										}
 									>
-										{isSignUp() ? "Create account" : "Sign in"}
+										Sign in
 									</Show>
 								</button>
 							</form>
-
-							<div class="mt-4 text-center">
-								<button
-									type="button"
-									onClick={() => {
-										setIsSignUp(!isSignUp());
-										setError("");
-									}}
-									class="demo-muted text-sm transition-colors hover:text-[var(--sea-ink)]"
-								>
-									{isSignUp()
-										? "Already have an account? Sign in"
-										: "Don't have an account? Sign up"}
-								</button>
-							</div>
 
 							<p class="demo-muted mt-6 text-center text-xs">
 								Built with{" "}
@@ -210,7 +167,11 @@ function BetterAuthDemo() {
 							<button
 								type="button"
 								onClick={() => {
-									void authClient.signOut();
+									void authClient.signOut().then(() =>
+										queryClient.invalidateQueries({
+											queryKey: sessionQueryKey,
+										}),
+									);
 								}}
 								class="demo-button demo-button-secondary w-full"
 							>
