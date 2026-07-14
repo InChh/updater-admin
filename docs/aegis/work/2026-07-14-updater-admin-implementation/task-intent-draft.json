@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Implement the approved Updater Admin plan in verified vertical batches",
+  "goal": "Deliver the approved single-tenant version-management administration system without widening scope",
+  "successEvidence": [
+    "All plan batches implemented; static checks, unit/contract/component/DB/E2E tests, production build, security scans, and authorized Preview checks pass"
+  ],
+  "stopCondition": "done when all authorized local batches and required evidence pass; blocked on repeated external credential or runtime blocker; needs-verification when cloud evidence is unavailable; scope-exceeded if compatibility, billing, tenancy, or production mutation is requested",
+  "nonGoals": [
+    "Provision or mutate production cloud resources",
+    "Modify UpdaterServer or existing updater clients",
+    "Add Billing, tenancy, or legacy compatibility"
+  ],
+  "scope": "Execute docs/aegis/plans/2026-07-14-updater-admin-implementation.md batches 0-14",
+  "changeKinds": [
+    "implementation"
+  ],
+  "riskHints": [
+    "High-risk cross-layer auth, schema, API, upload, UI, and deployment work"
+  ]
+}

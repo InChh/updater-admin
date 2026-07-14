@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-07-14-updater-admin-implementation",
+  "taskIntentRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/task-intent-draft.json",
+  "baselineRefs": [
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md"
+  ],
+  "scopeStatus": "Batch 0 only; no business code",
+  "compatStatus": "New /api/v1 boundary unchanged; no legacy compatibility",
+  "retirementStatus": "Demo routes retained until Batch 14",
+  "newRiskSignals": [
+    "Repository has no initial commit; baseline commit is required before worktree creation"
+  ],
+  "decision": "continue"
+}

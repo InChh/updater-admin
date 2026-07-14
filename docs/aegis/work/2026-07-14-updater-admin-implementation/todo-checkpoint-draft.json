@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-07-14-updater-admin-implementation",
+  "currentTodo": "Batch 0 baseline commit and isolated worktree",
+  "completedTodos": [],
+  "activeSlice": "Foundation preflight",
+  "evidenceRefs": [],
+  "blockedOn": null,
+  "nextStep": "Run Intent and scaffold verification, commit baseline, create .worktrees/codex-updater-admin-implementation",
+  "updatedAt": "2026-07-14"
+}

@@ -1,0 +1,67 @@
+{
+  "name": "updater-admin",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "format": "biome format",
+    "lint": "biome lint",
+    "check": "biome check",
+    "intent:list": "intent list",
+    "tanstack:libs": "tanstack libraries --json"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "@sentry/solid": "^10.42.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/router-plugin": "^1.133.21",
+    "@tanstack/solid-form": "latest",
+    "@tanstack/solid-query": "latest",
+    "@tanstack/solid-query-devtools": "latest",
+    "@tanstack/solid-router": "latest",
+    "@tanstack/solid-router-devtools": "latest",
+    "@tanstack/solid-router-ssr-query": "latest",
+    "@tanstack/solid-start": "latest",
+    "@tanstack/solid-store": "latest",
+    "@tanstack/solid-table": "^8.21.3",
+    "@tanstack/store": "latest",
+    "better-auth": "^1.5.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "^1.4.29",
+    "solid-js": "^1.9.12",
+    "tailwind-merge": "^3.0.2",
+    "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.5",
+    "@netlify/vite-plugin-tanstack-start": "^1.2.15",
+    "@solidjs/testing-library": "^0.8.10",
+    "@tanstack/cli": "^0.69.5",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/intent": "^0.3.5",
+    "@tanstack/router-cli": "^1.133.21",
+    "drizzle-kit": "^0.31.10",
+    "jsdom": "^28.1.0",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  }
+}

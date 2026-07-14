@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "Solid/TanStack frontend, Better Auth, Elysia, Drizzle/Neon, OSS, Sentry, Netlify"
+  ],
+  "owners": [
+    "Plan batches and canonical owners listed in the implementation plan"
+  ],
+  "invariants": [
+    "No Dashboard, Billing, multi-tenancy, legacy client compatibility, automatic OSS deletion, or duplicate cache/auth/API owner"
+  ],
+  "compatBoundary": "New /api/v1 administration contract only; legacy UpdaterServer wire contracts and data are excluded",
+  "nonGoals": [
+    "Provision or mutate production cloud resources",
+    "Modify UpdaterServer or existing updater clients",
+    "Add Billing, tenancy, or legacy compatibility"
+  ]
+}

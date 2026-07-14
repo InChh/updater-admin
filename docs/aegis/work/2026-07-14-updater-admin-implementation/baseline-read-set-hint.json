@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "AGENTS.md",
+    "docs/aegis/specs/2026-07-14-updater-admin-design.md",
+    "docs/aegis/baseline/2026-07-14-initial-baseline.md",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md"
+  ],
+  "whyRelevant": "These records lock requirements, ownership, compatibility exclusions, execution order, and verification",
+  "missingAuthority": []
+}
