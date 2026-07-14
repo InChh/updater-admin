@@ -117,16 +117,25 @@
 
 ## Checkpoint Update
 
-- Current todo: Batch 5: authenticated shell, dynamic opened tabs, localization, responsive navigation, and auth flow
-- Active slice: Batch 5 authenticated frontend shell
+- Current todo: Batch 6: program management vertical slice
+- Active slice: Batch 6 program contracts, repository/domain/API, Query/Table/Form UI, and nested route layout
 - Completed todos:
 - Batch 0: isolated worktree and fresh baseline verification
 - Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness
 - Batch 2: environment, schema, migration, and guarded DB integration harness
 - Batch 3: Better Auth, bootstrap, safe session/query ownership, and administrator credential helpers
 - Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed
+- Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed
 - Evidence refs:
-- Batch 4: 116 unit/contract tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0
-- Batch 4 independent specification and quality/security reviews PASS after reporter, fail-closed rotation, validation-bound, and trailing-slash fixes
-- Blocked on: Disposable TEST_DATABASE_URL unavailable; atomic DB rate test and live bootstrap proof remain skipped. Vite dev command did not reach a listening socket in this runner, so curl evidence is replaced by raw adapter/health contract tests and production build.
-- Next step: Implement screenshot-aligned authenticated shell, route registry, Query guard, login/forced-password flow, typed localization, Kobalte primitives, responsive navigation, and persisted dynamic tabs
+- Batch 5: 145 unit/contract/component tests, Biome over 109 files, typecheck, Netlify client/SSR build, anonymous real-Router Playwright guard, and diff-check all exit 0
+- Batch 5 independent specification and visual/accessibility re-reviews PASS after SSR-boundary, locale-owner, Field ARIA, tab focus/tabpanel, Switch focus-ring, radio-menu, and localized-close fixes
+- Blocked on: Disposable TEST_DATABASE_URL remains unavailable, so DB-backed proof is still an explicit skip. Authenticated four-page Playwright coverage is present but requires E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD in a seeded environment.
+- Next step: Implement the program vertical slice with strict shared contracts, transactional repository/domain rules, Elysia routes, Query client ownership, URL-backed Table/Form UI, and the required programs layout/index split.
+
+## DriftCheckDraft
+
+- Scope status: Batch 5 stayed within the authenticated shell, auth UI, protected route registry, typed localization, responsive navigation, UI primitives, persistent opened tabs, and their tests.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy client/API compatibility, program business behavior, or alternate session/cache owner was added.
+- Ownership status: Better Auth remains the session owner, Query remains the remote session cache, the authenticated session locale wins until Batch 10 persists profile changes, and TanStack Store owns only client shell state.
+- Verification status: Both independent reviews PASS; the remaining credential-gated authenticated browser run is an external environment action rather than an unimplemented test.
+- Advisory decision: continue

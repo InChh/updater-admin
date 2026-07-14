@@ -9,17 +9,32 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo.tanstack-query'
 import { Route as DemoStoreRouteImport } from './routes/demo.store'
 import { Route as DemoFormRouteImport } from './routes/demo.form'
 import { Route as DemoBetterAuthRouteImport } from './routes/demo.better-auth'
+import { Route as AuthenticatedProgramsRouteImport } from './routes/_authenticated/programs'
+import { Route as AuthenticatedAdministratorsRouteImport } from './routes/_authenticated/administrators'
 import { Route as DemoSentryBadEventHandlerRouteImport } from './routes/demo.sentry.bad-event-handler'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AuthenticatedSettingsSystemRouteImport } from './routes/_authenticated/settings.system'
+import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated/settings.profile'
+import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings.account'
+import { Route as AuthenticatedMonitoringOverviewRouteImport } from './routes/_authenticated/monitoring.overview'
+import { Route as AuthenticatedMonitoringAuditRouteImport } from './routes/_authenticated/monitoring.audit'
+import { Route as AuthenticatedProgramsProgramIdVersionsRouteImport } from './routes/_authenticated/programs.$programId.versions'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HealthRoute = HealthRouteImport.update({
   id: '/health',
   path: '/health',
@@ -28,6 +43,10 @@ const HealthRoute = HealthRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,6 +74,17 @@ const DemoBetterAuthRoute = DemoBetterAuthRouteImport.update({
   path: '/demo/better-auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedProgramsRoute = AuthenticatedProgramsRouteImport.update({
+  id: '/programs',
+  path: '/programs',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAdministratorsRoute =
+  AuthenticatedAdministratorsRouteImport.update({
+    id: '/administrators',
+    path: '/administrators',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const DemoSentryBadEventHandlerRoute =
   DemoSentryBadEventHandlerRouteImport.update({
     id: '/demo/sentry/bad-event-handler',
@@ -71,43 +101,107 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSettingsSystemRoute =
+  AuthenticatedSettingsSystemRouteImport.update({
+    id: '/settings/system',
+    path: '/settings/system',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsProfileRoute =
+  AuthenticatedSettingsProfileRouteImport.update({
+    id: '/settings/profile',
+    path: '/settings/profile',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedSettingsAccountRoute =
+  AuthenticatedSettingsAccountRouteImport.update({
+    id: '/settings/account',
+    path: '/settings/account',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedMonitoringOverviewRoute =
+  AuthenticatedMonitoringOverviewRouteImport.update({
+    id: '/monitoring/overview',
+    path: '/monitoring/overview',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedMonitoringAuditRoute =
+  AuthenticatedMonitoringAuditRouteImport.update({
+    id: '/monitoring/audit',
+    path: '/monitoring/audit',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedProgramsProgramIdVersionsRoute =
+  AuthenticatedProgramsProgramIdVersionsRouteImport.update({
+    id: '/$programId/versions',
+    path: '/$programId/versions',
+    getParentRoute: () => AuthenticatedProgramsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/health': typeof HealthRoute
+  '/login': typeof LoginRoute
+  '/administrators': typeof AuthenticatedAdministratorsRoute
+  '/programs': typeof AuthenticatedProgramsRouteWithChildren
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
+  '/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
+  '/settings/account': typeof AuthenticatedSettingsAccountRoute
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/health': typeof HealthRoute
+  '/login': typeof LoginRoute
+  '/administrators': typeof AuthenticatedAdministratorsRoute
+  '/programs': typeof AuthenticatedProgramsRouteWithChildren
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
+  '/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
+  '/settings/account': typeof AuthenticatedSettingsAccountRoute
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/about': typeof AboutRoute
   '/health': typeof HealthRoute
+  '/login': typeof LoginRoute
+  '/_authenticated/administrators': typeof AuthenticatedAdministratorsRoute
+  '/_authenticated/programs': typeof AuthenticatedProgramsRouteWithChildren
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/_authenticated/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
+  '/_authenticated/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
+  '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
+  '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/_authenticated/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/_authenticated/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -115,43 +209,73 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/health'
+    | '/login'
+    | '/administrators'
+    | '/programs'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
+    | '/monitoring/audit'
+    | '/monitoring/overview'
+    | '/settings/account'
+    | '/settings/profile'
+    | '/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/programs/$programId/versions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
     | '/health'
+    | '/login'
+    | '/administrators'
+    | '/programs'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
+    | '/monitoring/audit'
+    | '/monitoring/overview'
+    | '/settings/account'
+    | '/settings/profile'
+    | '/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/programs/$programId/versions'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
     | '/about'
     | '/health'
+    | '/login'
+    | '/_authenticated/administrators'
+    | '/_authenticated/programs'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
+    | '/_authenticated/monitoring/audit'
+    | '/_authenticated/monitoring/overview'
+    | '/_authenticated/settings/account'
+    | '/_authenticated/settings/profile'
+    | '/_authenticated/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/_authenticated/programs/$programId/versions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AboutRoute: typeof AboutRoute
   HealthRoute: typeof HealthRoute
+  LoginRoute: typeof LoginRoute
   DemoBetterAuthRoute: typeof DemoBetterAuthRoute
   DemoFormRoute: typeof DemoFormRoute
   DemoStoreRoute: typeof DemoStoreRoute
@@ -163,6 +287,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/solid-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/health': {
       id: '/health'
       path: '/health'
@@ -175,6 +306,13 @@ declare module '@tanstack/solid-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -212,6 +350,20 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof DemoBetterAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/programs': {
+      id: '/_authenticated/programs'
+      path: '/programs'
+      fullPath: '/programs'
+      preLoaderRoute: typeof AuthenticatedProgramsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/administrators': {
+      id: '/_authenticated/administrators'
+      path: '/administrators'
+      fullPath: '/administrators'
+      preLoaderRoute: typeof AuthenticatedAdministratorsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/demo/sentry/bad-event-handler': {
       id: '/demo/sentry/bad-event-handler'
       path: '/demo/sentry/bad-event-handler'
@@ -233,13 +385,95 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/settings/system': {
+      id: '/_authenticated/settings/system'
+      path: '/settings/system'
+      fullPath: '/settings/system'
+      preLoaderRoute: typeof AuthenticatedSettingsSystemRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/profile': {
+      id: '/_authenticated/settings/profile'
+      path: '/settings/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AuthenticatedSettingsProfileRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings/account': {
+      id: '/_authenticated/settings/account'
+      path: '/settings/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof AuthenticatedSettingsAccountRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/monitoring/overview': {
+      id: '/_authenticated/monitoring/overview'
+      path: '/monitoring/overview'
+      fullPath: '/monitoring/overview'
+      preLoaderRoute: typeof AuthenticatedMonitoringOverviewRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/monitoring/audit': {
+      id: '/_authenticated/monitoring/audit'
+      path: '/monitoring/audit'
+      fullPath: '/monitoring/audit'
+      preLoaderRoute: typeof AuthenticatedMonitoringAuditRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/programs/$programId/versions': {
+      id: '/_authenticated/programs/$programId/versions'
+      path: '/$programId/versions'
+      fullPath: '/programs/$programId/versions'
+      preLoaderRoute: typeof AuthenticatedProgramsProgramIdVersionsRouteImport
+      parentRoute: typeof AuthenticatedProgramsRoute
+    }
   }
 }
 
+interface AuthenticatedProgramsRouteChildren {
+  AuthenticatedProgramsProgramIdVersionsRoute: typeof AuthenticatedProgramsProgramIdVersionsRoute
+}
+
+const AuthenticatedProgramsRouteChildren: AuthenticatedProgramsRouteChildren = {
+  AuthenticatedProgramsProgramIdVersionsRoute:
+    AuthenticatedProgramsProgramIdVersionsRoute,
+}
+
+const AuthenticatedProgramsRouteWithChildren =
+  AuthenticatedProgramsRoute._addFileChildren(
+    AuthenticatedProgramsRouteChildren,
+  )
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedAdministratorsRoute: typeof AuthenticatedAdministratorsRoute
+  AuthenticatedProgramsRoute: typeof AuthenticatedProgramsRouteWithChildren
+  AuthenticatedMonitoringAuditRoute: typeof AuthenticatedMonitoringAuditRoute
+  AuthenticatedMonitoringOverviewRoute: typeof AuthenticatedMonitoringOverviewRoute
+  AuthenticatedSettingsAccountRoute: typeof AuthenticatedSettingsAccountRoute
+  AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
+  AuthenticatedSettingsSystemRoute: typeof AuthenticatedSettingsSystemRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAdministratorsRoute: AuthenticatedAdministratorsRoute,
+  AuthenticatedProgramsRoute: AuthenticatedProgramsRouteWithChildren,
+  AuthenticatedMonitoringAuditRoute: AuthenticatedMonitoringAuditRoute,
+  AuthenticatedMonitoringOverviewRoute: AuthenticatedMonitoringOverviewRoute,
+  AuthenticatedSettingsAccountRoute: AuthenticatedSettingsAccountRoute,
+  AuthenticatedSettingsProfileRoute: AuthenticatedSettingsProfileRoute,
+  AuthenticatedSettingsSystemRoute: AuthenticatedSettingsSystemRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AboutRoute: AboutRoute,
   HealthRoute: HealthRoute,
+  LoginRoute: LoginRoute,
   DemoBetterAuthRoute: DemoBetterAuthRoute,
   DemoFormRoute: DemoFormRoute,
   DemoStoreRoute: DemoStoreRoute,

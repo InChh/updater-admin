@@ -13,9 +13,9 @@ Before editing files for a substantial task:
 
 ## Current phase and hard gate
 
-This repository is the scaffold for the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Business implementation may now proceed only from the indexed implementation plan, preserving its vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
+This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–5 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 6 program management is the active slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
 
-Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes currently prove the scaffold integrations; replace them only as part of the approved implementation.
+Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes still prove integrations that do not yet have production owners and are retired together in Batch 14. The authenticated shell, Better Auth/Neon connection, Elysia foundation, database schema, localization, and dynamic tabs are production-owned now.
 
 ## Scaffold provenance
 
@@ -102,6 +102,8 @@ Copy `.env.example` to `.env.local` for local work. Never commit real values.
 - `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_ENVIRONMENT`: server capture and Netlify source-map upload configuration.
 - `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_UPLOAD_RAM_ROLE_ARN`, `OSS_STS_ENDPOINT`: server-only variables for upload STS issuance and upload verification. Download STS is outside this administration project.
 - `OSS_BUCKET`, `OSS_REGION`, `OSS_UPLOAD_PREFIX`: object-storage target and the namespace allowed by upload STS policy.
+- `TEST_DATABASE_URL`: disposable migrated Neon branch used only by destructive/transactional database verification; never point this at shared or production data.
+- `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`: seeded test administrator used by authenticated Playwright suites. Anonymous guard coverage runs without them; authenticated suites explicitly skip when they are absent.
 
 ## Local commands and verification
 
@@ -111,11 +113,14 @@ pnpm dev
 pnpm check
 pnpm typecheck
 pnpm test
+pnpm test:db
+pnpm test:e2e
 pnpm build
 pnpm intent:list
+pnpm generate-routes
 ```
 
-Biome was migrated to the installed `2.4.5` schema and has Tailwind directive parsing enabled. `src/routeTree.gen.ts` is generated and excluded from formatting. The test command currently passes with no tests; business implementation must add focused unit/integration tests before removing that scaffold allowance.
+Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. After Batch 5, the local gate is 145 unit/contract/component tests plus an anonymous real-Router Playwright guard; the disposable-database and authenticated-browser portions remain credential-gated.
 
 ## Netlify deployment
 
@@ -132,9 +137,13 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - Intent `0.3.5` currently reports that `intent.skills` is unset and warns a future version will require an explicit package allowlist. The implementation plan adds the ten currently reviewed TanStack skill sources to `package.json` before business work.
 - In this workspace, `pnpm dlx @tanstack/intent@latest load ...` can fail against the restricted package registry even though Intent is installed locally. Use `pnpm exec intent load ...` as the no-download equivalent and still record the exact skill loaded.
 - Local `npx` may need a writable temporary npm cache on this machine because `~/.npm` contains root-owned entries.
+- Business leaf routes deliberately use `ssr: false`; the pathless authenticated guard remains SSR-capable. Browser loaders call same-origin Elysia through Query, avoiding a duplicate cookie-forwarding adapter.
+- `/programs/$programId/versions` is structurally nested under `/programs`. Batch 6 must turn `programs.tsx` into an `<Outlet />` layout and add `programs.index.tsx` for the list page so the version child is not hidden or stacked.
+- The authenticated locale starts from server-owned `admin_metadata.locale`. Browser changes are session-local until Batch 10 adds the approved profile locale mutation; do not reintroduce a localStorage override that can beat the server profile.
+- Program-version tabs intentionally show the program ID prefix until the program query exists; Batch 9 replaces it with the program name while preserving the concrete href and program-scoped key.
 
-## Next steps after approval
+## Current implementation sequence
 
-1. Select an execution mode for `docs/aegis/plans/2026-07-14-updater-admin-implementation.md`.
-2. Capture the current no-commit scaffold as the implementation baseline, then work in an isolated branch/worktree as described by the plan.
-3. Implement the plan's vertical slices with Elysia authorization, TanStack Query/Table/Form/Store, tests, Sentry/health instrumentation, and Netlify verification.
+1. Implement Batch 6 program contracts, transactional repository/domain/API behavior, and Query/Table/Form UI, including the programs layout/index split.
+2. Continue Batches 7–13 in dependency order, parallelizing non-overlapping backend, upload, account, settings, monitoring, and deployment slices.
+3. In Batch 14 retire demos, run the complete DB/E2E/build/secret-scan matrix, compare against the supplied screenshots, and update this file with final cloud setup and remaining external actions.
