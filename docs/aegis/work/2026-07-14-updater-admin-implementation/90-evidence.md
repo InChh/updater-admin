@@ -25,3 +25,11 @@ No evidence has been recorded yet.
 - Source: pnpm install --frozen-lockfile --offline; pnpm intent:list; pnpm check; pnpm typecheck; pnpm test; pnpm exec playwright install --dry-run; pnpm build; git diff --check
 - Summary: Batch 1 passed the full tooling gate with a real 2-test Solid/jsdom suite, an explicit Intent allowlist, serial DB-test config, isolated Playwright E2E discovery, and successful Netlify production output. Independent specification and code-quality reviews passed after fixes.
 - Verifier: root
+
+## EvidenceBundleDraft
+
+- Artifact key: batch2-database
+- Type: verification
+- Source: pnpm db:generate; pnpm db:check; pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check
+- Summary: Batch 2 passed schema generation/check, 31 unit tests, Biome, TypeScript, Netlify production build, and diff-check. DB integration was explicitly skipped without TEST_DATABASE_URL. Guard probes reject missing confirmation and pooled/direct production aliases before connection. Independent spec and quality reviews passed.
+- Verifier: root

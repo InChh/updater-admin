@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch2-database",
+  "type": "verification",
+  "source": "pnpm db:generate; pnpm db:check; pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check",
+  "summary": "Batch 2 passed schema generation/check, 31 unit tests, Biome, TypeScript, Netlify production build, and diff-check. DB integration was explicitly skipped without TEST_DATABASE_URL. Guard probes reject missing confirmation and pooled/direct production aliases before connection. Independent spec and quality reviews passed.",
+  "verifier": "root"
+}

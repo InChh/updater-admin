@@ -3,11 +3,13 @@
   "taskId": "2026-07-14-updater-admin-implementation",
   "taskIntentRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/task-intent-draft.json",
   "baselineRefs": [
-    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-1"
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-2"
   ],
-  "scopeStatus": "Batch 1 stayed within tooling, dependency, environment typing, and test-harness scope.",
-  "compatStatus": "No Billing, tenancy, legacy-client compatibility, or business API surface added.",
-  "retirementStatus": "Scaffold demos intentionally remain until real TanStack owners exist and Batch 14 retires them.",
-  "newRiskSignals": [],
+  "scopeStatus": "Batch 2 stayed within environment validation, Drizzle/Neon database foundation, schema, migration, and destructive-test safety.",
+  "compatStatus": "No Billing, tenancy, legacy-client compatibility, Dashboard, or business API surface added.",
+  "retirementStatus": "Generated demos remain intentionally deferred until canonical application owners exist and Batch 14 removes them.",
+  "newRiskSignals": [
+    "Disposable DB integration remains unexecuted because TEST_DATABASE_URL is absent; the guard and explicit skip behavior are verified."
+  ],
   "decision": "continue"
 }

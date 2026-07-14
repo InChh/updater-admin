@@ -57,3 +57,26 @@
 - New risk signals:
 - none
 - Advisory decision: continue
+
+## DriftCheckDraft
+
+- Scope status: Batch 2 stayed within environment validation, Drizzle/Neon database foundation, schema, migration, and destructive-test safety.
+- Compatibility status: No Billing, tenancy, legacy-client compatibility, Dashboard, or business API surface added.
+- Retirement status: Generated demos remain intentionally deferred until canonical application owners exist and Batch 14 removes them.
+- New risk signals:
+- Disposable DB integration remains unexecuted because TEST_DATABASE_URL is absent; the guard and explicit skip behavior are verified.
+- Advisory decision: continue
+
+## Checkpoint Update
+
+- Current todo: Batch 3: Better Auth runtime, bootstrap, and safe session boundary
+- Active slice: Batch 3 authentication foundation
+- Completed todos:
+- Batch 0: isolated worktree and fresh baseline verification
+- Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness
+- Batch 2: validated environment access, 13-table Drizzle schema, guarded destructive DB tests, and sole initial migration; spec and quality reviews passed
+- Evidence refs:
+- Batch 2: db:generate, db:check, 31 unit tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0
+- Batch 2 independent specification and code-quality re-reviews PASS
+- Blocked on: Disposable TEST_DATABASE_URL unavailable; destructive DB integration test remains explicitly skipped
+- Next step: Implement Better Auth as sole session owner, idempotent bootstrap, protected admin mutation surface, and safe session projection

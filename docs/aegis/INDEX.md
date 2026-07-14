@@ -22,3 +22,4 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/resume-state-hint.json | 2026-07-14-updater-admin-implementation resume state hint |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch0-worktree.json | 2026-07-14-updater-admin-implementation evidence batch0-worktree |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch1-tooling.json | 2026-07-14-updater-admin-implementation evidence batch1-tooling |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch2-database.json | 2026-07-14-updater-admin-implementation evidence batch2-database |

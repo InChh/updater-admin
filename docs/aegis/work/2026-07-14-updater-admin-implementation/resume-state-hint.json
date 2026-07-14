@@ -2,10 +2,11 @@
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
   "lastCheckpointRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
-  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation; Batch 1 is ready to commit before Batch 2 edits",
+  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation after the Batch 2 commit; start Batch 3 from the approved plan and current Better Auth 1.6.23 patterns",
   "knownPartialWork": [
     "Batch 0: isolated worktree and fresh baseline verification",
-    "Batch 1: dependencies, Intent allowlist, deterministic Vitest/DB/Playwright harness; spec and quality reviews passed"
+    "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
+    "Batch 2: validated environment access, 13-table Drizzle schema, guarded destructive DB tests, and sole initial migration; spec and quality reviews passed"
   ],
   "mustReadBeforeContinuing": [
     "docs/aegis/work/2026-07-14-updater-admin-implementation/10-intent.md",
@@ -13,6 +14,6 @@
     "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json"
   ],
   "unsafeToAssume": [
-    "A disposable TEST_DATABASE_URL is available; DB integration tests must skip with an explicit reason when absent"
+    "A disposable TEST_DATABASE_URL is available; DB integration tests must skip explicitly when absent"
   ]
 }
