@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch7-versions",
+  "type": "verification",
+  "source": "pnpm check; pnpm typecheck; pnpm test; pnpm test:db; pnpm build; git diff --check",
+  "summary": "Batch 7 passed Biome over 158 files, TypeScript, 265 unit/contract/repository/domain/API/app-integration tests across 41 files, the guarded disposable-database harness, the Netlify client and SSR production build, and diff-check. Four destructive database suites explicitly skipped without TEST_DATABASE_URL. Independent repository and backend reviews passed after correcting exact live duplicate classification so VERSION_NUMBER_CONFLICT remains distinct from the all-history monotonicity error.",
+  "verifier": "root"
+}

@@ -13,7 +13,7 @@ Before editing files for a substantial task:
 
 ## Current phase and hard gate
 
-This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–6 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 7 semantic-version and file-relation backend rules are the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
+This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–7 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 8 direct OSS upload is the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
 
 Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes still prove integrations that do not yet have production owners and are retired together in Batch 14. The authenticated shell, Better Auth/Neon connection, Elysia foundation, database schema, localization, and dynamic tabs are production-owned now.
 
@@ -80,6 +80,7 @@ The existing upload model obtains Aliyun OSS STS credentials and uploads directl
 - `2026-07-14 — Deletion/audit/concurrency`: soft-delete business records, record actor and before/after audit data, never automatically delete OSS objects, and reject stale mutations with optimistic concurrency versions. Program deletion soft-deletes its live versions while preserving file metadata, version-file history, and OSS objects.
 - `2026-07-14 — Audit ownership exception`: repositories append successful program-operation audits inside the same transaction as the mutation so state and success evidence remain atomic. The Elysia audit plugin owns redacted failure intents; failure-audit persistence or reporting errors never replace or mask the original API response.
 - `2026-07-14 — Version format`: accept only canonical numeric `major.minor.patch` values with no leading zeros. Values remain numerically unique per program. Multiple versions may remain active; latest means the numerically highest active version.
+- `2026-07-14 — Version-management contract`: version and nested-file lists use pages `1..1,000,000`, page sizes `20`, `50`, or `100`, stable whitelisted sorting, and metadata-only file DTOs. New versions start inactive and require at least one existing file ID. Renumbering must exceed every historical version, including soft-deleted rows and the row itself; an exact duplicate of another live version reports `VERSION_NUMBER_CONFLICT` before the historical monotonicity error. Omitted `fileIds` preserves relations, while `[]` explicitly removes all relations.
 - `2026-07-14 — Initial pages and entry route`: login, programs, nested program versions, administrator accounts, monitoring, profile settings, and system settings. There is no Dashboard, overview, Billing, or tenant page. Login and `/` lead to `/programs` unless a valid protected return URL exists.
 - `2026-07-14 — Dynamic tabs`: render the tab bar directly below the top toolbar and above the page title. `/programs` is pinned; other visited pages remain open across navigation via TanStack Store plus `sessionStorage`. Tabs are stateful opened-page history, not a projection of the current route. Closing the active tab falls back to the left neighbor or `/programs`.
 - `2026-07-14 — Monitoring`: expose liveness plus authenticated Neon/OSS readiness, audit history, chart-ready release trends, active-version count, storage totals, and recent operations on monitoring routes. Send browser/server errors to Sentry, but do not fetch or duplicate Sentry Issue data.
@@ -123,7 +124,7 @@ pnpm intent:list
 pnpm generate-routes
 ```
 
-Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 6 gate covers 140 Biome files and 218 unit/contract/component tests across 33 files; typecheck and the Netlify client/SSR build pass. The anonymous real-Router Playwright guard passes, while authenticated shell/program CRUD and the two destructive database suites remain explicitly credential-gated.
+Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 7 gate covers 158 Biome files and 265 unit/contract/repository/domain/API/app-integration tests across 41 files; typecheck and the Netlify client/SSR build pass. Four disposable database suites remain explicitly credential-gated.
 
 ## Netlify deployment
 
@@ -146,11 +147,13 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - Program validation counts Unicode code points rather than UTF-16 code units. Database-bound text rejects NUL and ill-formed surrogate sequences, while Problem Details validation paths remain bounded, control-free, and well-formed so the browser client can safely accept them.
 - Program deletion intentionally preserves `file_metadata`, `version_files`, and Aliyun OSS objects while soft-deleting the program and its live versions. Do not add object cleanup to this mutation.
 - Successful program audits are an intentional repository ownership exception because they must commit atomically with the mutation. Redacted failure audit intent stays in the API plugin, and any audit failure must leave the original error response unchanged.
+- Version creation and renumbering lock the live parent program. Check an exact duplicate of another live row before enforcing the all-history maximum so `VERSION_NUMBER_CONFLICT` remains reachable; the historical maximum intentionally includes soft-deleted rows and the row being renumbered.
+- Version-file replacement is tri-state: omitted `fileIds` preserves the existing relation set, `[]` removes it, and a non-empty list validates every live file before replacement. Keep full before/after ID sets in the atomic success audit.
 - The authenticated locale starts from server-owned `admin_metadata.locale`. Browser changes are session-local until Batch 10 adds the approved profile locale mutation; do not reintroduce a localStorage override that can beat the server profile.
 - Program-version tabs intentionally show the program ID prefix until the program query exists; Batch 9 replaces it with the program name while preserving the concrete href and program-scoped key.
 
 ## Current implementation sequence
 
-1. Implement Batch 7 semantic-version parsing, version/file repositories and domain rules, and nested Elysia version/file APIs.
-2. Continue Batches 8–13 in dependency order, parallelizing non-overlapping upload, version UI, account, settings, monitoring, and deployment slices.
+1. Implement Batch 8 short-lived OSS STS, metadata verification, incremental hashing, and direct multipart upload.
+2. Continue Batches 9–13 in dependency order, parallelizing non-overlapping version UI, account, settings, monitoring, and deployment slices.
 3. In Batch 14 retire demos, run the complete DB/E2E/build/secret-scan matrix, compare against the supplied screenshots, and update this file with final cloud setup and remaining external actions.

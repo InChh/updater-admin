@@ -14,6 +14,7 @@ import {
 import type { SafeSessionView } from "../auth/session.server";
 import type { AppendAuditEventInput } from "../db/repositories/audit.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type { FilesService, VersionsService } from "../domain/versions.server";
 import {
 	type ApiAppDependencies,
 	createApiApp,
@@ -23,6 +24,9 @@ import { requireExactIfMatch } from "./problem";
 
 const USER_ID = "00000000-0000-4000-8000-000000000001";
 const SESSION_ID = "00000000-0000-4000-8000-000000000002";
+const PROGRAM_ID = "00000000-0000-4000-8000-000000000003";
+const VERSION_ID = "00000000-0000-4000-8000-000000000004";
+const FILE_ID = "00000000-0000-4000-8000-000000000005";
 
 function safeSession(
 	overrides: {
@@ -77,6 +81,35 @@ function programsService(
 		getById: notImplemented,
 		list: notImplemented,
 		update: notImplemented,
+		...overrides,
+	};
+}
+
+function versionsService(
+	overrides: Partial<VersionsService> = {},
+): VersionsService {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected versions service call.");
+	};
+	return {
+		create: notImplemented,
+		delete: notImplemented,
+		getById: notImplemented,
+		list: notImplemented,
+		listFiles: notImplemented,
+		setActivation: notImplemented,
+		update: notImplemented,
+		...overrides,
+	};
+}
+
+function filesService(overrides: Partial<FilesService> = {}): FilesService {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected files service call.");
+	};
+	return {
+		getById: notImplemented,
+		list: notImplemented,
 		...overrides,
 	};
 }
@@ -187,6 +220,98 @@ describe("Elysia API foundation", () => {
 			page: 1,
 			pageSize: 20,
 			sort: "createdAt:asc",
+		});
+	});
+
+	it("mounts version and file lists while keeping both services lazy for health", async () => {
+		const listVersions = vi.fn(async () => ({
+			items: [
+				{
+					createdAt: "2026-07-14T00:00:00.000Z",
+					description: "Initial release",
+					etag: 'W/"1"' as const,
+					fileCount: 1,
+					id: VERSION_ID,
+					isActive: true,
+					isLatest: true,
+					programId: PROGRAM_ID,
+					updatedAt: "2026-07-14T00:00:00.000Z",
+					versionNumber: "1.0.0",
+				},
+			],
+			page: 2,
+			pageSize: 50 as const,
+			total: 1,
+		}));
+		const listFiles = vi.fn(async () => ({
+			items: [
+				{
+					checksumAlgorithm: "sha256" as const,
+					createdAt: "2026-07-14T00:00:00.000Z",
+					id: FILE_ID,
+					mimeType: "application/octet-stream",
+					objectEtag: '"object-etag"',
+					path: "desktop/installer.zip",
+					sha256: "a".repeat(64),
+					size: "1024",
+					updatedAt: "2026-07-14T00:00:00.000Z",
+				},
+			],
+			page: 3,
+			pageSize: 100 as const,
+			total: 1,
+		}));
+		const getVersionsService = vi.fn(() =>
+			versionsService({ list: listVersions }),
+		);
+		const getFilesService = vi.fn(() => filesService({ list: listFiles }));
+		const app = createApiApp(
+			testDependencies({ getFilesService, getVersionsService }),
+		);
+
+		const health = await app.handle(new Request("http://localhost/health"));
+		expect(health.status).toBe(200);
+		expect(getVersionsService).not.toHaveBeenCalled();
+		expect(getFilesService).not.toHaveBeenCalled();
+
+		const versions = await app.handle(
+			new Request(
+				`http://localhost/api/v1/programs/${PROGRAM_ID}/versions?page=2&pageSize=50&sort=createdAt%3Aasc`,
+			),
+		);
+		expect(versions.status).toBe(200);
+		expect(await versions.json()).toMatchObject({
+			items: [{ id: VERSION_ID, versionNumber: "1.0.0" }],
+			page: 2,
+			pageSize: 50,
+			total: 1,
+		});
+		expect(getVersionsService).toHaveBeenCalledOnce();
+		expect(listVersions).toHaveBeenCalledWith(PROGRAM_ID, {
+			page: 2,
+			pageSize: 50,
+			sort: "createdAt:asc",
+		});
+		expect(getFilesService).not.toHaveBeenCalled();
+
+		const files = await app.handle(
+			new Request(
+				"http://localhost/api/v1/files?path=installer&page=3&pageSize=100&sort=path%3Adesc",
+			),
+		);
+		expect(files.status).toBe(200);
+		expect(await files.json()).toMatchObject({
+			items: [{ id: FILE_ID, path: "desktop/installer.zip" }],
+			page: 3,
+			pageSize: 100,
+			total: 1,
+		});
+		expect(getFilesService).toHaveBeenCalledOnce();
+		expect(listFiles).toHaveBeenCalledWith({
+			page: 3,
+			pageSize: 100,
+			path: "installer",
+			sort: "path:desc",
 		});
 	});
 
@@ -331,6 +456,51 @@ describe("Elysia API foundation", () => {
 			requestId: "req_test",
 			resourceId: "unassigned",
 			resourceType: "program",
+			result: "failure",
+			userAgent: null,
+		});
+		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
+			"must-not-be-audited",
+		);
+		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
+			"also-not-audited",
+		);
+	});
+
+	it("audits invalid version activation with its canonical action and no submitted values", async () => {
+		const appendFailureAudit = vi.fn(
+			async (_input: AppendAuditEventInput) => {},
+		);
+		const app = createApiApp(testDependencies({ appendFailureAudit }));
+		const response = await app.handle(
+			new Request(
+				`http://localhost/api/v1/programs/${PROGRAM_ID}/versions/${VERSION_ID}/activation`,
+				{
+					body: JSON.stringify({
+						isActive: "must-not-be-audited",
+						note: "also-not-audited",
+					}),
+					headers: {
+						"content-type": "application/json",
+						origin: "http://localhost",
+					},
+					method: "PUT",
+				},
+			),
+		);
+
+		expect(response.status).toBe(422);
+		expect(appendFailureAudit).toHaveBeenCalledWith({
+			action: "version.activation.updated",
+			actorId: USER_ID,
+			after: {
+				code: "VALIDATION_FAILED",
+				method: "PUT",
+			},
+			ip: null,
+			requestId: "req_test",
+			resourceId: VERSION_ID,
+			resourceType: "version",
 			result: "failure",
 			userAgent: null,
 		});

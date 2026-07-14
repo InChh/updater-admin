@@ -19,6 +19,9 @@ const PROBLEM_TITLES: Readonly<Record<string, string>> = {
 	STALE_WRITE: "The resource changed since it was loaded",
 	UNAUTHENTICATED: "Authentication is required",
 	VALIDATION_FAILED: "One or more fields are invalid",
+	VERSION_NOT_GREATER:
+		"The version number must be greater than every prior version",
+	VERSION_NUMBER_CONFLICT: "A version with this number already exists",
 };
 const MAX_FIELD_ERRORS = 100;
 const MAX_FIELD_PATH_LENGTH = 512;

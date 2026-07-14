@@ -142,8 +142,8 @@
 
 ## Checkpoint Update
 
-- Current todo: Batch 7: semantic-version and file-relation backend rules
-- Active slice: Batch 7 shared version/file contracts, semantic-version parser, repositories/domain rules, and nested Elysia APIs
+- Current todo: Batch 8: direct OSS release uploads
+- Active slice: Batch 8 STS policy, object verification, metadata registration, worker hashing, multipart upload, and in-memory upload queue
 - Completed todos:
 - Batch 0: isolated worktree and fresh baseline verification
 - Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness
@@ -152,6 +152,7 @@
 - Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction
 - Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible primitives, responsive navigation, and persistent dynamic tabs
 - Batch 6: strict program contracts, transactional repository/domain/API behavior, Query/Table/Form UI, guarded DB integration coverage, program-management E2E coverage, and the `programs.tsx` layout plus `programs.index.tsx` leaf split
+- Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain rules, nested/global Elysia APIs, app mounting, and guarded database coverage
 - Evidence refs:
 - Batch 6 program contract fixes page values to `1..1,000,000`, page sizes to `20`/`50`/`100`, literal case-sensitive filtering, and stable `createdAt` plus `id` sorting.
 - Batch 6 mutations use opaque weak ETags and `If-Match`; successful delete returns `204` without a response ETag. Unicode code-point limits and bounded control-free well-formed validation paths are covered by the contract boundary.
@@ -159,13 +160,18 @@
 - Root gate evidence: `pnpm check` passed over 140 files; `pnpm typecheck` passed; `pnpm test` passed 33 files/218 tests; `pnpm build` produced the Netlify client and SSR function; route generation and `git diff --check` passed.
 - Browser/database evidence: `pnpm test:e2e` exited 0 with the anonymous real-Router guard passing; authenticated shell and program CRUD suites skipped without `E2E_ADMIN_EMAIL`/`E2E_ADMIN_PASSWORD`. `pnpm test:db` loaded the guarded harness and skipped 2 files/2 tests without a disposable `TEST_DATABASE_URL`.
 - Blocked on: Disposable DB execution requires `TEST_DATABASE_URL` plus `TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests`. Authenticated Playwright execution requires seeded `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD`; the suites remain explicit credential-gated checks when those values are absent.
-- Next step: Implement Batch 7 semantic-version parsing, transactional version/file-relation behavior, list/detail/mutation contracts, latest-active selection, and nested Elysia version/file APIs.
+- Batch 7 parser accepts canonical numeric `major.minor.patch` only and proves numeric ordering such as `1.10.0 > 1.9.99` within PostgreSQL integer and schema-length bounds.
+- Version mutations lock the parent program, distinguish live duplicate conflicts from all-history monotonicity failures, preserve multiple active rows, derive exactly one numeric latest active row, and use ETag/If-Match concurrency.
+- Version-file replacement treats omitted IDs as preserve and `[]` as remove-all; file metadata and relations survive soft deletion, while success audits commit atomically with full before/after relation IDs.
+- Batch 7 root gate: Biome, typecheck, unit/contract/repository/domain/API/app-integration tests, guarded database harness, Netlify client/SSR build, and diff-check all exit 0. Disposable database execution remains an explicit skip without approved credentials.
+- Independent repository and backend re-reviews PASS after correcting duplicate-conflict classification before historical monotonicity.
+- Next step: Implement short-lived OSS STS, deterministic object keys, verified idempotent metadata registration, incremental worker hashing, browser-direct multipart upload, and upload queue behavior.
 
 ## DriftCheckDraft
 
-- Scope status: Batch 6 stayed within program contracts, program persistence/domain/API behavior, Query/Table/Form UI, program routes, and their database/browser verification seams.
+- Scope status: Batches 6–7 stayed within program/version/file contracts, persistence/domain/API behavior, program UI, and their database/browser verification seams.
 - Compatibility status: No Dashboard, Billing, tenancy, legacy API/client compatibility, automatic OSS deletion, or alternate auth/cache owner was added.
 - Ownership status: Elysia remains the business API owner, Drizzle repositories remain the SQL owners, Query remains the remote cache owner, and Better Auth remains the session owner. Repository-owned successful audit append is a documented exception required for transaction atomicity; redacted failure intent remains API-plugin-owned.
 - Data-retention status: Soft-deleting a program and its live versions preserves file metadata, relation history, and OSS objects.
-- Verification status: Batch 6 passed the root static/unit/build/browser gate; only the explicitly environment-gated disposable-DB and authenticated-browser executions remain external follow-up evidence.
-- Advisory decision: continue to Batch 7
+- Verification status: Batch 7 passed the root static/unit/build gate; only the explicitly environment-gated disposable-DB execution remains external follow-up evidence for this backend-only slice.
+- Advisory decision: continue to Batch 8

@@ -56,6 +56,44 @@ function failureAuditIntent(request: Request): FailureAuditIntent | null {
 			resourceType: "program",
 		};
 	}
+	const versionCollectionMatch = /^\/api\/v1\/programs\/[^/]+\/versions$/.exec(
+		pathname,
+	);
+	if (versionCollectionMatch && request.method === "POST") {
+		return {
+			action: "version.created",
+			resourceId: "unassigned",
+			resourceType: "version",
+		};
+	}
+	const versionMatch = /^\/api\/v1\/programs\/[^/]+\/versions\/([^/]+)$/.exec(
+		pathname,
+	);
+	if (versionMatch?.[1] && request.method === "PATCH") {
+		return {
+			action: "version.updated",
+			resourceId: versionMatch[1].slice(0, 128),
+			resourceType: "version",
+		};
+	}
+	if (versionMatch?.[1] && request.method === "DELETE") {
+		return {
+			action: "version.deleted",
+			resourceId: versionMatch[1].slice(0, 128),
+			resourceType: "version",
+		};
+	}
+	const activationMatch =
+		/^\/api\/v1\/programs\/[^/]+\/versions\/([^/]+)\/activation$/.exec(
+			pathname,
+		);
+	if (activationMatch?.[1] && request.method === "PUT") {
+		return {
+			action: "version.activation.updated",
+			resourceId: activationMatch[1].slice(0, 128),
+			resourceType: "version",
+		};
+	}
 	if (
 		request.method === "POST" &&
 		pathname === "/api/v1/profile/change-password"
