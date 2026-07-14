@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 
 import { getAuth } from "../auth/auth.server";
 import { getSafeSession, type SafeSessionView } from "../auth/session.server";
+import type { AppendAuditEventInput } from "../db/repositories/audit.server";
 import {
 	type BeginPasswordChangeInput,
 	type CompletePasswordChangeInput,
@@ -11,8 +12,10 @@ import type {
 	RateLimitDecision,
 	RateLimitInput,
 } from "../db/repositories/rate-limit.server";
+import type { ProgramsService } from "../domain/programs.server";
 import { ApiRequestContextStore } from "./context.server";
 import { createProfileModule, type PasswordAuthApi } from "./modules/profile";
+import { createProgramsModule } from "./modules/programs";
 import { createAuditPlugin } from "./plugins/audit.server";
 import { createOriginPlugin } from "./plugins/origin.server";
 import {
@@ -25,6 +28,9 @@ import { mapApiError } from "./problem";
 import { healthSchema } from "./schemas/common";
 
 export interface ApiAppDependencies {
+	readonly appendFailureAudit?: (
+		input: AppendAuditEventInput,
+	) => Promise<unknown>;
 	readonly beginPasswordChange?: (
 		input: BeginPasswordChangeInput,
 	) => Promise<void>;
@@ -37,6 +43,7 @@ export interface ApiAppDependencies {
 	readonly generateRequestId?: () => string;
 	readonly getCanonicalOrigin?: () => string | Promise<string>;
 	readonly getPasswordAuthApi?: () => PasswordAuthApi;
+	readonly getProgramsService?: () => ProgramsService;
 	readonly getSession?: (headers: Headers) => Promise<SafeSessionView | null>;
 	readonly now?: () => Date;
 	readonly rateLimitPolicies?: ReadonlyMap<string, RateLimitPolicy>;
@@ -75,13 +82,6 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 	};
 
 	return new Elysia({ normalize: false })
-		.onError((context) =>
-			mapApiError(context, {
-				getRequestId: (request) =>
-					contextStore.getRequestId(request) ?? fallbackRequestId(request),
-				reportInternalError: dependencies.reportInternalError,
-			}),
-		)
 		.use(
 			createRequestIdPlugin({
 				contextStore,
@@ -107,19 +107,43 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 				policies: dependencies.rateLimitPolicies,
 			}),
 		)
-		.use(createAuditPlugin({ contextStore }))
+		.use(
+			createAuditPlugin({
+				...(dependencies.appendFailureAudit
+					? { appendFailure: dependencies.appendFailureAudit }
+					: {}),
+				contextStore,
+				reportFailureAuditError: dependencies.reportInternalError,
+			}),
+		)
+		.onError((context) =>
+			mapApiError(context, {
+				getRequestId: (request) =>
+					contextStore.getRequestId(request) ?? fallbackRequestId(request),
+				reportInternalError: dependencies.reportInternalError,
+			}),
+		)
 		.get("/health", () => ({ status: "ok" as const }), {
 			response: { 200: healthSchema },
 		})
 		.group("/api/v1", (group) =>
-			group.use(
-				createProfileModule({
-					contextStore,
-					getPasswordAuthApi:
-						dependencies.getPasswordAuthApi ?? (() => getAuth().api),
-					profileRepository,
-				}),
-			),
+			group
+				.use(
+					createProfileModule({
+						contextStore,
+						getPasswordAuthApi:
+							dependencies.getPasswordAuthApi ?? (() => getAuth().api),
+						profileRepository,
+					}),
+				)
+				.use(
+					createProgramsModule({
+						contextStore,
+						...(dependencies.getProgramsService
+							? { getProgramsService: dependencies.getProgramsService }
+							: {}),
+					}),
+				),
 		);
 }
 

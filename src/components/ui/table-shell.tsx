@@ -6,6 +6,7 @@ export interface TableShellProps {
 	readonly children: JSX.Element;
 	readonly class?: string;
 	readonly description?: string;
+	readonly footer?: JSX.Element;
 	readonly title?: string;
 	readonly toolbar?: JSX.Element;
 }
@@ -27,6 +28,7 @@ export function TableShell(props: TableShellProps) {
 				</header>
 			)}
 			<div class="overflow-x-auto">{props.children}</div>
+			{props.footer && <footer class="bg-white">{props.footer}</footer>}
 		</section>
 	);
 }

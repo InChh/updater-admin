@@ -20,6 +20,7 @@ import { Route as DemoFormRouteImport } from './routes/demo.form'
 import { Route as DemoBetterAuthRouteImport } from './routes/demo.better-auth'
 import { Route as AuthenticatedProgramsRouteImport } from './routes/_authenticated/programs'
 import { Route as AuthenticatedAdministratorsRouteImport } from './routes/_authenticated/administrators'
+import { Route as AuthenticatedProgramsIndexRouteImport } from './routes/_authenticated/programs.index'
 import { Route as DemoSentryBadEventHandlerRouteImport } from './routes/demo.sentry.bad-event-handler'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -84,6 +85,12 @@ const AuthenticatedAdministratorsRoute =
     id: '/administrators',
     path: '/administrators',
     getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedProgramsIndexRoute =
+  AuthenticatedProgramsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedProgramsRoute,
   } as any)
 const DemoSentryBadEventHandlerRoute =
   DemoSentryBadEventHandlerRouteImport.update({
@@ -157,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/programs/': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRoutesByTo {
@@ -165,7 +173,6 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/administrators': typeof AuthenticatedAdministratorsRoute
-  '/programs': typeof AuthenticatedProgramsRouteWithChildren
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
@@ -178,6 +185,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/programs': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRoutesById {
@@ -201,6 +209,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
+  '/_authenticated/programs/': typeof AuthenticatedProgramsIndexRoute
   '/_authenticated/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRouteTypes {
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/programs/'
     | '/programs/$programId/versions'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -232,7 +242,6 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/administrators'
-    | '/programs'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/programs'
     | '/programs/$programId/versions'
   id:
     | '__root__'
@@ -267,6 +277,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
+    | '/_authenticated/programs/'
     | '/_authenticated/programs/$programId/versions'
   fileRoutesById: FileRoutesById
 }
@@ -364,6 +375,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof AuthenticatedAdministratorsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/programs/': {
+      id: '/_authenticated/programs/'
+      path: '/'
+      fullPath: '/programs/'
+      preLoaderRoute: typeof AuthenticatedProgramsIndexRouteImport
+      parentRoute: typeof AuthenticatedProgramsRoute
+    }
     '/demo/sentry/bad-event-handler': {
       id: '/demo/sentry/bad-event-handler'
       path: '/demo/sentry/bad-event-handler'
@@ -431,10 +449,12 @@ declare module '@tanstack/solid-router' {
 }
 
 interface AuthenticatedProgramsRouteChildren {
+  AuthenticatedProgramsIndexRoute: typeof AuthenticatedProgramsIndexRoute
   AuthenticatedProgramsProgramIdVersionsRoute: typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 
 const AuthenticatedProgramsRouteChildren: AuthenticatedProgramsRouteChildren = {
+  AuthenticatedProgramsIndexRoute: AuthenticatedProgramsIndexRoute,
   AuthenticatedProgramsProgramIdVersionsRoute:
     AuthenticatedProgramsProgramIdVersionsRoute,
 }

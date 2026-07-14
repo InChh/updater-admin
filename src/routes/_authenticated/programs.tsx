@@ -1,8 +1,6 @@
-import { createFileRoute } from "@tanstack/solid-router";
-
-import { PlaceholderPage } from "../../features/shell/placeholder-page";
+import { createFileRoute, Outlet } from "@tanstack/solid-router";
 
 export const Route = createFileRoute("/_authenticated/programs")({
-	component: () => <PlaceholderPage routeId="programs" />,
+	component: () => <Outlet />,
 	ssr: false,
 });

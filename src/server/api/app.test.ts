@@ -2,9 +2,18 @@ import { APIError } from "better-auth/api";
 import { t } from "elysia";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+	ApiProblemError as ClientApiProblemError,
+	createApiClient,
+} from "../../lib/api/client";
 import type { ApiProblem } from "../../shared/api/common";
-import { formatWeakEntityTag } from "../../shared/api/common";
+import {
+	formatWeakEntityTag,
+	isWellFormedUnicode,
+} from "../../shared/api/common";
 import type { SafeSessionView } from "../auth/session.server";
+import type { AppendAuditEventInput } from "../db/repositories/audit.server";
+import type { ProgramsService } from "../domain/programs.server";
 import {
 	type ApiAppDependencies,
 	createApiApp,
@@ -56,10 +65,27 @@ function allowedRateLimitDecision() {
 	};
 }
 
+function programsService(
+	overrides: Partial<ProgramsService> = {},
+): ProgramsService {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected programs service call.");
+	};
+	return {
+		create: notImplemented,
+		delete: notImplemented,
+		getById: notImplemented,
+		list: notImplemented,
+		update: notImplemented,
+		...overrides,
+	};
+}
+
 function testDependencies(
 	overrides: ApiAppDependencies = {},
 ): ApiAppDependencies {
 	return {
+		appendFailureAudit: async () => {},
 		beginPasswordChange: async () => {},
 		completePasswordChange: async () => {},
 		consumeRateLimit: async () => allowedRateLimitDecision(),
@@ -107,6 +133,7 @@ describe("Elysia API foundation", () => {
 			generateRequestId: () => "req_test",
 			getCanonicalOrigin: forbiddenDependency,
 			getPasswordAuthApi: forbiddenDependency,
+			getProgramsService: forbiddenDependency,
 			getSession: forbiddenDependency,
 		});
 
@@ -116,6 +143,51 @@ describe("Elysia API foundation", () => {
 		expect(await response.json()).toEqual({ status: "ok" });
 		expect(forbiddenDependency).not.toHaveBeenCalled();
 		expect(response.headers.get("x-request-id")).toBeNull();
+	});
+
+	it("mounts the authenticated programs module while keeping service creation lazy", async () => {
+		const list = vi.fn(async () => ({
+			items: [
+				{
+					createdAt: "2026-07-14T00:00:00.000Z",
+					description: null,
+					etag: 'W/"1"' as const,
+					id: "00000000-0000-4000-8000-000000000010",
+					name: "Desktop",
+					updatedAt: "2026-07-14T00:00:00.000Z",
+				},
+			],
+			page: 1,
+			pageSize: 20 as const,
+			total: 1,
+		}));
+		const getProgramsService = vi.fn(() => programsService({ list }));
+		const app = createApiApp(testDependencies({ getProgramsService }));
+
+		const health = await app.handle(new Request("http://localhost/health"));
+		expect(health.status).toBe(200);
+		expect(getProgramsService).not.toHaveBeenCalled();
+
+		const response = await app.handle(
+			new Request(
+				"http://localhost/api/v1/programs?name=Desk&page=1&pageSize=20&sort=createdAt%3Aasc",
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			items: [{ id: "00000000-0000-4000-8000-000000000010" }],
+			page: 1,
+			pageSize: 20,
+			total: 1,
+		});
+		expect(getProgramsService).toHaveBeenCalledOnce();
+		expect(list).toHaveBeenCalledWith({
+			name: "Desk",
+			page: 1,
+			pageSize: 20,
+			sort: "createdAt:asc",
+		});
 	});
 
 	it("returns a sanitized 401 before origin, rate-limit, and routing work", async () => {
@@ -228,6 +300,120 @@ describe("Elysia API foundation", () => {
 		expect(JSON.stringify(problem)).not.toContain("super-secret-current");
 	});
 
+	it("records authorized program mutation failures without attempted values", async () => {
+		const appendFailureAudit = vi.fn(
+			async (_input: AppendAuditEventInput) => {},
+		);
+		const app = createApiApp(testDependencies({ appendFailureAudit }));
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/programs", {
+				body: JSON.stringify({
+					extra: "must-not-be-audited",
+					name: "also-not-audited",
+				}),
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+
+		expect(response.status).toBe(422);
+		expect(appendFailureAudit).toHaveBeenCalledWith({
+			action: "program.created",
+			actorId: USER_ID,
+			after: {
+				code: "VALIDATION_FAILED",
+				method: "POST",
+			},
+			ip: null,
+			requestId: "req_test",
+			resourceId: "unassigned",
+			resourceType: "program",
+			result: "failure",
+			userAgent: null,
+		});
+		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
+			"must-not-be-audited",
+		);
+		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
+			"also-not-audited",
+		);
+	});
+
+	it("preserves the original problem when failure auditing also fails", async () => {
+		const reportInternalError = vi.fn(async () => {});
+		const app = createApiApp(
+			testDependencies({
+				appendFailureAudit: async () => {
+					throw new Error("audit database unavailable");
+				},
+				reportInternalError,
+			}),
+		);
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/programs", {
+				body: JSON.stringify({ extra: true, name: "Invalid" }),
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+
+		expect(response.status).toBe(422);
+		expect(await readProblem(response)).toMatchObject({
+			code: "VALIDATION_FAILED",
+		});
+		expect(reportInternalError).toHaveBeenCalledWith(
+			expect.any(Error),
+			"req_test",
+		);
+	});
+
+	it("audits parse and response-validation failures with the mapped problem code", async () => {
+		const appendFailureAudit = vi.fn(
+			async (_input: AppendAuditEventInput) => {},
+		);
+		const app = createApiApp(testDependencies({ appendFailureAudit })).post(
+			"/api/v1/invalid-mutation-response",
+			() => JSON.parse('{"ok":"not-a-boolean"}'),
+			{ response: { 200: t.Object({ ok: t.Boolean() }) } },
+		);
+
+		const malformed = await app.handle(
+			new Request("http://localhost/api/v1/programs", {
+				body: '{"name":',
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+		expect(malformed.status).toBe(400);
+		expect(await readProblem(malformed)).toMatchObject({ code: "BAD_REQUEST" });
+
+		const responseValidation = await app.handle(
+			new Request("http://localhost/api/v1/invalid-mutation-response", {
+				headers: { origin: "http://localhost" },
+				method: "POST",
+			}),
+		);
+		expect(responseValidation.status).toBe(500);
+		expect(await readProblem(responseValidation)).toMatchObject({
+			code: "INTERNAL_ERROR",
+		});
+		expect(appendFailureAudit.mock.calls.map(([input]) => input.after)).toEqual(
+			[
+				{ code: "BAD_REQUEST", method: "POST" },
+				{ code: "INTERNAL_ERROR", method: "POST" },
+			],
+		);
+	});
+
 	it("bounds and deduplicates attacker-controlled validation paths", async () => {
 		const attackerFields = Object.fromEntries(
 			Array.from({ length: 150 }, (_, index) => [
@@ -255,6 +441,48 @@ describe("Elysia API foundation", () => {
 			100,
 		);
 		expect(JSON.stringify(problem)).not.toContain("attacker-controlled-value");
+	});
+
+	it("sanitizes validation paths that cross the server-client trust boundary", async () => {
+		const app = createApiApp(testDependencies());
+		const client = createApiClient((input, init) => {
+			const headers = new Headers(init?.headers);
+			headers.set("origin", "http://localhost");
+			return app.handle(
+				new Request(new URL(String(input), "http://localhost"), {
+					...init,
+					headers,
+				}),
+			);
+		});
+
+		const error = await client
+			.json("/api/v1/programs", {
+				body: {
+					"bad\nkey": "must-not-cross-boundary",
+					"bad\ud800key": "must-not-cross-boundary",
+					name: "Valid",
+				},
+				method: "POST",
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(ClientApiProblemError);
+		const clientError = error as ClientApiProblemError;
+		expect(clientError.code).toBe("VALIDATION_FAILED");
+		expect(clientError.problem.fieldErrors).not.toHaveLength(0);
+		for (const { path } of clientError.problem.fieldErrors ?? []) {
+			expect(
+				[...path].every((character) => {
+					const codePoint = character.codePointAt(0) ?? 0;
+					return codePoint >= 32 && codePoint !== 127;
+				}),
+			).toBe(true);
+			expect(isWellFormedUnicode(path)).toBe(true);
+		}
+		expect(JSON.stringify(clientError.problem)).not.toContain(
+			"must-not-cross-boundary",
+		);
 	});
 
 	it("returns a centralized 404 for authenticated unknown routes", async () => {

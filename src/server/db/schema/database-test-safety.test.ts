@@ -22,6 +22,21 @@ describe("disposable database safety", () => {
 		).toBe(false);
 	});
 
+	it("normalizes encoded database names and fails closed on malformed encodings", () => {
+		expect(
+			pointsToSameDatabase(
+				"postgresql://test:test@ep-example.example/%75pdater_admin",
+				"postgresql://prod:prod@ep-example.example/updater_admin",
+			),
+		).toBe(true);
+		expect(
+			pointsToSameDatabase(
+				"postgresql://test:test@ep-example.example/%E0%A4%A",
+				"postgresql://prod:prod@ep-example.example/updater_admin",
+			),
+		).toBe(true);
+	});
+
 	it("requires the exact confirmation before accepting a distinct database", () => {
 		const input = {
 			databaseUrl: "postgresql://prod:prod@ep-production.example/prod",

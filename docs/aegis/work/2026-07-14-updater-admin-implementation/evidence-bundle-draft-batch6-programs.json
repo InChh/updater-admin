@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch6-programs",
+  "type": "verification",
+  "source": "pnpm generate-routes; pnpm check; pnpm typecheck; pnpm test; pnpm test:db; pnpm test:e2e; pnpm build; git diff --check",
+  "summary": "Batch 6 passed route generation, Biome over 140 files, TypeScript, 218 unit/contract/component tests across 33 files, the Netlify client and SSR production build, the anonymous real-Router Playwright guard, and diff-check. The two destructive database suites explicitly skipped without a disposable TEST_DATABASE_URL and exact confirmation sentinel; authenticated shell and program CRUD Playwright suites explicitly skipped without seeded E2E credentials. Independent backend/spec and frontend/visual/accessibility reviews passed after audit classification, Unicode boundary, stale-write, modal focus, refetch, responsive table, and approved Chinese vocabulary remediation.",
+  "verifier": "root"
+}

@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
 import process from "node:process";
 
 import { and, count, eq, inArray, or } from "drizzle-orm";
-import { migrate } from "drizzle-orm/neon-serverless/migrator";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -40,28 +38,6 @@ if (!testDatabaseUrl) {
 
 		beforeAll(async () => {
 			client = createDatabaseClient({ databaseUrl: testDatabaseUrl });
-			let publicTables: string[];
-			try {
-				const result = await client.pool.query<{ table_name: string }>(
-					`select table_name
-					from information_schema.tables
-					where table_schema = 'public' and table_type = 'BASE TABLE'
-					order by table_name`,
-				);
-				publicTables = result.rows.map((row) => row.table_name);
-			} catch (error) {
-				await client.close();
-				throw error;
-			}
-			if (publicTables.length > 0) {
-				await client.close();
-				throw new Error(
-					`Disposable database public schema must be pristine: ${publicTables.join(", ")}`,
-				);
-			}
-
-			await migrate(client.db, { migrationsFolder: resolve("drizzle") });
-
 			const rowCounts = await Promise.all([
 				client.db.select({ value: count() }).from(applications),
 				client.db.select({ value: count() }).from(applicationVersions),

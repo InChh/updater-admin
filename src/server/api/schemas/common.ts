@@ -20,6 +20,7 @@ export const requestIdSchema = t.String({
 });
 
 export const weakEntityTagSchema = t.String({
+	maxLength: 23,
 	pattern: '^W/"[1-9][0-9]*"$',
 });
 

@@ -13,7 +13,7 @@ Before editing files for a substantial task:
 
 ## Current phase and hard gate
 
-This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–5 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 6 program management is the active slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
+This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–6 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 7 semantic-version and file-relation backend rules are the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
 
 Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes still prove integrations that do not yet have production owners and are retired together in Batch 14. The authenticated shell, Better Auth/Neon connection, Elysia foundation, database schema, localization, and dynamic tabs are production-owned now.
 
@@ -75,8 +75,10 @@ The existing upload model obtains Aliyun OSS STS credentials and uploads directl
 - `2026-07-14 — Product scope`: the application is single-tenant and has no Billing feature. Do not create billing routes, provider adapters, subscription tables, pricing UI, invoice placeholders, or organization/tenant abstractions.
 - `2026-07-14 — Deployment topology`: keep one repository and one Netlify deployment. Better Auth remains under `/api/auth/*`; TanStack Start server routes act only as transport adapters to the server-only Elysia `/api/v1/*` application and `/health`.
 - `2026-07-14 — Frontend/backend contract`: redesign communication around `/api/v1/*`, camelCase DTOs, `{ items, page, pageSize, total }` lists, ETag/If-Match concurrency, and a compact Problem Details error model. Do not copy UpdaterServer paths, DTO envelopes, authentication markers, or `App:*` business error codes.
+- `2026-07-14 — Program-management contract`: program lists accept pages `1..1,000,000`, page sizes `20`, `50`, or `100`, case-sensitive literal substring name filters, and stable `createdAt` plus `id` sorting. Program mutations use opaque weak ETags and `If-Match`; successful delete returns `204` without a response ETag. Name and description limits are measured in Unicode code points, and validation paths are bounded, control-free, and well-formed Unicode.
 - `2026-07-14 — Upload/storage`: preserve direct browser-to-Aliyun OSS upload with short-lived STS credentials. Support folder selection, relative paths, SHA-256, byte size, MIME type, per-file progress, retry, and idempotent metadata registration. Do not proxy release files through Netlify Functions.
-- `2026-07-14 — Deletion/audit/concurrency`: soft-delete business records, record actor and before/after audit data, never automatically delete OSS objects, and reject stale mutations with optimistic concurrency versions.
+- `2026-07-14 — Deletion/audit/concurrency`: soft-delete business records, record actor and before/after audit data, never automatically delete OSS objects, and reject stale mutations with optimistic concurrency versions. Program deletion soft-deletes its live versions while preserving file metadata, version-file history, and OSS objects.
+- `2026-07-14 — Audit ownership exception`: repositories append successful program-operation audits inside the same transaction as the mutation so state and success evidence remain atomic. The Elysia audit plugin owns redacted failure intents; failure-audit persistence or reporting errors never replace or mask the original API response.
 - `2026-07-14 — Version format`: accept only canonical numeric `major.minor.patch` values with no leading zeros. Values remain numerically unique per program. Multiple versions may remain active; latest means the numerically highest active version.
 - `2026-07-14 — Initial pages and entry route`: login, programs, nested program versions, administrator accounts, monitoring, profile settings, and system settings. There is no Dashboard, overview, Billing, or tenant page. Login and `/` lead to `/programs` unless a valid protected return URL exists.
 - `2026-07-14 — Dynamic tabs`: render the tab bar directly below the top toolbar and above the page title. `/programs` is pinned; other visited pages remain open across navigation via TanStack Store plus `sessionStorage`. Tabs are stateful opened-page history, not a projection of the current route. Closing the active tab falls back to the left neighbor or `/programs`.
@@ -103,6 +105,7 @@ Copy `.env.example` to `.env.local` for local work. Never commit real values.
 - `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_UPLOAD_RAM_ROLE_ARN`, `OSS_STS_ENDPOINT`: server-only variables for upload STS issuance and upload verification. Download STS is outside this administration project.
 - `OSS_BUCKET`, `OSS_REGION`, `OSS_UPLOAD_PREFIX`: object-storage target and the namespace allowed by upload STS policy.
 - `TEST_DATABASE_URL`: disposable migrated Neon branch used only by destructive/transactional database verification; never point this at shared or production data.
+- `TEST_DATABASE_CONFIRM_DISPOSABLE`: must equal the exact sentinel `updater-admin-destructive-tests` before any destructive database suite can connect, migrate, or truncate.
 - `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`: seeded test administrator used by authenticated Playwright suites. Anonymous guard coverage runs without them; authenticated suites explicitly skip when they are absent.
 
 ## Local commands and verification
@@ -120,7 +123,7 @@ pnpm intent:list
 pnpm generate-routes
 ```
 
-Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. After Batch 5, the local gate is 145 unit/contract/component tests plus an anonymous real-Router Playwright guard; the disposable-database and authenticated-browser portions remain credential-gated.
+Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 6 gate covers 140 Biome files and 218 unit/contract/component tests across 33 files; typecheck and the Netlify client/SSR build pass. The anonymous real-Router Playwright guard passes, while authenticated shell/program CRUD and the two destructive database suites remain explicitly credential-gated.
 
 ## Netlify deployment
 
@@ -138,12 +141,16 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - In this workspace, `pnpm dlx @tanstack/intent@latest load ...` can fail against the restricted package registry even though Intent is installed locally. Use `pnpm exec intent load ...` as the no-download equivalent and still record the exact skill loaded.
 - Local `npx` may need a writable temporary npm cache on this machine because `~/.npm` contains root-owned entries.
 - Business leaf routes deliberately use `ssr: false`; the pathless authenticated guard remains SSR-capable. Browser loaders call same-origin Elysia through Query, avoiding a duplicate cookie-forwarding adapter.
-- `/programs/$programId/versions` is structurally nested under `/programs`. Batch 6 must turn `programs.tsx` into an `<Outlet />` layout and add `programs.index.tsx` for the list page so the version child is not hidden or stacked.
+- `/programs/$programId/versions` is structurally nested under `/programs`. Batch 6 resolved the route ownership by making `programs.tsx` the `<Outlet />` layout and `programs.index.tsx` the list leaf; preserve this split so the version child is not hidden or stacked.
+- Program list ordering is deterministic: filter with a literal, case-sensitive substring and sort by `createdAt` plus `id`. Keep page values bounded to `1..1,000,000` and page sizes to `20`, `50`, or `100` in shared contracts, routes, domain logic, and API schemas.
+- Program validation counts Unicode code points rather than UTF-16 code units. Database-bound text rejects NUL and ill-formed surrogate sequences, while Problem Details validation paths remain bounded, control-free, and well-formed so the browser client can safely accept them.
+- Program deletion intentionally preserves `file_metadata`, `version_files`, and Aliyun OSS objects while soft-deleting the program and its live versions. Do not add object cleanup to this mutation.
+- Successful program audits are an intentional repository ownership exception because they must commit atomically with the mutation. Redacted failure audit intent stays in the API plugin, and any audit failure must leave the original error response unchanged.
 - The authenticated locale starts from server-owned `admin_metadata.locale`. Browser changes are session-local until Batch 10 adds the approved profile locale mutation; do not reintroduce a localStorage override that can beat the server profile.
 - Program-version tabs intentionally show the program ID prefix until the program query exists; Batch 9 replaces it with the program name while preserving the concrete href and program-scoped key.
 
 ## Current implementation sequence
 
-1. Implement Batch 6 program contracts, transactional repository/domain/API behavior, and Query/Table/Form UI, including the programs layout/index split.
-2. Continue Batches 7–13 in dependency order, parallelizing non-overlapping backend, upload, account, settings, monitoring, and deployment slices.
+1. Implement Batch 7 semantic-version parsing, version/file repositories and domain rules, and nested Elysia version/file APIs.
+2. Continue Batches 8–13 in dependency order, parallelizing non-overlapping upload, version UI, account, settings, monitoring, and deployment slices.
 3. In Batch 14 retire demos, run the complete DB/E2E/build/secret-scan matrix, compare against the supplied screenshots, and update this file with final cloud setup and remaining external actions.

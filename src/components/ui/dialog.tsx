@@ -10,11 +10,17 @@ export const DialogCloseButton = KobalteDialog.CloseButton;
 export const DialogTitle = KobalteDialog.Title;
 export const DialogDescription = KobalteDialog.Description;
 
-export function DialogContent(
-	props: ComponentProps<typeof KobalteDialog.Content>,
-) {
+type DialogContentProps = ComponentProps<typeof KobalteDialog.Content> & {
+	readonly closeDisabled?: boolean;
+};
+
+export function DialogContent(props: DialogContentProps) {
 	const i18n = useI18n();
-	const [local, rest] = splitProps(props, ["class", "children"]);
+	const [local, rest] = splitProps(props, [
+		"class",
+		"children",
+		"closeDisabled",
+	]);
 	return (
 		<KobalteDialog.Portal>
 			<KobalteDialog.Overlay class="fixed inset-0 z-50 bg-ink/38 backdrop-blur-[1px] data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0" />
@@ -30,6 +36,7 @@ export function DialogContent(
 					<KobalteDialog.CloseButton
 						aria-label={i18n.t("dialog.close")}
 						class="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-md text-muted transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-deep"
+						disabled={local.closeDisabled}
 					>
 						<X aria-hidden="true" size={17} />
 					</KobalteDialog.CloseButton>

@@ -1,21 +1,25 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Batch 6: program management vertical slice",
+  "currentTodo": "Batch 7: semantic-version and file-relation backend rules",
   "completedTodos": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
     "Batch 2: environment, schema, migration, and guarded DB integration harness",
     "Batch 3: Better Auth, bootstrap, safe session/query ownership, and administrator credential helpers",
     "Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed",
-    "Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed"
+    "Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed",
+    "Batch 6: strict program contracts, transactional repository/domain/API behavior, Query/Table/Form UI, guarded DB and browser verification seams, and the programs layout/index split"
   ],
-  "activeSlice": "Batch 6 program contracts, repository/domain/API, Query/Table/Form UI, and nested route layout",
+  "activeSlice": "Batch 7 shared version/file contracts, semantic-version parser, repositories/domain rules, and nested Elysia APIs",
   "evidenceRefs": [
-    "Batch 5: 145 unit/contract/component tests, Biome over 109 files, typecheck, Netlify client/SSR build, anonymous real-Router Playwright guard, and diff-check all exit 0",
-    "Batch 5 independent specification and visual/accessibility re-reviews PASS after SSR-boundary, locale-owner, Field ARIA, tab focus/tabpanel, Switch focus-ring, radio-menu, and localized-close fixes"
+    "Batch 6 program contract fixes page values to 1..1,000,000, page sizes to 20/50/100, literal case-sensitive filtering, stable createdAt plus id sorting, weak ETag/If-Match mutations, and DELETE 204 without a response ETag",
+    "Batch 6 validation counts Unicode code points and emits bounded control-free well-formed validation paths; program soft delete preserves file metadata, relation history, and OSS objects",
+    "Successful program audits append atomically in the repository as an intentional ownership exception; the API plugin owns redacted failure intent and never masks the original response",
+    "Batch 6 root gate passed Biome over 140 files, typecheck, 33 unit-contract-component files with 218 tests, Netlify client and SSR build, route generation, anonymous real-Router Playwright, and diff-check",
+    "The two destructive database suites skipped without a disposable TEST_DATABASE_URL, while authenticated shell and program CRUD Playwright suites skipped without seeded E2E credentials"
   ],
-  "blockedOn": "Disposable TEST_DATABASE_URL remains unavailable, so DB-backed proof is still an explicit skip. Authenticated four-page Playwright coverage is present but requires E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD in a seeded environment.",
-  "nextStep": "Implement the program vertical slice with strict shared contracts, transactional repository/domain rules, Elysia routes, Query client ownership, URL-backed Table/Form UI, and the required programs layout/index split.",
+  "blockedOn": "Disposable DB execution requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests. Authenticated Playwright execution requires E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD in a seeded environment; both remain explicit environment-gated checks when unavailable.",
+  "nextStep": "Implement Batch 7 semantic-version parsing, transactional version/file-relation behavior, list/detail/mutation contracts, latest-active selection, and nested Elysia version/file APIs.",
   "updatedAt": "2026-07-14"
 }

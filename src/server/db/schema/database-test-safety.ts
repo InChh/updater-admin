@@ -17,6 +17,14 @@ function normalizedDatabasePort(url: URL) {
 		: "";
 }
 
+function normalizedDatabaseName(url: URL) {
+	const path = url.pathname.startsWith("/")
+		? url.pathname.slice(1)
+		: url.pathname;
+	// Match the Neon/pg connection parser, which decodes the path with decodeURI.
+	return decodeURI(path);
+}
+
 export function pointsToSameDatabase(left: string, right: string | undefined) {
 	if (!right) return false;
 	try {
@@ -26,10 +34,11 @@ export function pointsToSameDatabase(left: string, right: string | undefined) {
 			normalizedDatabaseHostname(leftUrl.hostname) ===
 				normalizedDatabaseHostname(rightUrl.hostname) &&
 			normalizedDatabasePort(leftUrl) === normalizedDatabasePort(rightUrl) &&
-			leftUrl.pathname === rightUrl.pathname
+			normalizedDatabaseName(leftUrl) === normalizedDatabaseName(rightUrl)
 		);
 	} catch {
-		return left === right;
+		// Destructive test guards must fail closed for malformed URL encodings.
+		return true;
 	}
 }
 
