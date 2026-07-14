@@ -24,3 +24,4 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch1-tooling.json | 2026-07-14-updater-admin-implementation evidence batch1-tooling |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch2-database.json | 2026-07-14-updater-admin-implementation evidence batch2-database |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch3-auth.json | 2026-07-14-updater-admin-implementation evidence batch3-auth |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch4-api.json | 2026-07-14-updater-admin-implementation evidence batch4-api |

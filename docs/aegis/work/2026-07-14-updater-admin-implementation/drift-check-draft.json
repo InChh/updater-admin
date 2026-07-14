@@ -3,13 +3,14 @@
   "taskId": "2026-07-14-updater-admin-implementation",
   "taskIntentRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/task-intent-draft.json",
   "baselineRefs": [
-    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-3"
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-4"
   ],
-  "scopeStatus": "Batch 3 stayed within Better Auth, bootstrap, safe session/query ownership, and administrator credential helper scope.",
-  "compatStatus": "No Billing, tenancy, legacy compatibility, Dashboard, business API, or alternate session owner added.",
-  "retirementStatus": "Auth demo remains only as temporary scaffold UI with signup removed and canonical Query session ownership; full demo retirement remains Batch 14.",
+  "scopeStatus": "Batch 4 stayed within shared API contracts, Elysia security/API foundation, profile/password flow, raw adapters, health, audit/rate repositories, redaction, and tests.",
+  "compatStatus": "No Dashboard, Billing, tenancy, legacy API/client compatibility, alternate auth/session owner, or program/version feature surface added.",
+  "retirementStatus": "Generated frontend demos remain deferred to the authenticated shell and final retirement batches; no demo became an API owner.",
   "newRiskSignals": [
-    "Disposable DB bootstrap-twice proof remains unexecuted because TEST_DATABASE_URL is absent; transactional seams and idempotency are unit-tested."
+    "Password rotation crosses Better Auth and project metadata stores; AGENTS.md records the fail-closed compensation and irreducible simultaneous-outage boundary.",
+    "Live Vite curl verification was unavailable in this runner; equivalent health, unauthenticated API, and raw Request identity contracts plus Netlify build pass."
   ],
   "decision": "continue"
 }

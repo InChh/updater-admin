@@ -123,6 +123,7 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 
 ## Known gotchas
 
+- Password rotation spans Better Auth credential/session storage and the Drizzle-owned `admin_metadata` policy row, so it cannot be one database transaction without replacing a library owner. The API compensates by marking `mustChangePassword=true` after a successful credential change and before revocation; surviving sessions then fail closed on their next uncached metadata read. If that marker write fails, session revocation is attempted best-effort, but simultaneous Better Auth and database outages remain an unavoidable cross-library partial-success boundary.
 - The exact requested CLI add-on list cannot currently resolve for Solid (`neon`, `drizzle`, and `shadcn` are not registered under those names); this is why official packages plus `solid-ui` are used.
 - The requested Solid `saas` starter was not resolvable without a configured template registry. This repository therefore preserves the current default Solid Start scaffold and will adopt a SaaS module layout only after design approval.
 - The CLI's automatic Intent install did not complete, so the two required `npx @tanstack/intent@latest` commands were run manually afterward.

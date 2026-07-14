@@ -41,3 +41,11 @@ No evidence has been recorded yet.
 - Source: pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check
 - Summary: Batch 3 passed 81 unit tests, Biome, TypeScript, Netlify production build, and diff-check. Database suite explicitly skipped without TEST_DATABASE_URL. Disabled Better Auth HTTP mutation routes, safe session projection, transactional bootstrap, and transaction-bound temporary-password create/reset helpers were independently reviewed; spec and quality reviews passed after remediation.
 - Verifier: root
+
+## EvidenceBundleDraft
+
+- Artifact key: batch4-api
+- Type: verification
+- Source: pnpm test; pnpm test:db; pnpm check; pnpm typecheck; pnpm build; git diff --check
+- Summary: Batch 4 passed 116 unit/contract tests, Biome, TypeScript, Netlify production build, and diff-check. Database suite explicitly skipped without TEST_DATABASE_URL. Health/raw-forwarding contracts cover the local curl behavior because Vite did not bind in this runner. Independent spec and security reviews passed after fixing reporter isolation, fail-closed password partial success, exact shape assertions, validation bounds, redactor policy fields, and trailing-slash rate-limit normalization.
+- Verifier: root

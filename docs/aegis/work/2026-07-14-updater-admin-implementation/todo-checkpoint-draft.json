@@ -1,19 +1,20 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Batch 4: Elysia API foundation, raw transport adapter, and security plugins",
+  "currentTodo": "Batch 5: authenticated shell, dynamic opened tabs, localization, responsive navigation, and auth flow",
   "completedTodos": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
-    "Batch 2: environment, Drizzle schema, guarded DB tests, and sole migration",
-    "Batch 3: Better Auth runtime, raw auth surface restrictions, safe session/query owner, transactional bootstrap, and temporary-password helpers; spec and quality reviews passed"
+    "Batch 2: environment, schema, migration, and guarded DB integration harness",
+    "Batch 3: Better Auth, bootstrap, safe session/query ownership, and administrator credential helpers",
+    "Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed"
   ],
-  "activeSlice": "Batch 4 API and security foundation",
+  "activeSlice": "Batch 5 authenticated frontend shell",
   "evidenceRefs": [
-    "Batch 3: 81 unit tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0",
-    "Batch 3 independent spec and quality re-reviews PASS after temporary-password helper remediation"
+    "Batch 4: 116 unit/contract tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0",
+    "Batch 4 independent specification and quality/security reviews PASS after reporter, fail-closed rotation, validation-bound, and trailing-slash fixes"
   ],
-  "blockedOn": "Disposable TEST_DATABASE_URL unavailable; real bootstrap-twice DB proof remains explicitly unexecuted",
-  "nextStep": "Implement injected Elysia app, guarded request pipeline, Problem Details, profile/password rotation, audit/rate repositories, raw Start forwarding, and health",
+  "blockedOn": "Disposable TEST_DATABASE_URL unavailable; atomic DB rate test and live bootstrap proof remain skipped. Vite dev command did not reach a listening socket in this runner, so curl evidence is replaced by raw adapter/health contract tests and production build.",
+  "nextStep": "Implement screenshot-aligned authenticated shell, route registry, Query guard, login/forced-password flow, typed localization, Kobalte primitives, responsive navigation, and persisted dynamic tabs",
   "updatedAt": "2026-07-14"
 }

@@ -104,3 +104,29 @@
 - New risk signals:
 - Disposable DB bootstrap-twice proof remains unexecuted because TEST_DATABASE_URL is absent; transactional seams and idempotency are unit-tested.
 - Advisory decision: continue
+
+## DriftCheckDraft
+
+- Scope status: Batch 4 stayed within shared API contracts, Elysia security/API foundation, profile/password flow, raw adapters, health, audit/rate repositories, redaction, and tests.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy API/client compatibility, alternate auth/session owner, or program/version feature surface added.
+- Retirement status: Generated frontend demos remain deferred to the authenticated shell and final retirement batches; no demo became an API owner.
+- New risk signals:
+- Password rotation crosses Better Auth and project metadata stores; AGENTS.md records the fail-closed compensation and irreducible simultaneous-outage boundary.
+- Live Vite curl verification was unavailable in this runner; equivalent health, unauthenticated API, and raw Request identity contracts plus Netlify build pass.
+- Advisory decision: continue
+
+## Checkpoint Update
+
+- Current todo: Batch 5: authenticated shell, dynamic opened tabs, localization, responsive navigation, and auth flow
+- Active slice: Batch 5 authenticated frontend shell
+- Completed todos:
+- Batch 0: isolated worktree and fresh baseline verification
+- Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness
+- Batch 2: environment, schema, migration, and guarded DB integration harness
+- Batch 3: Better Auth, bootstrap, safe session/query ownership, and administrator credential helpers
+- Batch 4: Elysia API/security foundation, profile password rotation, raw Start forwarding, health, audit/rate repositories, and redaction; spec and quality reviews passed
+- Evidence refs:
+- Batch 4: 116 unit/contract tests, explicit DB-test skip, Biome, typecheck, Netlify build, and diff-check all exit 0
+- Batch 4 independent specification and quality/security reviews PASS after reporter, fail-closed rotation, validation-bound, and trailing-slash fixes
+- Blocked on: Disposable TEST_DATABASE_URL unavailable; atomic DB rate test and live bootstrap proof remain skipped. Vite dev command did not reach a listening socket in this runner, so curl evidence is replaced by raw adapter/health contract tests and production build.
+- Next step: Implement screenshot-aligned authenticated shell, route registry, Query guard, login/forced-password flow, typed localization, Kobalte primitives, responsive navigation, and persisted dynamic tabs

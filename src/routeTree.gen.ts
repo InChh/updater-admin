@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as HealthRouteImport } from './routes/health'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo.tanstack-query'
@@ -16,8 +17,14 @@ import { Route as DemoStoreRouteImport } from './routes/demo.store'
 import { Route as DemoFormRouteImport } from './routes/demo.form'
 import { Route as DemoBetterAuthRouteImport } from './routes/demo.better-auth'
 import { Route as DemoSentryBadEventHandlerRouteImport } from './routes/demo.sentry.bad-event-handler'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
@@ -54,6 +61,11 @@ const DemoSentryBadEventHandlerRoute =
     path: '/demo/sentry/bad-event-handler',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -63,32 +75,38 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/health': typeof HealthRoute
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/health': typeof HealthRoute
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/health': typeof HealthRoute
   '/demo/better-auth': typeof DemoBetterAuthRoute
   '/demo/form': typeof DemoFormRoute
   '/demo/store': typeof DemoStoreRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
 }
 export interface FileRouteTypes {
@@ -96,47 +114,62 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/health'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
     | '/api/auth/$'
+    | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
+    | '/health'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
     | '/api/auth/$'
+    | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
   id:
     | '__root__'
     | '/'
     | '/about'
+    | '/health'
     | '/demo/better-auth'
     | '/demo/form'
     | '/demo/store'
     | '/demo/tanstack-query'
     | '/api/auth/$'
+    | '/api/v1/$'
     | '/demo/sentry/bad-event-handler'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  HealthRoute: typeof HealthRoute
   DemoBetterAuthRoute: typeof DemoBetterAuthRoute
   DemoFormRoute: typeof DemoFormRoute
   DemoStoreRoute: typeof DemoStoreRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
   DemoSentryBadEventHandlerRoute: typeof DemoSentryBadEventHandlerRoute
 }
 
 declare module '@tanstack/solid-router' {
   interface FileRoutesByPath {
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/about': {
       id: '/about'
       path: '/about'
@@ -186,6 +219,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof DemoSentryBadEventHandlerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -199,11 +239,13 @@ declare module '@tanstack/solid-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  HealthRoute: HealthRoute,
   DemoBetterAuthRoute: DemoBetterAuthRoute,
   DemoFormRoute: DemoFormRoute,
   DemoStoreRoute: DemoStoreRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
   DemoSentryBadEventHandlerRoute: DemoSentryBadEventHandlerRoute,
 }
 export const routeTree = rootRouteImport

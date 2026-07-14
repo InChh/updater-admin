@@ -10,10 +10,12 @@ import {
 	createDatabaseClient,
 	type ManagedDatabaseClient,
 } from "../client.server";
+import { createRateLimitRepository } from "../repositories/rate-limit.server";
 import {
 	applications,
 	applicationVersions,
 	fileMetadata,
+	rateLimitWindows,
 	systemSettings,
 	versionFiles,
 } from ".";
@@ -266,6 +268,38 @@ if (!testDatabaseUrl) {
 				.set({ deletedAt: new Date(), deletedBy: actorId })
 				.where(eq(fileMetadata.id, file.id));
 			await expect(insertFile("bin/app.exe", sha256)).resolves.toBeDefined();
+		});
+
+		it("atomically increments a shared fixed-window rate limit", async () => {
+			const endpoint = `schema-test:${randomUUID()}`;
+			const repository = createRateLimitRepository(client.db);
+			const now = new Date("2026-07-14T01:07:13.999Z");
+
+			try {
+				const decisions = await Promise.all(
+					Array.from({ length: 20 }, () =>
+						repository.consume({
+							endpoint,
+							limit: 100,
+							now,
+							subjectKey: actorId,
+							windowSeconds: 15 * 60,
+						}),
+					),
+				);
+				expect(
+					decisions.map((decision) => decision.count).sort((a, b) => a - b),
+				).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+				const rows = await client.db
+					.select({ count: rateLimitWindows.count })
+					.from(rateLimitWindows)
+					.where(eq(rateLimitWindows.endpoint, endpoint));
+				expect(rows).toEqual([{ count: 20 }]);
+			} finally {
+				await client.db
+					.delete(rateLimitWindows)
+					.where(eq(rateLimitWindows.endpoint, endpoint));
+			}
 		});
 
 		it("enforces singleton system settings and approved locale/page-size values", async () => {
