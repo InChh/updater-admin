@@ -151,6 +151,11 @@ export function ProgramTable(props: ProgramTableProps) {
 							})}
 							class="grid h-8 w-8 place-items-center rounded-md text-muted no-underline transition hover:bg-primary-soft hover:text-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-deep"
 							params={{ programId: row.original.id }}
+							search={{
+								page: 1,
+								pageSize: props.pageSize,
+								sort: "createdAt:desc",
+							}}
 							to="/programs/$programId/versions"
 						>
 							<Layers3 aria-hidden="true" size={15} />

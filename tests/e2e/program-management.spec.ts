@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { captureScreenshot } from "./support";
+
 const email = process.env.E2E_ADMIN_EMAIL;
 const password = process.env.E2E_ADMIN_PASSWORD;
 const hasCredentials = Boolean(email && password);
@@ -12,7 +14,7 @@ test.describe("program management", () => {
 
 	test("creates, filters, edits, and deletes a program through the real API", async ({
 		page,
-	}) => {
+	}, testInfo) => {
 		const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 		const originalName = `E2E program ${nonce}`;
 		const updatedName = `${originalName} updated`;
@@ -32,22 +34,25 @@ test.describe("program management", () => {
 		await createDialog
 			.getByLabel(/描述|Description/)
 			.fill("Created by the authenticated Playwright CRUD guard.");
-		await createDialog
-			.getByRole("button", { name: /创建|Create/ })
-			.click();
+		await createDialog.getByRole("button", { name: /创建|Create/ }).click();
 		await expect(page.getByText(originalName, { exact: true })).toBeVisible();
 
 		const filters = page.locator("section").filter({
 			has: page.getByRole("textbox", { name: /名称|Name/ }),
 		});
-		await filters.getByRole("textbox", { name: /名称|Name/ }).fill(originalName);
+		await filters
+			.getByRole("textbox", { name: /名称|Name/ })
+			.fill(originalName);
 		await filters.getByRole("button", { name: /查询|Search/ }).click();
 		await expect(page).toHaveURL(/name=E2E(?:\+|%20)program/);
 		await expect(page.getByText(originalName, { exact: true })).toBeVisible();
+		await captureScreenshot(page, testInfo, "program-management.png");
 
 		await page
 			.getByRole("button", {
-				name: new RegExp(`编辑程序 ${originalName}|Edit program ${originalName}`),
+				name: new RegExp(
+					`编辑程序 ${originalName}|Edit program ${originalName}`,
+				),
 			})
 			.click();
 		const editDialog = page.getByRole("dialog");
@@ -62,7 +67,9 @@ test.describe("program management", () => {
 
 		await page
 			.getByRole("button", {
-				name: new RegExp(`删除程序 ${updatedName}|Delete program ${updatedName}`),
+				name: new RegExp(
+					`删除程序 ${updatedName}|Delete program ${updatedName}`,
+				),
 			})
 			.click();
 		const deleteDialog = page.getByRole("dialog");

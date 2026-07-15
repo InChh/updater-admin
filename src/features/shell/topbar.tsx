@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/solid-router";
 import {
+	GitFork,
 	Languages,
 	Menu,
 	PanelLeftClose,
@@ -7,7 +8,7 @@ import {
 	Settings,
 	UserRound,
 } from "lucide-solid";
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 import {
 	DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
+import { notify } from "../../components/ui/toast";
 import { Tooltip } from "../../components/ui/tooltip";
 import { useI18n } from "../../lib/i18n/i18n";
 
@@ -33,7 +35,44 @@ export interface TopbarProps {
 	readonly onOpenMobileNavigation: () => void;
 	readonly onSignOut: () => Promise<void> | void;
 	readonly onToggleSidebar: () => void;
+	readonly repositoryUrl: string | null;
 	readonly user: TopbarUser;
+}
+
+export async function runSignOut(
+	onSignOut: () => Promise<void> | void,
+	onError: (error: unknown) => void,
+): Promise<void> {
+	try {
+		await onSignOut();
+	} catch (error) {
+		onError(error);
+	}
+}
+
+/**
+ * Treat the settings response as untrusted browser input before exposing an
+ * external navigation target. The server applies the same HTTPS/no-userinfo
+ * policy, while this boundary fails closed for malformed cached responses.
+ */
+export function safeExternalRepositoryUrl(value: unknown): string | null {
+	if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
+		return null;
+	}
+	try {
+		const parsed = new URL(value);
+		if (
+			parsed.protocol !== "https:" ||
+			!parsed.hostname ||
+			parsed.username ||
+			parsed.password
+		) {
+			return null;
+		}
+		return parsed.href;
+	} catch {
+		return null;
+	}
 }
 
 function IconButton(props: {
@@ -57,6 +96,19 @@ function IconButton(props: {
 
 export function Topbar(props: TopbarProps) {
 	const i18n = useI18n();
+	const repositoryUrl = () => safeExternalRepositoryUrl(props.repositoryUrl);
+	const [signingOut, setSigningOut] = createSignal(false);
+	const signOut = async () => {
+		if (signingOut()) return;
+		setSigningOut(true);
+		try {
+			await runSignOut(props.onSignOut, () => {
+				notify(i18n.t("auth.signOut.failed"), undefined, "error");
+			});
+		} finally {
+			setSigningOut(false);
+		}
+	};
 	return (
 		<header class="flex h-14 shrink-0 items-center justify-between border-b border-border bg-white px-3 sm:px-4">
 			<div class="flex items-center gap-1">
@@ -86,6 +138,22 @@ export function Topbar(props: TopbarProps) {
 			</div>
 
 			<div class="flex items-center gap-1">
+				<Show keyed when={repositoryUrl()}>
+					{(href) => (
+						<Tooltip content={i18n.t("common.repository")}>
+							<a
+								aria-label={i18n.t("a11y.openRepository")}
+								class="grid h-9 w-9 place-items-center rounded-md text-muted no-underline transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-deep"
+								href={href}
+								referrerpolicy="no-referrer"
+								rel="noopener noreferrer"
+								target="_blank"
+							>
+								<GitFork aria-hidden="true" size={18} />
+							</a>
+						</Tooltip>
+					)}
+				</Show>
 				<DropdownMenuRoot placement="bottom-end">
 					<DropdownMenuTrigger
 						aria-label={i18n.t("a11y.languageMenu")}
@@ -100,9 +168,13 @@ export function Topbar(props: TopbarProps) {
 					</DropdownMenuTrigger>
 					<DropdownMenuContent>
 						<DropdownMenuRadioGroup
-							onChange={(locale) =>
-								void i18n.setLocale(locale === "en" ? "en" : "zh-CN")
-							}
+							onChange={(locale) => {
+								void i18n
+									.setLocale(locale === "en" ? "en" : "zh-CN")
+									.catch((error) =>
+										notify(i18n.formatApiError(error), undefined, "error"),
+									);
+							}}
 							value={i18n.locale()}
 						>
 							<DropdownMenuRadioItem value="zh-CN">
@@ -164,9 +236,12 @@ export function Topbar(props: TopbarProps) {
 						<DropdownMenuSeparator class="my-1 h-px bg-border" />
 						<DropdownMenuItem
 							class="text-danger data-[highlighted]:bg-danger/8 data-[highlighted]:text-danger"
-							onSelect={() => void props.onSignOut()}
+							disabled={signingOut()}
+							onSelect={() => void signOut()}
 						>
-							{i18n.t("common.signOut")}
+							{i18n.t(
+								signingOut() ? "auth.signOut.submitting" : "common.signOut",
+							)}
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenuRoot>

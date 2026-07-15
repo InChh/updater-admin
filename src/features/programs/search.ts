@@ -9,21 +9,28 @@ import {
 
 export type ProgramDialog = "create" | "delete" | "edit";
 
-export type ProgramRouteSearch = ProgramListSearch &
-	(
-		| {
-				readonly dialog?: undefined;
-				readonly programId?: undefined;
-		  }
-		| {
-				readonly dialog: "create";
-				readonly programId?: undefined;
-		  }
-		| {
-				readonly dialog: "delete" | "edit";
-				readonly programId: string;
-		  }
-	);
+type ProgramListLoaderDeps = Omit<ProgramListSearch, "pageSize"> & {
+	readonly pageSize?: ProgramPageSize;
+};
+
+type ProgramDialogSearch =
+	| {
+			readonly dialog?: undefined;
+			readonly programId?: undefined;
+	  }
+	| {
+			readonly dialog: "create";
+			readonly programId?: undefined;
+	  }
+	| {
+			readonly dialog: "delete" | "edit";
+			readonly programId: string;
+	  };
+
+export type ProgramRouteSearch = ProgramListSearch & ProgramDialogSearch;
+
+export type ValidatedProgramRouteSearch = ProgramListLoaderDeps &
+	ProgramDialogSearch;
 
 const CANONICAL_UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -52,14 +59,16 @@ export function isCanonicalUuid(value: unknown): value is string {
 
 export function validateProgramRouteSearch(
 	raw: Record<string, unknown>,
-): ProgramRouteSearch {
+): ValidatedProgramRouteSearch {
 	const trimmedName = typeof raw.name === "string" ? raw.name.trim() : "";
-	const listSearch: ProgramListSearch = {
+	const listSearch: ProgramListLoaderDeps = {
 		...(trimmedName && [...trimmedName].length <= 128
 			? { name: trimmedName }
 			: {}),
 		page: safePositiveInteger(raw.page),
-		pageSize: parsePageSize(raw.pageSize),
+		...(Object.hasOwn(raw, "pageSize")
+			? { pageSize: parsePageSize(raw.pageSize) }
+			: {}),
 		sort: isSort(raw.sort) ? raw.sort : "createdAt:desc",
 	};
 
@@ -79,14 +88,23 @@ export function validateProgramRouteSearch(
 	return listSearch;
 }
 
+export function programListLoaderDeps(
+	search: ValidatedProgramRouteSearch,
+): ProgramListLoaderDeps {
+	return {
+		...(search.name ? { name: search.name } : {}),
+		page: search.page,
+		...(search.pageSize === undefined ? {} : { pageSize: search.pageSize }),
+		sort: search.sort,
+	};
+}
+
 export function programListSearch(
 	search: ProgramRouteSearch,
 ): ProgramListSearch {
 	return {
-		...(search.name ? { name: search.name } : {}),
-		page: search.page,
+		...programListLoaderDeps(search),
 		pageSize: search.pageSize,
-		sort: search.sort,
 	};
 }
 

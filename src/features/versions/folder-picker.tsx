@@ -48,7 +48,7 @@ const DEFAULT_LABELS: FolderPickerLabels = {
 	choose: "选择程序文件夹",
 	description: "保留文件夹内的相对路径，文件将从浏览器直接上传到对象存储。",
 	errors: {
-		FILE_TOO_LARGE: "文件超过 5 TiB 的产品单文件上限。",
+		FILE_TOO_LARGE: "文件超过约 39.1 GiB 的浏览器上传上限。",
 		INVALID_PATH: "文件夹中包含不支持的相对路径。",
 		TOO_MANY_FILES: `一次最多选择 ${MAX_UPLOAD_FILES} 个文件。`,
 	},

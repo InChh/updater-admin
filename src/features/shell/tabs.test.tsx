@@ -22,6 +22,14 @@ const tabs = [
 	},
 ] as const satisfies readonly OpenedTab[];
 
+const versionTab = {
+	closable: true,
+	href: "/programs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/versions?page=3",
+	key: "programVersions:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+	routeId: "programVersions",
+	title: "Optimizer",
+} as const satisfies OpenedTab;
+
 describe("OpenedTabs", () => {
 	it("activates adjacent tabs and restores focus after Delete", async () => {
 		const onActivate = vi.fn();
@@ -66,5 +74,24 @@ describe("OpenedTabs", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: /Close tab/ }));
 		expect(onClose).toHaveBeenCalledWith(tabs[1]);
+	});
+
+	it("renders the program-scoped version title from the stored program name", () => {
+		render(() => (
+			<I18nProvider locale="en">
+				<OpenedTabs
+					activeKey={versionTab.key}
+					onActivate={() => {}}
+					onClose={() => {}}
+					tabs={[tabs[0], versionTab]}
+				/>
+			</I18nProvider>
+		));
+
+		expect(
+			screen
+				.getByRole("tab", { name: "Versions · Optimizer" })
+				.getAttribute("href"),
+		).toBe(versionTab.href);
 	});
 });

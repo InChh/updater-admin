@@ -21,12 +21,19 @@ describe("UploadQueue", () => {
 		render(() => (
 			<UploadQueue
 				controller={controller}
-				onCancel={onCancel}
-				onRetry={onRetry}
+				onCancel={(item) => {
+					onCancel(item);
+					controller.cancel(item.id);
+				}}
+				onRetry={(item) => {
+					onRetry(item);
+					controller.prepareRetry(item.id);
+				}}
 			/>
 		));
 
 		expect(screen.getByText("release/app.bin")).toBeTruthy();
+		expect(screen.getByText("1 个文件 · 总计 100 B")).toBeTruthy();
 		expect(
 			screen.getByRole("progressbar", { name: "总上传进度" }),
 		).toBeTruthy();
@@ -45,15 +52,15 @@ describe("UploadQueue", () => {
 		);
 		expect(onCancel).toHaveBeenCalledWith(
 			expect.objectContaining({ id: created.id }),
-			"hash",
 		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "重试: release/app.bin" }),
 		);
 		expect(onRetry).toHaveBeenCalledWith(
 			expect.objectContaining({ id: created.id }),
-			"hash",
 		);
+		// The workflow callback owns both transitions so it can also stop the
+		// active worker/client before preparing the exact retry stage.
 		expect(controller.getState().items[0]?.status).toBe("queued");
 		controller.dispose();
 	});
@@ -81,8 +88,36 @@ describe("UploadQueue", () => {
 		expect(screen.getByText("next.bin")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "清除已完成" }));
 		expect(controller.getState().items.map(({ id }) => id)).toEqual([
+			completed.id,
 			queued.id,
 		]);
+		expect(controller.getState().items[0]).toMatchObject({
+			dismissed: true,
+			fileMetadataId: "metadata-id",
+			status: "complete",
+		});
+		expect(screen.queryByText("done.bin")).toBeNull();
+		expect(screen.getByText("next.bin")).toBeTruthy();
+		controller.dispose();
+	});
+
+	it("renders a generic diagnostic instead of signed provider details", () => {
+		const controller = createUploadQueueController({ storage: null });
+		const [item] = controller.addFiles([
+			{ file: new File(["failed"], "failed.bin"), path: "failed.bin" },
+		]);
+		if (!item) throw new Error("fixture was not created");
+		controller.startHash(item.id);
+		controller.fail(
+			item.id,
+			"hash",
+			"Provider failed https://bucket.example/file?security-token=render-secret",
+		);
+
+		render(() => <UploadQueue controller={controller} />);
+
+		expect(screen.getByText("Upload failed.")).toBeTruthy();
+		expect(screen.queryByText(/render-secret/)).toBeNull();
 		controller.dispose();
 	});
 });

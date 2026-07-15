@@ -1,46 +1,50 @@
 import { expect, test } from "@playwright/test";
 
-const email = process.env.E2E_ADMIN_EMAIL;
-const password = process.env.E2E_ADMIN_PASSWORD;
-const hasCredentials = Boolean(email && password);
-
-test("redirects an anonymous protected route through the real Router guard", async ({
-	page,
-}) => {
-	await page.goto("/administrators");
-	await expect(page).toHaveURL(/\/login\?returnTo=%2Fadministrators$/);
-	await expect(page.getByRole("heading", { name: /登录|Sign in/ })).toBeVisible();
-	await expect(page.getByText(/Dashboard/i)).toHaveCount(0);
-});
+import {
+	AUTHENTICATED_E2E_SKIP_REASON,
+	HAS_E2E_ADMIN_CREDENTIALS,
+	signIn,
+} from "./support";
 
 test.describe("authenticated administration shell", () => {
-	test.skip(
-		!hasCredentials,
-		"E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD are required for authenticated E2E coverage.",
-	);
+	test.skip(!HAS_E2E_ADMIN_CREDENTIALS, AUTHENTICATED_E2E_SKIP_REASON);
 
-	test("signs in, opens protected routes, and retains dynamic tabs", async ({
+	test("opens every read-only administration route and restores dynamic tabs after reload", async ({
 		page,
 	}) => {
-		await page.goto("/login?returnTo=%2Fprograms");
-		await page.getByLabel(/邮箱|Email/).fill(email ?? "");
-		await page.getByLabel(/密码|Password/).fill(password ?? "");
-		await page.getByRole("button", { name: /登录|Sign in/ }).click();
+		await signIn(page);
+		await expect(page.getByRole("tabpanel")).toBeVisible();
 
-		await expect(page).toHaveURL(/\/programs$/);
-		await expect(page.getByRole("main")).toBeVisible();
+		const routes = [
+			{ heading: /管理员|Administrators/, path: "/administrators" },
+			{ heading: /监控概览|Monitoring overview/, path: "/monitoring/overview" },
+			{ heading: /审计记录|Audit events/, path: "/monitoring/audit" },
+			{ heading: /个人资料|Profile/, path: "/settings/profile" },
+			{ heading: /账户设置|Account settings/, path: "/settings/account" },
+			{ heading: /系统设置|System settings/, path: "/settings/system" },
+		] as const;
 
-		for (const path of [
-			"/administrators",
-			"/monitoring/overview",
-			"/monitoring/audit",
-			"/settings/profile",
-		]) {
+		for (const { heading, path } of routes) {
 			await page.goto(path);
-			await expect(page).toHaveURL(new RegExp(`${path}$`));
-			await expect(page.getByRole("main")).toBeVisible();
+			expect(new URL(page.url()).pathname).toBe(path);
+			await expect(page.getByRole("tabpanel")).toBeVisible();
+			await expect(
+				page.getByRole("heading", { level: 1, name: heading }),
+			).toBeVisible();
 		}
 
-		expect(await page.getByRole("tab").count()).toBeGreaterThanOrEqual(4);
+		const tabList = page.getByRole("tablist");
+		await expect(tabList).toBeVisible();
+		await expect.poll(() => page.getByRole("tab").count()).toBe(7);
+
+		await page.reload();
+		await expect(page.getByRole("tabpanel")).toBeVisible();
+		await expect.poll(() => page.getByRole("tab").count()).toBe(7);
+		await expect(
+			page.getByRole("tab", { name: /程序|Programs/, exact: true }),
+		).toHaveAttribute("aria-selected", "false");
+		await expect(
+			page.getByRole("tab", { name: /系统设置|System settings/ }),
+		).toHaveAttribute("aria-selected", "true");
 	});
 });

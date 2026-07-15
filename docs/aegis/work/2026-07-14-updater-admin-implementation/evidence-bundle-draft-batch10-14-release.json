@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch10-14-release",
+  "type": "local-verification",
+  "source": "Stable Batch 10-14 implementation; final root command matrix; independent late security/backend reviews; explicit external-gate inventory",
+  "summary": "Batches 10-14 implement administrator/profile/account management, optimistic system settings, monitoring/audit and chart-ready data, Sentry/Netlify/security integration, scaffold retirement, and release-level E2E/visual/accessibility paths. The final local matrix passed 98 test files and 568 tests plus all static/build/scan checks. E2E passed 8 public tests and explicitly skipped 18 authenticated tests for absent credentials; the guarded DB suite loaded and skipped 6 tests without an authorized disposable database.",
+  "provenEvidence": [
+    {
+      "key": "batch13-historical-suite",
+      "status": "passed-at-batch13-checkpoint",
+      "evidence": "95 test files and 542 tests; pnpm check, pnpm typecheck, pnpm build, git diff --check, and built Netlify /health security-header smoke passed",
+      "boundary": "Historical Batch 13 checkpoint only; not the final release count"
+    },
+    {
+      "key": "batch14-public-e2e",
+      "status": "partial",
+      "evidence": "8 public desktop/mobile tests passed; 18 authenticated tests skipped because E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD were absent",
+      "boundary": "Credential-gated auth, CRUD, tab, stale-write, mobile-shell, upload, and screenshot journeys remain unproven"
+    },
+    {
+      "key": "batch14-route-retirement",
+      "status": "passed-final-scan",
+      "evidence": "Production route scan returned no /demo/*, /about, /dashboard, /billing, or legacy /api/app/* route matches",
+      "boundary": "The scan covers the stable local build; the deployed Preview remains an external gate"
+    },
+    {
+      "key": "final-root-local-matrix",
+      "status": "passed",
+      "evidence": "Frozen offline install; route generation; Intent 10 packages/31 skills; TanStack CLI 16-library discovery; Biome 279 files; TypeScript; 98 Vitest files/568 tests; Drizzle check; Netlify client/SSR build; built /health 200 plus four dynamic security headers; route/client-secret/source-map scans; diff-check; Aegis workspace check",
+      "boundary": "Database, authenticated E2E/visual, live OSS, live Sentry, and Netlify Preview evidence require authorized external environments"
+    },
+    {
+      "key": "architecture-decision",
+      "status": "recorded-from-work",
+      "evidence": "docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md",
+      "boundary": "The ADR records rationale and does not grant deployment authority"
+    }
+  ],
+  "externalGates": [
+    {
+      "gate": "disposable-database",
+      "status": "not-run-no-authorized-environment",
+      "required": "TEST_DATABASE_URL for an approved disposable branch and TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests",
+      "evidence": "pnpm test:db loaded 6 files/6 tests and explicitly skipped all 6"
+    },
+    {
+      "gate": "authenticated-e2e-and-visuals",
+      "status": "not-run-no-seeded-credentials",
+      "required": "Seeded E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD; retain 1920px desktop and 390px mobile screenshots",
+      "evidence": "pnpm test:e2e passed 8 public cases and explicitly skipped 18 authenticated cases"
+    },
+    {
+      "gate": "live-oss-sandbox",
+      "status": "not-run-no-authorized-environment",
+      "required": "Authorized least-privilege OSS STS sandbox and small multipart smoke without production object deletion",
+      "evidence": "Mocked provider, policy, upload, retry, cancellation, reconciliation, and completion tests passed locally"
+    },
+    {
+      "gate": "live-sentry",
+      "status": "not-run-no-authorized-credentials",
+      "required": "Authorized browser/server DSN and build credentials for one scrubbed event and source-map association",
+      "evidence": "Conditional initialization, scrubbing, request/actor correlation, loader failure containment, and no-credential build behavior passed locally"
+    },
+    {
+      "gate": "netlify-preview",
+      "status": "not-run-no-authorized-site",
+      "required": "Authorized Preview after explicit migration; verify login, health, protected redirect, API 401, cookie, Neon, OSS, and security headers",
+      "evidence": "The generated Netlify handler returned /health 200 with all four dynamic security headers; no Preview deploy was authorized"
+    }
+  ],
+  "remainingExternalActions": [
+    "Run the 6 guarded database tests only against an approved disposable database",
+    "Run all 18 authenticated E2E cases and retain desktop/mobile screenshots with seeded credentials",
+    "Run authorized live OSS, Sentry, and Netlify Preview verification",
+    "Apply migrations, bootstrap the first administrator, remove the bootstrap password, and verify the target environment before production traffic"
+  ],
+  "verifier": "root 2026-07-15"
+}

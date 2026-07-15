@@ -4,6 +4,7 @@ import {
 	closeProgramDialog,
 	openCreateProgramDialog,
 	openProgramDialog,
+	programListLoaderDeps,
 	programListSearch,
 	programSearchAfterDelete,
 	validateProgramRouteSearch,
@@ -28,6 +29,22 @@ describe("program route search", () => {
 		});
 	});
 
+	it("preserves omitted pageSize while normalizing explicit invalid input", () => {
+		const omitted = validateProgramRouteSearch({
+			page: 1,
+			sort: "createdAt:desc",
+		});
+		expect(omitted).not.toHaveProperty("pageSize");
+		expect(programListLoaderDeps(omitted)).not.toHaveProperty("pageSize");
+		expect(
+			validateProgramRouteSearch({
+				page: 1,
+				pageSize: undefined,
+				sort: "createdAt:desc",
+			}),
+		).toMatchObject({ pageSize: 20 });
+	});
+
 	it("falls back for invalid page, page-size, sort, and dialog values", () => {
 		expect(
 			validateProgramRouteSearch({
@@ -50,11 +67,11 @@ describe("program route search", () => {
 	});
 
 	it("retains only dialog IDs required by edit and delete", () => {
-		const base = validateProgramRouteSearch({
+		const base = {
 			page: 2,
 			pageSize: 20,
 			sort: "createdAt:desc",
-		});
+		} as const;
 		expect(openCreateProgramDialog(base)).toEqual({
 			dialog: "create",
 			page: 2,
@@ -68,12 +85,12 @@ describe("program route search", () => {
 
 	it("closes delete state and decrements the last occupied page atomically", () => {
 		const deleting = openProgramDialog(
-			validateProgramRouteSearch({
+			{
 				name: "release",
 				page: 2,
 				pageSize: 20,
 				sort: "createdAt:desc",
-			}),
+			},
 			"delete",
 			PROGRAM_ID,
 		);

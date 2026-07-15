@@ -1,11 +1,23 @@
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../client.server";
-import { createProfileRepository } from "./profile.server";
+import {
+	createProfileRepository,
+	ProfileStaleWriteRepositoryError,
+} from "./profile.server";
 
 type ProfileDatabase = Pick<Database, "transaction" | "update">;
 
-function createTransactionHarness(updatedRows: readonly { userId: string }[]) {
+interface TransactionHarnessOptions {
+	readonly lockedRows?: readonly Record<string, unknown>[];
+	readonly updatedRows: readonly Record<string, unknown>[];
+}
+
+function createTransactionHarness({
+	lockedRows = [],
+	updatedRows,
+}: TransactionHarnessOptions) {
 	let auditValues: Record<string, unknown> | undefined;
 	const updateValues: Record<string, unknown>[] = [];
 	const auditReturning = vi.fn(async () => [
@@ -29,32 +41,57 @@ function createTransactionHarness(updatedRows: readonly { userId: string }[]) {
 			};
 		},
 	}));
+	const forUpdate = vi.fn(async () => lockedRows);
+	const select = vi.fn(() => ({
+		from: () => ({
+			innerJoin: () => ({
+				where: () => ({
+					limit: () => ({ for: forUpdate }),
+				}),
+			}),
+		}),
+	}));
 	const transaction = vi.fn(async (operation: (value: unknown) => unknown) =>
-		operation({ insert, update }),
+		operation({ insert, select, update }),
 	);
 	return {
 		auditValues: () => auditValues,
 		database: { transaction, update } as unknown as ProfileDatabase,
+		forUpdate,
 		insert,
 		transaction,
 		updateValues: () => updateValues,
 	};
 }
 
+function expectRowVersionIncrement(value: unknown): void {
+	const query = new PgDialect().sqlToQuery(
+		value as Parameters<PgDialect["sqlToQuery"]>[0],
+	);
+	expect(query.sql).toContain('"row_version" + 1');
+}
+
 describe("profile repository", () => {
-	it("marks the account forced before session revocation", async () => {
-		const harness = createTransactionHarness([{ userId: "user-id" }]);
+	it("marks the account forced and increments its concurrency token", async () => {
+		const harness = createTransactionHarness({
+			updatedRows: [{ userId: "user-id" }],
+		});
 		const repository = createProfileRepository(harness.database);
 
 		await repository.beginPasswordChange({ actorId: "user-id" });
 
-		expect(harness.updateValues()).toEqual([{ mustChangePassword: true }]);
+		expect(harness.updateValues()[0]).toMatchObject({
+			mustChangePassword: true,
+		});
+		expectRowVersionIncrement(harness.updateValues()[0]?.rowVersion);
 		expect(harness.transaction).not.toHaveBeenCalled();
 		expect(harness.insert).not.toHaveBeenCalled();
 	});
 
-	it("atomically clears the forced-password gate and appends an audit event", async () => {
-		const harness = createTransactionHarness([{ userId: "user-id" }]);
+	it("atomically clears the forced-password gate, increments its token, and audits", async () => {
+		const harness = createTransactionHarness({
+			updatedRows: [{ userId: "user-id" }],
+		});
 		const repository = createProfileRepository(harness.database);
 
 		await repository.completePasswordChange({
@@ -66,7 +103,10 @@ describe("profile repository", () => {
 		});
 
 		expect(harness.transaction).toHaveBeenCalledOnce();
-		expect(harness.updateValues()).toEqual([{ mustChangePassword: false }]);
+		expect(harness.updateValues()[0]).toMatchObject({
+			mustChangePassword: false,
+		});
+		expectRowVersionIncrement(harness.updateValues()[0]?.rowVersion);
 		expect(harness.insert).toHaveBeenCalledOnce();
 		expect(harness.auditValues()).toMatchObject({
 			action: "profile.password.changed",
@@ -78,7 +118,7 @@ describe("profile repository", () => {
 	});
 
 	it("fails closed when administrator metadata is missing", async () => {
-		const harness = createTransactionHarness([]);
+		const harness = createTransactionHarness({ updatedRows: [] });
 		const repository = createProfileRepository(harness.database);
 
 		await expect(
@@ -94,13 +134,78 @@ describe("profile repository", () => {
 	});
 
 	it("rejects a missing metadata row while beginning password change", async () => {
-		const harness = createTransactionHarness([]);
+		const harness = createTransactionHarness({ updatedRows: [] });
 		const repository = createProfileRepository(harness.database);
 
 		await expect(
 			repository.beginPasswordChange({ actorId: "missing-user" }),
 		).rejects.toThrow("Administrator metadata was not updated.");
 		expect(harness.transaction).not.toHaveBeenCalled();
+		expect(harness.insert).not.toHaveBeenCalled();
+	});
+
+	it("locks the profile, applies the expected row version, and audits the locked before state", async () => {
+		const harness = createTransactionHarness({
+			lockedRows: [{ locale: "zh-CN", name: "Before", rowVersion: 3n }],
+			updatedRows: [{ locale: "en", rowVersion: 4n }],
+		});
+		const updateUser = vi.fn(async () => ({ status: true }));
+		const repository = createProfileRepository(harness.database, {
+			createAuthApi: () => ({ updateUser }) as never,
+		});
+		const headers = new Headers({ cookie: "server-only" });
+
+		const result = await repository.updateProfile({
+			actorId: "user-id",
+			expectedRowVersion: 3n,
+			headers,
+			ip: "203.0.113.8",
+			locale: "en",
+			name: "After",
+			requestId: "req_test",
+			userAgent: "test",
+		});
+
+		expect(result).toEqual({ locale: "en", name: "After", rowVersion: 4n });
+		expect(harness.forUpdate).toHaveBeenCalledOnce();
+		expect(updateUser).toHaveBeenCalledWith({
+			body: { name: "After" },
+			headers,
+		});
+		expect(harness.updateValues()[0]).toMatchObject({ locale: "en" });
+		expectRowVersionIncrement(harness.updateValues()[0]?.rowVersion);
+		expect(harness.auditValues()).toMatchObject({
+			action: "profile.updated",
+			afterJson: { locale: "en", name: "After", rowVersion: "4" },
+			beforeJson: { locale: "zh-CN", name: "Before", rowVersion: "3" },
+			resourceId: "user-id",
+		});
+	});
+
+	it("rejects a stale profile before invoking Better Auth or writing audit", async () => {
+		const harness = createTransactionHarness({
+			lockedRows: [{ locale: "zh-CN", name: "Before", rowVersion: 4n }],
+			updatedRows: [{ locale: "en", rowVersion: 5n }],
+		});
+		const updateUser = vi.fn(async () => ({ status: true }));
+		const repository = createProfileRepository(harness.database, {
+			createAuthApi: () => ({ updateUser }) as never,
+		});
+
+		await expect(
+			repository.updateProfile({
+				actorId: "user-id",
+				expectedRowVersion: 3n,
+				headers: new Headers(),
+				ip: null,
+				locale: "en",
+				name: "After",
+				requestId: "req_test",
+				userAgent: null,
+			}),
+		).rejects.toBeInstanceOf(ProfileStaleWriteRepositoryError);
+		expect(updateUser).not.toHaveBeenCalled();
+		expect(harness.updateValues()).toHaveLength(0);
 		expect(harness.insert).not.toHaveBeenCalled();
 	});
 });

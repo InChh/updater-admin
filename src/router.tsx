@@ -1,6 +1,7 @@
 import { createRouter as createTanStackRouter } from "@tanstack/solid-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/solid-router-ssr-query";
 import { getContext } from "./integrations/tanstack-query/provider";
+import { initializeBrowserSentry, setBrowserSentryRoute } from "./lib/sentry";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
@@ -16,6 +17,14 @@ export function getRouter() {
 		queryClient: context.queryClient,
 		router,
 	});
+	void initializeBrowserSentry()
+		.then((enabled) => {
+			if (!enabled) return;
+			router.subscribe("onResolved", ({ toLocation }) => {
+				setBrowserSentryRoute(toLocation.pathname);
+			});
+		})
+		.catch(() => undefined);
 
 	return router;
 }

@@ -1,11 +1,13 @@
-import { useQueryClient } from "@tanstack/solid-query";
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { useRouter, useRouterState } from "@tanstack/solid-router";
-import { createEffect, type JSX, onMount } from "solid-js";
+import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 
 import { authClient } from "../../lib/auth-client";
 import { useI18n } from "../../lib/i18n/i18n";
+import { setBrowserSentryActor } from "../../lib/sentry";
 import { sessionQueryKey } from "../../lib/session-query";
 import type { SafeSessionView } from "../../server/auth/session.server";
+import { systemSettingsQueryOptions } from "../settings/system-queries";
 import { resolveProtectedRoute } from "./route-registry";
 import { Sidebar } from "./sidebar";
 import { OPENED_TAB_PANEL_ID, OpenedTabs, openedTabDomId } from "./tabs";
@@ -22,6 +24,7 @@ export function AppShell(props: AppShellProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const href = useRouterState({ select: (state) => state.location.href });
+	const settingsQuery = createQuery(systemSettingsQueryOptions);
 	const activeTabKey = useShellUiSelector((state) => state.activeTabKey);
 	const collapsed = useShellUiSelector((state) => state.sidebarCollapsed);
 	const mobileOpen = useShellUiSelector((state) => state.mobileNavigationOpen);
@@ -38,6 +41,8 @@ export function AppShell(props: AppShellProps) {
 	};
 
 	onMount(() => {
+		setBrowserSentryActor(props.session.user.id);
+		onCleanup(() => setBrowserSentryActor(null));
 		shellUiController.hydrateForAccount({
 			accountId: props.session.user.id,
 			currentTab: currentTabInput() ?? undefined,
@@ -55,6 +60,7 @@ export function AppShell(props: AppShellProps) {
 	const signOut = async () => {
 		const result = await authClient.signOut();
 		if (result.error) throw new Error("SIGN_OUT_FAILED");
+		setBrowserSentryActor(null);
 		queryClient.removeQueries({ queryKey: sessionQueryKey });
 		shellUiController.logout();
 		await router.invalidate({ sync: true });
@@ -67,6 +73,9 @@ export function AppShell(props: AppShellProps) {
 				collapsed={collapsed()}
 				mobileOpen={mobileOpen()}
 				onMobileOpenChange={shellUiController.setMobileNavigationOpen}
+				systemName={
+					settingsQuery.data?.data.systemName ?? i18n.t("common.appName")
+				}
 			/>
 			<div class="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
 				<Topbar
@@ -77,6 +86,7 @@ export function AppShell(props: AppShellProps) {
 					}
 					onSignOut={signOut}
 					onToggleSidebar={shellUiController.toggleSidebar}
+					repositoryUrl={settingsQuery.data?.data.repositoryUrl ?? null}
 					user={props.session.user}
 				/>
 				<OpenedTabs

@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/solid-router";
 
-import { PlaceholderPage } from "../../features/shell/placeholder-page";
+import { ProfileForm } from "../../features/settings/profile-form";
+import { profileQueryOptions } from "../../features/settings/queries";
 
 export const Route = createFileRoute("/_authenticated/settings/profile")({
-	component: () => <PlaceholderPage routeId="profileSettings" />,
+	loader: ({ context }) =>
+		context.queryClient.prefetchQuery(profileQueryOptions()),
+	component: ProfileForm,
 	ssr: false,
 });

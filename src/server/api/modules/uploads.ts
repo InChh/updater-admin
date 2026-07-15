@@ -9,21 +9,31 @@ import type {
 	UploadObjectTarget,
 } from "../../../shared/api/uploads";
 import {
+	MAX_COMPLETE_UPLOAD_FILES,
 	MAX_UPLOAD_FILES,
 	MAX_UPLOAD_MIME_TYPE_CODE_POINTS,
 	MAX_UPLOAD_OBJECT_KEY_BYTES,
 	MAX_UPLOAD_PATH_CODE_POINTS,
 	UPLOAD_MIME_TYPE_PATTERN,
+	UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
 } from "../../../shared/api/uploads";
+import { getDatabase } from "../../db/client.server";
+import {
+	createRateLimitRepository,
+	type RateLimitDecision,
+	type RateLimitInput,
+} from "../../db/repositories/rate-limit.server";
 import {
 	createUploadsService,
 	UploadCredentialsUnavailableError,
 	UploadMetadataConflictError,
+	UploadObjectNotFoundError,
 	type UploadsService,
 	UploadsValidationError,
 	UploadVerificationUnavailableError,
 } from "../../domain/uploads.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { UPLOAD_COMPLETION_FILE_POLICY } from "../plugins/rate-limit.server";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 import { fileMetadataSchema } from "./files";
@@ -105,10 +115,12 @@ export const uploadCredentialsResponseSchema = t.Object(
 export const completeUploadItemInputSchema = t.Object(
 	{
 		...uploadFileMetadataInputSchema.properties,
-		objectEtag: t.String({
-			maxLength: ETAG_TRANSPORT_MAX_LENGTH,
-			minLength: 1,
-		}),
+		objectEtag: t.Optional(
+			t.String({
+				maxLength: ETAG_TRANSPORT_MAX_LENGTH,
+				minLength: 1,
+			}),
+		),
 		objectKey: t.String({
 			maxLength: OBJECT_KEY_TRANSPORT_MAX_LENGTH,
 			minLength: 1,
@@ -120,7 +132,7 @@ export const completeUploadItemInputSchema = t.Object(
 export const completeUploadsRequestSchema = t.Object(
 	{
 		files: t.Array(completeUploadItemInputSchema, {
-			maxItems: MAX_UPLOAD_FILES,
+			maxItems: MAX_COMPLETE_UPLOAD_FILES,
 			minItems: 1,
 		}),
 	},
@@ -130,7 +142,7 @@ export const completeUploadsRequestSchema = t.Object(
 export const completeUploadsResponseSchema = t.Object(
 	{
 		files: t.Array(fileMetadataSchema, {
-			maxItems: MAX_UPLOAD_FILES,
+			maxItems: MAX_COMPLETE_UPLOAD_FILES,
 			minItems: 1,
 		}),
 	},
@@ -181,9 +193,54 @@ export type UploadsSchemaAlignment =
 	| _CompleteResponseSchemaMatchesDto;
 
 export interface UploadsModuleDependencies {
+	readonly completionInFlightLimiter?: UploadCompletionInFlightLimiter;
+	readonly consumeCompletionRateLimit?: (
+		input: RateLimitInput,
+	) => Promise<RateLimitDecision>;
 	readonly contextStore: ApiRequestContextStore;
 	readonly getUploadsService?: () => UploadsService;
+	readonly now?: () => Date;
 }
+
+export const UPLOAD_COMPLETION_IN_FLIGHT_LIMIT = 2;
+export const UPLOAD_COMPLETION_IN_FLIGHT_RETRY_SECONDS = 1;
+
+export interface UploadCompletionInFlightLimiter {
+	tryAcquire(actorId: string): (() => void) | null;
+}
+
+/**
+ * Per-instance backpressure complements the Neon-backed file-token budget. It
+ * prevents one actor from filling every local HEAD worker while the shared
+ * budget bounds the same actor across independently scaled Netlify instances.
+ */
+export function createUploadCompletionInFlightLimiter(
+	limit = UPLOAD_COMPLETION_IN_FLIGHT_LIMIT,
+): UploadCompletionInFlightLimiter {
+	if (!Number.isInteger(limit) || limit < 1) {
+		throw new RangeError("Invalid upload completion in-flight limit.");
+	}
+	const activeByActor = new Map<string, number>();
+	return {
+		tryAcquire(actorId) {
+			if (!actorId) throw new RangeError("Upload actor ID is required.");
+			const active = activeByActor.get(actorId) ?? 0;
+			if (active >= limit) return null;
+			activeByActor.set(actorId, active + 1);
+			let released = false;
+			return () => {
+				if (released) return;
+				released = true;
+				const current = activeByActor.get(actorId) ?? 0;
+				if (current <= 1) activeByActor.delete(actorId);
+				else activeByActor.set(actorId, current - 1);
+			};
+		},
+	};
+}
+
+const defaultCompletionInFlightLimiter =
+	createUploadCompletionInFlightLimiter();
 
 function mapUploadsError(error: unknown): never {
 	if (error instanceof UploadsValidationError) {
@@ -196,6 +253,13 @@ function mapUploadsError(error: unknown): never {
 	if (error instanceof UploadMetadataConflictError) {
 		throw new ApiProblemError({
 			code: "UPLOAD_METADATA_CONFLICT",
+			fieldErrors: error.fieldErrors,
+			status: 409,
+		});
+	}
+	if (error instanceof UploadObjectNotFoundError) {
+		throw new ApiProblemError({
+			code: UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
 			fieldErrors: error.fieldErrors,
 			status: 409,
 		});
@@ -243,8 +307,12 @@ function requireMutationContext(
 }
 
 export function createUploadsModule({
+	completionInFlightLimiter = defaultCompletionInFlightLimiter,
+	consumeCompletionRateLimit = (input) =>
+		createRateLimitRepository(getDatabase()).consume(input),
 	contextStore,
 	getUploadsService = () => createUploadsService(),
+	now = () => new Date(),
 }: UploadsModuleDependencies) {
 	return new Elysia({ name: "updater-admin.uploads" })
 		.post(
@@ -266,11 +334,49 @@ export function createUploadsModule({
 			"/uploads/complete",
 			async ({ body, request, set }) => {
 				const audit = requireMutationContext(contextStore, request);
-				const result = await execute(() =>
-					getUploadsService().complete(body, audit),
-				);
-				set.headers["cache-control"] = "no-store";
-				return { files: [...result.files] };
+				const release = completionInFlightLimiter.tryAcquire(audit.actorId);
+				if (!release) {
+					throw new ApiProblemError({
+						code: "RATE_LIMITED",
+						headers: {
+							"retry-after": String(UPLOAD_COMPLETION_IN_FLIGHT_RETRY_SECONDS),
+						},
+						retryAfterSeconds: UPLOAD_COMPLETION_IN_FLIGHT_RETRY_SECONDS,
+						status: 429,
+					});
+				}
+				try {
+					const decision = await consumeCompletionRateLimit({
+						cost: body.files.length,
+						endpoint: UPLOAD_COMPLETION_FILE_POLICY.endpoint,
+						limit: UPLOAD_COMPLETION_FILE_POLICY.limit,
+						now: now(),
+						subjectKey: audit.actorId,
+						windowSeconds: UPLOAD_COMPLETION_FILE_POLICY.windowSeconds,
+					});
+					set.headers["ratelimit-limit"] = decision.limit;
+					set.headers["ratelimit-remaining"] = decision.remaining;
+					set.headers["ratelimit-reset"] = Math.ceil(
+						decision.resetAt.getTime() / 1000,
+					);
+					if (!decision.allowed) {
+						throw new ApiProblemError({
+							code: "RATE_LIMITED",
+							headers: {
+								"retry-after": String(decision.retryAfterSeconds),
+							},
+							retryAfterSeconds: decision.retryAfterSeconds,
+							status: 429,
+						});
+					}
+					const result = await execute(() =>
+						getUploadsService().complete(body, audit),
+					);
+					set.headers["cache-control"] = "no-store";
+					return { files: [...result.files] };
+				} finally {
+					release();
+				}
 			},
 			{
 				body: completeUploadsRequestSchema,

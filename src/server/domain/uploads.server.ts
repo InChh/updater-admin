@@ -5,6 +5,7 @@ import {
 	type CompleteUploadsRequest,
 	type CompleteUploadsResponse,
 	DECIMAL_BYTE_SIZE_PATTERN,
+	MAX_COMPLETE_UPLOAD_FILES,
 	MAX_UPLOAD_FILES,
 	MAX_UPLOAD_MIME_TYPE_CODE_POINTS,
 	MAX_UPLOAD_OBJECT_KEY_BYTES,
@@ -12,6 +13,7 @@ import {
 	SHA256_PATTERN,
 	type TemporaryOssCredentials,
 	UPLOAD_MIME_TYPE_PATTERN,
+	UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
 	type UploadCredentialsRequest,
 	type UploadCredentialsResponse,
 	type UploadFileMetadataInput,
@@ -78,6 +80,22 @@ export class UploadMetadataConflictError extends Error {
 	}
 }
 
+/** The canonical OSS destination does not exist yet. */
+export class UploadObjectNotFoundError extends Error {
+	readonly fieldErrors: readonly FieldError[];
+
+	constructor(index: number) {
+		super("The uploaded object was not found at its canonical destination.");
+		this.name = "UploadObjectNotFoundError";
+		this.fieldErrors = [
+			{
+				code: UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
+				path: `files.${index}.objectKey`,
+			},
+		];
+	}
+}
+
 /** OSS could not answer a metadata verification request. */
 export class UploadVerificationUnavailableError extends Error {
 	constructor() {
@@ -130,6 +148,11 @@ interface NormalizedUploadMetadata extends UploadFileMetadataInput {
 }
 
 interface NormalizedCompletionMetadata extends NormalizedUploadMetadata {
+	readonly objectEtag?: string;
+	readonly objectKey: string;
+}
+
+interface VerifiedCompletionMetadata extends NormalizedUploadMetadata {
 	readonly objectEtag: string;
 	readonly objectKey: string;
 }
@@ -300,16 +323,13 @@ export function normalizeUploadEtag(value: unknown): string | null {
 
 function normalizeBaseFiles(
 	files: unknown,
+	maxFiles = MAX_UPLOAD_FILES,
 ): readonly NormalizedUploadMetadata[] {
-	if (
-		!Array.isArray(files) ||
-		files.length < 1 ||
-		files.length > MAX_UPLOAD_FILES
-	) {
+	if (!Array.isArray(files) || files.length < 1 || files.length > maxFiles) {
 		throw new UploadsValidationError([
 			{
 				code:
-					Array.isArray(files) && files.length > MAX_UPLOAD_FILES
+					Array.isArray(files) && files.length > maxFiles
 						? "TOO_MANY"
 						: "REQUIRED",
 				path: "files",
@@ -360,7 +380,7 @@ function normalizeCompletionFiles(
 	files: unknown,
 	uploadPrefix: string,
 ): readonly NormalizedCompletionMetadata[] {
-	const baseFiles = normalizeBaseFiles(files);
+	const baseFiles = normalizeBaseFiles(files, MAX_COMPLETE_UPLOAD_FILES);
 	const submitted = files as readonly Record<string, unknown>[];
 	const errors: FieldError[] = [];
 	const conflicts: FieldError[] = [];
@@ -372,8 +392,12 @@ function normalizeCompletionFiles(
 			`${prefix}.objectKey`,
 			errors,
 		);
-		const objectEtag = normalizeUploadEtag(submitted[index]?.objectEtag);
-		if (objectEtag === null) {
+		const submittedObjectEtag = submitted[index]?.objectEtag;
+		const objectEtag =
+			submittedObjectEtag === undefined
+				? undefined
+				: normalizeUploadEtag(submittedObjectEtag);
+		if (submittedObjectEtag !== undefined && objectEtag === null) {
 			addError(errors, `${prefix}.objectEtag`);
 		}
 		const canonicalObjectKey = expectedObjectKey(
@@ -386,7 +410,11 @@ function normalizeCompletionFiles(
 			addError(conflicts, `${prefix}.objectKey`, "CONFLICT");
 		}
 		if (objectKey && objectEtag !== null) {
-			normalized.push({ ...base, objectEtag, objectKey });
+			normalized.push(
+				objectEtag === undefined
+					? { ...base, objectKey }
+					: { ...base, objectEtag, objectKey },
+			);
 		}
 	}
 	if (errors.length > 0) throw new UploadsValidationError(errors);
@@ -422,8 +450,9 @@ async function verifyObjects(
 	files: readonly NormalizedCompletionMetadata[],
 	client: OssMetadataClient,
 	concurrency: number,
-): Promise<void> {
+): Promise<readonly VerifiedCompletionMetadata[]> {
 	let cursor = 0;
+	const verified = new Array<VerifiedCompletionMetadata>(files.length);
 	let firstFailure:
 		| { readonly error: unknown; readonly index: number }
 		| undefined;
@@ -443,11 +472,18 @@ async function verifyObjects(
 				if (!file) return;
 				try {
 					const metadata = await client.headObject(file.objectKey);
+					const canonicalEtag = normalizeUploadEtag(metadata.etag);
+					if (canonicalEtag === null) {
+						throw new OssMetadataError("INVALID_METADATA");
+					}
 					const conflicts: FieldError[] = [];
 					if (metadata.size !== file.sizeValue) {
 						conflicts.push({ code: "CONFLICT", path: `files.${index}.size` });
 					}
-					if (metadata.etag !== file.objectEtag) {
+					if (
+						file.objectEtag !== undefined &&
+						canonicalEtag !== file.objectEtag
+					) {
 						conflicts.push({
 							code: "CONFLICT",
 							path: `files.${index}.objectEtag`,
@@ -456,11 +492,16 @@ async function verifyObjects(
 					if (conflicts.length > 0) {
 						throw new UploadMetadataConflictError(conflicts);
 					}
+					verified[index] = { ...file, objectEtag: canonicalEtag };
 				} catch (error) {
 					if (
 						error instanceof OssMetadataError &&
-						(error.code === "OBJECT_NOT_FOUND" ||
-							error.code === "INVALID_METADATA")
+						error.code === "OBJECT_NOT_FOUND"
+					) {
+						recordFailure(index, new UploadObjectNotFoundError(index));
+					} else if (
+						error instanceof OssMetadataError &&
+						error.code === "INVALID_METADATA"
 					) {
 						const mappedError = new UploadMetadataConflictError([
 							{ code: "CONFLICT", path: `files.${index}.objectKey` },
@@ -480,6 +521,7 @@ async function verifyObjects(
 	);
 	await Promise.all(workers);
 	if (firstFailure !== undefined) throw firstFailure.error;
+	return verified;
 }
 
 function assertHeadConcurrency(value: number): number {
@@ -534,12 +576,16 @@ export function createUploadsService(
 				input.files,
 				resolveConfiguration().uploadPrefix,
 			);
-			await verifyObjects(files, resolveMetadataClient(), headConcurrency);
+			const verifiedFiles = await verifyObjects(
+				files,
+				resolveMetadataClient(),
+				headConcurrency,
+			);
 			let completed: readonly RegisteredUploadMetadata[];
 			try {
 				completed = await resolveRepository().complete({
 					audit,
-					files: files.map(
+					files: verifiedFiles.map(
 						({ mimeType, objectEtag, objectKey, path, sha256, sizeValue }) =>
 							({
 								mimeType,

@@ -1,13 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { MAX_UPLOAD_SIZE_BYTES } from "../../shared/api/uploads";
+
 import type {
 	AliOssClientLike,
 	AliOssMultipartOptions,
 	AliOssMultipartResult,
 } from "./oss-uploader.client";
 import {
+	abortOssMultipartCheckpoint,
+	DEFAULT_OSS_MULTIPART_PART_SIZE,
+	MAX_OSS_MULTIPART_FILE_SIZE_BYTES,
+	MAX_OSS_MULTIPART_IN_FLIGHT_PART_BYTES_PER_FILE,
+	MAX_OSS_MULTIPART_PART_COUNT,
 	OSS_MULTIPART_PARALLELISM,
 	OssUploadCancelledError,
+	resolveOssMultipartPartSize,
 	startOssMultipartUpload,
 } from "./oss-uploader.client";
 
@@ -32,7 +40,7 @@ function baseInput() {
 }
 
 describe("browser OSS multipart uploader", () => {
-	it("uses STS configuration, parallelism four, progress, and checkpoints", async () => {
+	it("uses STS configuration, bounded defaults, progress, and checkpoints", async () => {
 		const checkpoint = { doneParts: [], uploadId: "upload-1" };
 		let options: AliOssMultipartOptions | undefined;
 		const client: AliOssClientLike = {
@@ -76,14 +84,40 @@ describe("browser OSS multipart uploader", () => {
 			parallel: OSS_MULTIPART_PARALLELISM,
 			partSize: 1024 * 1024,
 		});
+		expect(OSS_MULTIPART_PARALLELISM).toBe(2);
 		expect(onCheckpoint).toHaveBeenCalledTimes(2);
 		expect(onCheckpoint).toHaveBeenLastCalledWith(checkpoint);
 		expect(onProgress.mock.calls.map(([value]) => value)).toEqual([0, 0.4, 1]);
 	});
 
+	it("always supplies the explicit bounded default part size", async () => {
+		let options: AliOssMultipartOptions | undefined;
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async (_objectKey, _file, nextOptions) => {
+				options = nextOptions;
+				return { etag: '"object-etag"' };
+			}),
+		};
+
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		await task.promise;
+		expect(options?.partSize).toBe(DEFAULT_OSS_MULTIPART_PART_SIZE);
+		expect(MAX_OSS_MULTIPART_IN_FLIGHT_PART_BYTES_PER_FILE).toBe(
+			DEFAULT_OSS_MULTIPART_PART_SIZE * OSS_MULTIPART_PARALLELISM,
+		);
+	});
+
 	it("passes an in-memory checkpoint back when retrying", async () => {
+		const input = baseInput();
 		const checkpoint = {
 			doneParts: [{ etag: "part-1", number: 1 }],
+			fileSize: input.file.size,
+			name: input.objectKey,
+			partSize: DEFAULT_OSS_MULTIPART_PART_SIZE,
 			uploadId: "upload-1",
 		};
 		let receivedOptions: AliOssMultipartOptions | undefined;
@@ -96,7 +130,7 @@ describe("browser OSS multipart uploader", () => {
 		};
 
 		const task = startOssMultipartUpload(
-			{ ...baseInput(), checkpoint },
+			{ ...input, checkpoint },
 			{ createClient: () => client },
 		);
 
@@ -131,6 +165,101 @@ describe("browser OSS multipart uploader", () => {
 		expect(client.cancel).toHaveBeenCalledOnce();
 	});
 
+	it("aborts the known multipart upload after immediate cancellation", async () => {
+		let rejectUpload: ((reason?: unknown) => void) | undefined;
+		let publishCheckpoint:
+			| ((
+					checkpoint: Readonly<Record<string, unknown>>,
+			  ) => Promise<void> | void)
+			| undefined;
+		const abortMultipartUpload = vi.fn(async () => undefined);
+		const client: AliOssClientLike = {
+			abortMultipartUpload,
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(
+				(_objectKey, _file, options) =>
+					new Promise<AliOssMultipartResult>((_resolve, reject) => {
+						publishCheckpoint = (_checkpoint) =>
+							options.progress(0, _checkpoint);
+						rejectUpload = reject;
+					}),
+			),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+		await vi.waitFor(() => expect(publishCheckpoint).toBeTypeOf("function"));
+		await publishCheckpoint?.({
+			partSize: DEFAULT_OSS_MULTIPART_PART_SIZE,
+			uploadId: "upload-known",
+		});
+
+		task.cancel();
+		expect(client.cancel).toHaveBeenCalledOnce();
+		expect(abortMultipartUpload).toHaveBeenCalledWith(
+			"updater/sha/release.bin",
+			"upload-known",
+			{ timeout: 120_000 },
+		);
+		await expect(task.waitForCleanup()).resolves.toBe("aborted");
+		rejectUpload?.({ name: "cancel" });
+		await expect(task.promise).rejects.toBeInstanceOf(OssUploadCancelledError);
+	});
+
+	it("falls back safely when cancellation happens before an upload ID exists", async () => {
+		let rejectUpload: ((reason?: unknown) => void) | undefined;
+		const abortMultipartUpload = vi.fn(async () => undefined);
+		const client: AliOssClientLike = {
+			abortMultipartUpload,
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(
+				() =>
+					new Promise<AliOssMultipartResult>((_resolve, reject) => {
+						rejectUpload = reject;
+					}),
+			),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		task.cancel();
+		await expect(task.waitForCleanup()).resolves.toBe("unknown-upload");
+		expect(abortMultipartUpload).not.toHaveBeenCalled();
+		rejectUpload?.({ name: "cancel" });
+		await expect(task.promise).rejects.toBeInstanceOf(OssUploadCancelledError);
+	});
+
+	it("aborts a known failed multipart task when the caller discards it", async () => {
+		const checkpoint = {
+			fileSize: baseInput().file.size,
+			name: baseInput().objectKey,
+			partSize: DEFAULT_OSS_MULTIPART_PART_SIZE,
+			uploadId: "upload-discarded",
+		};
+		const abortMultipartUpload = vi.fn(async () => undefined);
+		const client: AliOssClientLike = {
+			abortMultipartUpload,
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async (_objectKey, _file, options) => {
+				await options.progress(0.25, checkpoint);
+				throw new Error("network unavailable");
+			}),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		await expect(task.promise).rejects.toThrow("network unavailable");
+		task.cancel();
+		await expect(task.waitForCleanup()).resolves.toBe("aborted");
+		expect(abortMultipartUpload).toHaveBeenCalledWith(
+			"updater/sha/release.bin",
+			"upload-discarded",
+			{ timeout: 120_000 },
+		);
+	});
+
 	it("honors an already-aborted signal without creating an OSS client", async () => {
 		const abortController = new AbortController();
 		abortController.abort();
@@ -151,6 +280,95 @@ describe("browser OSS multipart uploader", () => {
 				{ createClient: vi.fn() },
 			),
 		).toThrow("partSize must be at least");
+	});
+
+	it("rejects part sizes that would exceed the deterministic memory bound", () => {
+		expect(() =>
+			resolveOssMultipartPartSize(1, DEFAULT_OSS_MULTIPART_PART_SIZE + 1),
+		).toThrow("partSize must not exceed");
+	});
+
+	it("accepts the maximum bounded file size and rejects the next byte", () => {
+		expect(MAX_OSS_MULTIPART_FILE_SIZE_BYTES).toBe(
+			DEFAULT_OSS_MULTIPART_PART_SIZE * MAX_OSS_MULTIPART_PART_COUNT,
+		);
+		expect(resolveOssMultipartPartSize(MAX_OSS_MULTIPART_FILE_SIZE_BYTES)).toBe(
+			DEFAULT_OSS_MULTIPART_PART_SIZE,
+		);
+		expect(() =>
+			resolveOssMultipartPartSize(MAX_OSS_MULTIPART_FILE_SIZE_BYTES + 1),
+		).toThrow(`fileSize must not exceed ${MAX_OSS_MULTIPART_FILE_SIZE_BYTES}`);
+		expect(MAX_UPLOAD_SIZE_BYTES).toBe(
+			BigInt(MAX_OSS_MULTIPART_FILE_SIZE_BYTES),
+		);
+	});
+
+	it("rejects a resume checkpoint that changes the bounded part size", () => {
+		const input = baseInput();
+		expect(() =>
+			startOssMultipartUpload(
+				{
+					...input,
+					checkpoint: {
+						fileSize: input.file.size,
+						name: input.objectKey,
+						partSize: DEFAULT_OSS_MULTIPART_PART_SIZE,
+						uploadId: "upload-1",
+					},
+					partSize: 1024 * 1024,
+				},
+				{ createClient: vi.fn() },
+			),
+		).toThrow("partSize must match the multipart checkpoint");
+	});
+
+	it("rejects an incomplete resume checkpoint before the SDK can resize parts", () => {
+		expect(() =>
+			startOssMultipartUpload(
+				{
+					...baseInput(),
+					checkpoint: {
+						partSize: String(DEFAULT_OSS_MULTIPART_PART_SIZE),
+						uploadId: "upload-1",
+					},
+				},
+				{ createClient: vi.fn() },
+			),
+		).toThrow("checkpoint partSize must be a number");
+	});
+
+	it("returns bounded cleanup statuses without leaking provider errors", async () => {
+		const sensitiveError = new Error(
+			`request failed with ${CREDENTIALS.accessKeySecret}`,
+		);
+		const client: AliOssClientLike = {
+			abortMultipartUpload: vi.fn(async () => {
+				throw sensitiveError;
+			}),
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(),
+		};
+		const result = await abortOssMultipartCheckpoint(
+			{
+				...baseInput(),
+				checkpoint: { uploadId: "upload-failed" },
+			},
+			{ createClient: () => client },
+		);
+
+		expect(result).toBe("failed");
+		expect(JSON.stringify(result)).not.toContain(CREDENTIALS.accessKeySecret);
+	});
+
+	it("does not create a cleanup client when the checkpoint has no upload ID", async () => {
+		const createClient = vi.fn();
+		await expect(
+			abortOssMultipartCheckpoint(
+				{ ...baseInput(), checkpoint: { doneParts: [] } },
+				{ createClient },
+			),
+		).resolves.toBe("unknown-upload");
+		expect(createClient).not.toHaveBeenCalled();
 	});
 
 	it("fails closed when CORS does not expose an ETag", async () => {

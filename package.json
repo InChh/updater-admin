@@ -36,6 +36,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:check": "drizzle-kit check",
+    "deploy:prepare": "pnpm db:migrate",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
@@ -72,7 +73,8 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.1.18",
     "tailwindcss-animate": "^1.0.7",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",

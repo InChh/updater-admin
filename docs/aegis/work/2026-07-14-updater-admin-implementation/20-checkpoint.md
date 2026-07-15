@@ -184,7 +184,7 @@
 - Batches 0–7: scaffold/tooling, database/auth/API/shell, program management, and version/file backend
 - Batch 8: short-lived OSS STS, deterministic destinations, server HEAD verification, atomic idempotent metadata registration, incremental worker hashing, ali-oss multipart upload, and memory-only TanStack Store queue
 - Evidence refs:
-- Upload requests accept metadata only, enforce canonical relative POSIX paths, lowercase SHA-256, a deliberate 5 TiB product limit, MIME type/subtype grammar, and 1,023 UTF-8-byte OSS keys.
+- Upload requests accept metadata only, enforce canonical relative POSIX paths, lowercase SHA-256, MIME type/subtype grammar, and 1,023 UTF-8-byte OSS keys. The earlier 5 TiB draft limit is superseded by Batch 9's exact 41,943,040,000-byte multipart bound.
 - Temporary browser policy contains only `PutObject`, `AbortMultipartUpload`, and `ListParts`; the permanent server principal separately needs prefix-scoped `GetObject` for metadata verification. README documents RAM/CORS and keeps permanent credentials server-only.
 - Completion verifies object key, size, and ETag before deterministic lock-ordered repository registration. Matching concurrent replays share IDs; conflicting proofs fail with a sanitized Problem Details response and success audit commits atomically.
 - Hashing reads 4 MiB slices in a worker. Multipart upload uses per-file clients, concurrency four, checkpoint/progress/cancel/retry, and required ETag. Files and checkpoints remain in memory; sessionStorage stores only the completed-item display preference.
@@ -200,3 +200,57 @@
 - Ownership status: Elysia owns upload APIs, Drizzle repositories own metadata/audit writes, OSS stores bodies, Query will own remote version state, and TanStack Store owns only ephemeral upload workflow state.
 - Verification status: Root static/unit/build gate and two independent server reviews passed; live DB/OSS/browser environments remain explicit external gates rather than hidden assumptions.
 - Advisory decision: continue to Batch 9
+
+## Checkpoint Update
+
+- Current todo: Batch 10: administrator, profile, and account management
+- Active slice: Better Auth-owned administrator/session operations, Elysia account APIs, and Query/Table/Form account UI
+- Completed todos:
+- Batches 0–8: scaffold/tooling, database/auth/API/shell, program/version backends, and direct OSS upload foundation
+- Batch 9: nested program-version route, Query-backed version table, explicit folder upload orchestration, create/edit/delete forms, concurrent row activation, and credential-gated end-to-end journey
+- Evidence refs:
+- The concrete nested route owns program-scoped query/search state and opens a dynamic tab titled from the loaded program name while preserving `/programs` as the pinned fallback.
+- Folder selection validates before replacing the queue. Explicit Upload remains disabled until syntactic form validation passes; invalid reselection discards the previous queue so stale files cannot be uploaded accidentally.
+- Browser uploads use four file workers, two explicit 4 MiB parts per file, a 10,000-part/41,943,040,000-byte file ceiling, resumable memory-only checkpoints, best-effort multipart abort, and completion chunks of 25.
+- Completion uses a two-request per-actor instance cap plus a Neon-backed 2,000-file-token/15-minute budget. Only the distinct missing-object contract can trigger re-upload; conflicts and verification outages remain retryable without overwriting.
+- Version activation serializes only the same row, permits unrelated rows concurrently, scopes optimistic snapshots to the target, and invalidates the program list plus exact detail after every rollback.
+- The credential-gated Playwright journey uses real Better Auth login and intercepts only `/api/v1` business calls plus realistic ali-oss multipart requests; no product auth/upload test hook exists.
+- Batch 9 passed 60 test files/421 tests, Biome, typecheck, Netlify client/SSR build, guarded database harness with five explicit skips, Playwright's anonymous/credential-gated harness, and diff-check. Independent acceptance and security re-reviews PASS after invalid-folder, queued-retry, and activation-rollback remediation.
+- Blocked on: Disposable database proof requires `TEST_DATABASE_URL` plus its destructive-test confirmation. Authenticated Playwright requires seeded `E2E_ADMIN_EMAIL`/`E2E_ADMIN_PASSWORD` and a local browser binary. Live OSS verification requires an authorized sandbox.
+- Next step: Complete administrator/profile/account management without introducing a second auth/session owner or product RBAC.
+
+## DriftCheckDraft
+
+- Scope status: Batch 9 stayed within nested version UI, browser upload orchestration, completion hardening, version mutations, and their verification seams.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy client/API compatibility, file proxying, download credentials, or automatic completed-object deletion was added.
+- Ownership status: Better Auth owns identity/session state, Elysia owns business authorization/contracts, Drizzle repositories own SQL/audits, Query owns remote version state, and TanStack Store owns only ephemeral upload state.
+- Verification status: Static/unit/build gates and both independent re-reviews pass; live DB/authenticated browser/OSS proof remains explicitly environment-gated.
+- Advisory decision: continue to Batch 10
+
+## Checkpoint Update - Batches 10-14 locally verified; external release gates open
+
+- Current todo: Authorized environment provisioning, deployment, and external verification handoff
+- Active slice: Local implementation and release verification are complete; only credential/cloud-backed gates remain
+- Completed todos:
+- Batch 10: Better Auth-owned administrator lifecycle, profile and locale updates, account/session management, TanStack Table/Form UI, and the credential-gated temporary-admin forced-password/revoke/disable journey
+- Batch 11: fixed system-settings singleton, ETag/If-Match concurrency, validated defaults and repository URL, Query-backed cache ownership, and stale-write recovery UI
+- Batch 12: authenticated readiness and business metrics, renderer-neutral 7/30/90-day release series, append-only filtered audit history/detail, native accessible SVG chart, and URL-backed monitoring/audit pages
+- Batch 13: conditional browser/server Sentry, shared recursive scrubbing, Netlify/Start runtime and security-header hardening, conditional source-map upload, environment/deployment documentation, and cross-cutting security verification
+- Batch 14: scaffold demo retirement, production route-owner proof for the requested runtime TanStack libraries, durable CLI/Intent toolchain guidance, route/secret/accessibility scans, desktop/mobile Playwright coverage, and credential-gated visual evidence capture paths
+- Evidence refs:
+- The Batch 13 checkpoint proved 95 test files and 542 tests together with `pnpm check`, `pnpm typecheck`, `pnpm build`, `git diff --check`, and a built Netlify `/health` response carrying the four required dynamic security headers. This is historical Batch 13 evidence, not the final release rerun.
+- The final Playwright run proved 8 public desktop/mobile tests passed while 18 authenticated tests skipped explicitly because `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD` were absent. This is not proof of the credential-gated journeys.
+- The authoritative final local matrix passed frozen offline install, route generation, Intent discovery (10 packages/31 skills), TanStack CLI discovery (16 libraries), Biome over 279 files, TypeScript, 98 Vitest files/568 tests, Drizzle schema check, Netlify client/SSR build, built-function health/security-header smoke, diff-check, and zero-match route/client-secret/source-map scans.
+- `pnpm test:db` loaded 6 files/6 tests and explicitly skipped them because no disposable database was authorized. Production route scans returned no `/demo/*`, `/about`, `/dashboard`, `/billing`, or legacy `/api/app/*` matches.
+- ADR-0001 records the implemented same-origin TanStack Start/raw Request/Elysia boundary; the baseline already reflects its current owner and compatibility state.
+- Blocked on: Disposable database credentials and destructive-test confirmation; seeded E2E administrator credentials; authorized OSS, Sentry, and Netlify Preview environments
+- Next step: Provision isolated external environments, run the documented migration/bootstrap/deployment sequence, and attach each external verification result without treating unavailable gates as passes.
+
+## DriftCheckDraft
+
+- Scope status: Batches 10-14 stayed within the approved administrator/settings/monitoring/security/deployment/demo-retirement and release-verification scope.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy updater-client/API compatibility, data import, download STS, Sentry Issue ingestion, or automatic OSS deletion was added.
+- Ownership status: Better Auth remains the identity/session owner; Elysia remains the business API and authorization owner; Drizzle/Neon own persistence; Query owns remote cache; Router owns URL state; Table/Form own projections and forms; Store owns only cross-component client UI/upload state; Start owns SSR/Netlify transport.
+- Retirement status: Scaffold demos and their routes are retired only after real production owners and tests existed; the initial baseline remains historical rather than rewritten.
+- Verification status: Local implementation and the authoritative local matrix pass. Credential/database/cloud-backed release evidence remains explicitly open.
+- Advisory decision: local-verification-complete-external-gates-open

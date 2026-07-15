@@ -18,19 +18,25 @@ export type ApiProblemStatus =
 	| 503;
 
 const PROBLEM_TITLES: Readonly<Record<string, string>> = {
+	ADMINISTRATOR_EMAIL_CONFLICT:
+		"An administrator with this email already exists",
 	BAD_REQUEST: "The request could not be parsed",
 	FORBIDDEN: "The requested action is not allowed",
 	INTERNAL_ERROR: "An unexpected server error occurred",
+	LAST_ADMIN_REQUIRED: "At least one active administrator is required",
 	NOT_FOUND: "The requested resource was not found",
 	PRECONDITION_REQUIRED: "A current entity tag is required",
 	PROGRAM_NAME_CONFLICT: "A program with this name already exists",
 	RATE_LIMITED: "Too many requests",
+	SELF_DISABLE_FORBIDDEN: "You cannot disable your own administrator account",
 	STALE_WRITE: "The resource changed since it was loaded",
 	UNAUTHENTICATED: "Authentication is required",
 	UPLOAD_CREDENTIALS_UNAVAILABLE:
 		"Upload credentials are temporarily unavailable",
 	UPLOAD_METADATA_CONFLICT:
 		"The uploaded object does not match its metadata proof",
+	UPLOAD_OBJECT_NOT_FOUND:
+		"The uploaded object was not found at its canonical destination",
 	UPLOAD_VERIFICATION_UNAVAILABLE:
 		"Upload object verification is temporarily unavailable",
 	VALIDATION_FAILED: "One or more fields are invalid",

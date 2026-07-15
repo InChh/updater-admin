@@ -171,6 +171,7 @@ describe("Updater Admin database schema", () => {
 			"must_change_password",
 			"locale",
 			"last_login_at",
+			"row_version",
 		]);
 
 		for (const table of [user, session, account, verification, rateLimit]) {
@@ -192,7 +193,14 @@ describe("Updater Admin database schema", () => {
 		).toEqual(["provider_id", "account_id"]);
 		expect(checkNames(adminMetadata)).toEqual([
 			"admin_metadata_locale_supported",
+			"admin_metadata_row_version_positive",
 		]);
+		const adminRowVersion = getTableConfig(adminMetadata).columns.find(
+			(column) => column.name === "row_version",
+		);
+		expect(adminRowVersion?.getSQLType()).toBe("bigint");
+		expect(adminRowVersion?.notNull).toBe(true);
+		expect(adminRowVersion?.hasDefault).toBe(true);
 		expect(foreignKeySummary(adminMetadata)).toEqual([
 			{
 				columns: ["user_id"],

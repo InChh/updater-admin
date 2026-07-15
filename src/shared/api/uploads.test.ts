@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { FileMetadataDto } from "./files";
 import {
+	type CompleteUploadsRequest,
 	type CompleteUploadsResponse,
 	DECIMAL_BYTE_SIZE_PATTERN,
+	MAX_COMPLETE_UPLOAD_FILES,
 	MAX_UPLOAD_FILES,
 	MAX_UPLOAD_MIME_TYPE_CODE_POINTS,
 	MAX_UPLOAD_OBJECT_KEY_BYTES,
@@ -12,6 +14,8 @@ import {
 	SHA256_PATTERN,
 	type TemporaryOssCredentials,
 	UPLOAD_MIME_TYPE_PATTERN,
+	UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
+	UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
 	type UploadCredentialsRequest,
 	type UploadCredentialsResponse,
 } from "./uploads";
@@ -19,10 +23,18 @@ import {
 describe("upload API contract", () => {
 	it("publishes the approved browser-safe request limits", () => {
 		expect(MAX_UPLOAD_FILES).toBe(1_000);
-		expect(MAX_UPLOAD_SIZE_BYTES).toBe(5_497_558_138_880n);
+		expect(MAX_COMPLETE_UPLOAD_FILES).toBe(25);
+		expect(MAX_UPLOAD_SIZE_BYTES).toBe(41_943_040_000n);
 		expect(MAX_UPLOAD_PATH_CODE_POINTS).toBe(1_024);
 		expect(MAX_UPLOAD_OBJECT_KEY_BYTES).toBe(1_023);
 		expect(MAX_UPLOAD_MIME_TYPE_CODE_POINTS).toBe(255);
+	});
+
+	it("publishes a distinct missing-object reconciliation contract", () => {
+		expect(UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE).toBe(
+			"UPLOAD_OBJECT_NOT_FOUND",
+		);
+		expect(UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE).toBe("OBJECT_NOT_FOUND");
 	});
 
 	it("accepts only bounded browser media types", () => {
@@ -70,6 +82,22 @@ describe("upload API contract", () => {
 		});
 		expect(request.files[0]).not.toHaveProperty("body");
 		expect(request.files[0]).not.toHaveProperty("file");
+	});
+
+	it("allows completion reconciliation without a browser ETag proof", () => {
+		const request: CompleteUploadsRequest = {
+			files: [
+				{
+					mimeType: "application/octet-stream",
+					objectKey: `updater-admin/${"a".repeat(64)}/release/app.bin`,
+					path: "release/app.bin",
+					sha256: "a".repeat(64),
+					size: "4096",
+				},
+			],
+		};
+
+		expect(request.files[0]).not.toHaveProperty("objectEtag");
 	});
 
 	it("exposes only temporary credentials alongside deterministic targets", () => {

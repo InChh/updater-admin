@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 
+import type { SupportedLocale } from "../../shared/api/common";
 import { type Database, getDatabase } from "../db/client.server";
 import { adminMetadata, user } from "../db/schema";
 import type { EnvironmentSource } from "../env.server";
@@ -43,7 +44,7 @@ export interface BootstrapDependencies {
 }
 
 export interface AdministratorMetadataValues {
-	readonly locale: "zh-CN";
+	readonly locale: SupportedLocale;
 	readonly mustChangePassword: boolean;
 	readonly userId: string;
 }
@@ -63,9 +64,10 @@ export class BootstrapStateError extends Error {
 export function createAdministratorMetadataValues(
 	userId: string,
 	temporaryPassword: boolean,
+	locale: SupportedLocale = "zh-CN",
 ): AdministratorMetadataValues {
 	return {
-		locale: "zh-CN",
+		locale,
 		mustChangePassword: temporaryPassword,
 		userId,
 	};

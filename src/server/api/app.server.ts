@@ -7,19 +7,33 @@ import {
 	type BeginPasswordChangeInput,
 	type CompletePasswordChangeInput,
 	createProfileRepository,
+	type ProfileUpdateRecord,
+	type UpdateProfileRepositoryInput,
 } from "../db/repositories/profile.server";
 import type {
 	RateLimitDecision,
 	RateLimitInput,
 } from "../db/repositories/rate-limit.server";
+import type { AdministratorsService } from "../domain/administrators.server";
+import type { AuditService } from "../domain/audit.server";
+import type { MonitoringService } from "../domain/monitoring.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type { SettingsService } from "../domain/settings.server";
 import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
+import { captureServerException } from "../integrations/sentry/sentry.server";
 import { ApiRequestContextStore } from "./context.server";
+import { createAdministratorsModule } from "./modules/administrators";
+import { createAuditModule } from "./modules/audit";
 import { createFilesModule } from "./modules/files";
+import { createMonitoringModule } from "./modules/monitoring";
 import { createProfileModule, type PasswordAuthApi } from "./modules/profile";
 import { createProgramsModule } from "./modules/programs";
-import { createUploadsModule } from "./modules/uploads";
+import { createSettingsModule } from "./modules/settings";
+import {
+	createUploadsModule,
+	type UploadCompletionInFlightLimiter,
+} from "./modules/uploads";
 import { createVersionsModule } from "./modules/versions";
 import { createAuditPlugin } from "./plugins/audit.server";
 import { createOriginPlugin } from "./plugins/origin.server";
@@ -42,14 +56,22 @@ export interface ApiAppDependencies {
 	readonly completePasswordChange?: (
 		input: CompletePasswordChangeInput,
 	) => Promise<void>;
+	readonly updateProfile?: (
+		input: UpdateProfileRepositoryInput,
+	) => Promise<ProfileUpdateRecord>;
 	readonly consumeRateLimit?: (
 		input: RateLimitInput,
 	) => Promise<RateLimitDecision>;
+	readonly failureAuditTimeoutMs?: number;
 	readonly generateRequestId?: () => string;
 	readonly getCanonicalOrigin?: () => string | Promise<string>;
+	readonly getAdministratorsService?: () => AdministratorsService;
+	readonly getAuditService?: () => AuditService;
 	readonly getFilesService?: () => FilesService;
+	readonly getMonitoringService?: () => MonitoringService;
 	readonly getPasswordAuthApi?: () => PasswordAuthApi;
 	readonly getProgramsService?: () => ProgramsService;
+	readonly getSettingsService?: () => SettingsService;
 	readonly getSession?: (headers: Headers) => Promise<SafeSessionView | null>;
 	readonly getUploadsService?: () => UploadsService;
 	readonly getVersionsService?: () => VersionsService;
@@ -59,6 +81,7 @@ export interface ApiAppDependencies {
 		error: unknown,
 		requestId: string,
 	) => void | Promise<void>;
+	readonly uploadCompletionInFlightLimiter?: UploadCompletionInFlightLimiter;
 }
 
 function createFallbackRequestIdGenerator(generateRequestId?: () => string) {
@@ -75,6 +98,13 @@ function createFallbackRequestIdGenerator(generateRequestId?: () => string) {
 
 export function createApiApp(dependencies: ApiAppDependencies = {}) {
 	const contextStore = new ApiRequestContextStore();
+	const reportBackgroundError =
+		dependencies.reportInternalError ??
+		((error: unknown, requestId: string) =>
+			captureServerException(error, {
+				requestId,
+				route: "/api/v1",
+			}));
 	const fallbackRequestId = createFallbackRequestIdGenerator(
 		dependencies.generateRequestId,
 	);
@@ -87,6 +117,10 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 			dependencies.completePasswordChange ??
 			((input: CompletePasswordChangeInput) =>
 				createProfileRepository().completePasswordChange(input)),
+		updateProfile:
+			dependencies.updateProfile ??
+			((input: UpdateProfileRepositoryInput) =>
+				createProfileRepository().updateProfile(input)),
 	};
 
 	return new Elysia({ normalize: false })
@@ -121,16 +155,29 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 					? { appendFailure: dependencies.appendFailureAudit }
 					: {}),
 				contextStore,
-				reportFailureAuditError: dependencies.reportInternalError,
+				...(dependencies.failureAuditTimeoutMs === undefined
+					? {}
+					: { failureAuditTimeoutMs: dependencies.failureAuditTimeoutMs }),
+				reportFailureAuditError: reportBackgroundError,
 			}),
 		)
-		.onError((context) =>
-			mapApiError(context, {
+		.onError((context) => {
+			const requestContext = contextStore.get(context.request);
+			return mapApiError(context, {
 				getRequestId: (request) =>
 					contextStore.getRequestId(request) ?? fallbackRequestId(request),
-				reportInternalError: dependencies.reportInternalError,
-			}),
-		)
+				reportInternalError:
+					dependencies.reportInternalError ??
+					((error, requestId) =>
+						captureServerException(error, {
+							...(requestContext?.session?.user.id
+								? { actorId: requestContext.session.user.id }
+								: {}),
+							requestId,
+							route: new URL(context.request.url).pathname,
+						})),
+			});
+		})
 		.get("/health", () => ({ status: "ok" as const }), {
 			response: { 200: healthSchema },
 		})
@@ -145,10 +192,47 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 					}),
 				)
 				.use(
+					createAdministratorsModule({
+						contextStore,
+						...(dependencies.getAdministratorsService
+							? {
+									getAdministratorsService:
+										dependencies.getAdministratorsService,
+								}
+							: {}),
+					}),
+				)
+				.use(
 					createProgramsModule({
 						contextStore,
 						...(dependencies.getProgramsService
 							? { getProgramsService: dependencies.getProgramsService }
+							: {}),
+					}),
+				)
+				.use(
+					createSettingsModule({
+						contextStore,
+						...(dependencies.getSettingsService
+							? { getSettingsService: dependencies.getSettingsService }
+							: {}),
+					}),
+				)
+				.use(
+					createMonitoringModule({
+						contextStore,
+						...(dependencies.getMonitoringService
+							? {
+									getMonitoringService: dependencies.getMonitoringService,
+								}
+							: {}),
+					}),
+				)
+				.use(
+					createAuditModule({
+						contextStore,
+						...(dependencies.getAuditService
+							? { getAuditService: dependencies.getAuditService }
 							: {}),
 					}),
 				)
@@ -170,10 +254,22 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 				)
 				.use(
 					createUploadsModule({
+						...(dependencies.uploadCompletionInFlightLimiter
+							? {
+									completionInFlightLimiter:
+										dependencies.uploadCompletionInFlightLimiter,
+								}
+							: {}),
+						...(dependencies.consumeRateLimit
+							? {
+									consumeCompletionRateLimit: dependencies.consumeRateLimit,
+								}
+							: {}),
 						contextStore,
 						...(dependencies.getUploadsService
 							? { getUploadsService: dependencies.getUploadsService }
 							: {}),
+						...(dependencies.now ? { now: dependencies.now } : {}),
 					}),
 				),
 		);

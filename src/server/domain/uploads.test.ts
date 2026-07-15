@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	MAX_COMPLETE_UPLOAD_FILES,
 	MAX_UPLOAD_FILES,
 	MAX_UPLOAD_SIZE_BYTES,
 	type TemporaryOssCredentials,
@@ -24,6 +25,7 @@ import {
 	normalizeUploadEtag,
 	UploadCredentialsUnavailableError,
 	UploadMetadataConflictError,
+	UploadObjectNotFoundError,
 	UploadsValidationError,
 	UploadVerificationUnavailableError,
 } from "./uploads.server";
@@ -63,6 +65,18 @@ function completeFile(overrides: Record<string, unknown> = {}) {
 	return {
 		...baseFile(),
 		objectEtag: '"etag-1"',
+		objectKey: createUploadObjectKey({
+			path: "desktop/app.bin",
+			prefix: CONFIGURATION.uploadPrefix,
+			sha256: SHA256,
+		}),
+		...overrides,
+	};
+}
+
+function reconciliationFile(overrides: Record<string, unknown> = {}) {
+	return {
+		...baseFile(),
 		objectKey: createUploadObjectKey({
 			path: "desktop/app.bin",
 			prefix: CONFIGURATION.uploadPrefix,
@@ -357,6 +371,125 @@ describe("uploads service", () => {
 		expect(response.files[0]).not.toHaveProperty("objectKey");
 	});
 
+	it("rejects oversized completion batches before OSS or repository work", async () => {
+		const headObject = vi.fn(async () => ({ etag: "etag-1", size: 42n }));
+		const complete = vi.fn(async () => [stored()]);
+		const files = Array.from(
+			{ length: MAX_COMPLETE_UPLOAD_FILES + 1 },
+			(_, index) => {
+				const path = `desktop/app-${index}.bin`;
+				return reconciliationFile({
+					objectKey: createUploadObjectKey({
+						path,
+						prefix: CONFIGURATION.uploadPrefix,
+						sha256: SHA256,
+					}),
+					path,
+				});
+			},
+		);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			metadataClient: metadataClient({ headObject }),
+			repository: repository({ complete }),
+		});
+
+		await expect(service.complete({ files }, audit)).rejects.toMatchObject({
+			fieldErrors: [{ code: "TOO_MANY", path: "files" }],
+			name: UploadsValidationError.name,
+		});
+		expect(headObject).not.toHaveBeenCalled();
+		expect(complete).not.toHaveBeenCalled();
+	});
+
+	it("recovers a committed object after the browser loses the OSS response", async () => {
+		const complete = vi.fn(async ({ files }: CompleteUploadsRepositoryInput) =>
+			files.map((file) => stored(file)),
+		);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			metadataClient: metadataClient({
+				headObject: async () => ({ etag: '"etag-1"', size: 42n }),
+			}),
+			repository: repository({ complete }),
+		});
+
+		const response = await service.complete(
+			{ files: [reconciliationFile()] },
+			audit,
+		);
+
+		expect(complete).toHaveBeenCalledWith({
+			audit,
+			files: [
+				expect.objectContaining({
+					objectEtag: "etag-1",
+					objectKey: reconciliationFile().objectKey,
+					size: 42n,
+				}),
+			],
+		});
+		expect(response.files[0]).toMatchObject({
+			id: FILE_ID,
+			objectEtag: "etag-1",
+		});
+	});
+
+	it("preserves caller order while canonical HEAD proofs resolve out of order", async () => {
+		const paths = ["desktop/z.bin", "desktop/a.bin", "desktop/m.bin"];
+		const canonicalEtags = new Map(
+			paths.map((path, index) => [path, `canonical-${index}`] as const),
+		);
+		const files = paths.map((path) =>
+			reconciliationFile({
+				objectKey: createUploadObjectKey({
+					path,
+					prefix: CONFIGURATION.uploadPrefix,
+					sha256: SHA256,
+				}),
+				path,
+			}),
+		);
+		const complete = vi.fn(async ({ files }: CompleteUploadsRepositoryInput) =>
+			files.map((file, index) =>
+				stored({
+					...file,
+					id: `00000000-0000-4000-8000-${String(index + 2).padStart(12, "0")}`,
+				}),
+			),
+		);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			headConcurrency: 3,
+			metadataClient: metadataClient({
+				headObject: async (objectKey) => {
+					const path = paths.find((candidate) => objectKey.endsWith(candidate));
+					if (!path) throw new Error("Unexpected object key.");
+					await new Promise((resolve) =>
+						setTimeout(
+							resolve,
+							path === paths[0] ? 5 : path === paths[1] ? 1 : 3,
+						),
+					);
+					return { etag: `"${canonicalEtags.get(path)}"`, size: 42n };
+				},
+			}),
+			repository: repository({ complete }),
+		});
+
+		const response = await service.complete({ files }, audit);
+
+		const repositoryFiles = complete.mock.calls[0]?.[0].files;
+		expect(repositoryFiles?.map((file) => file.path)).toEqual(paths);
+		expect(repositoryFiles?.map((file) => file.objectEtag)).toEqual(
+			paths.map((path) => canonicalEtags.get(path)),
+		);
+		expect(response.files.map((file) => file.path)).toEqual(paths);
+		expect(response.files.map((file) => file.objectEtag)).toEqual(
+			paths.map((path) => canonicalEtags.get(path)),
+		);
+	});
+
 	it("rejects a noncanonical object key before contacting OSS", async () => {
 		const headObject = vi.fn(async () => ({ etag: "etag-1", size: 42n }));
 		const complete = vi.fn(async () => [stored()]);
@@ -381,26 +514,63 @@ describe("uploads service", () => {
 		expect(complete).not.toHaveBeenCalled();
 	});
 
-	it("rejects missing, size-mismatched, and ETag-mismatched object proofs", async () => {
+	it("rejects a malformed supplied ETag instead of treating it as reconciliation", async () => {
+		const headObject = vi.fn(async () => ({ etag: "etag-1", size: 42n }));
+		const complete = vi.fn(async () => [stored()]);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			metadataClient: metadataClient({ headObject }),
+			repository: repository({ complete }),
+		});
+
+		await expect(
+			service.complete(
+				{ files: [completeFile({ objectEtag: '"unbalanced' })] },
+				audit,
+			),
+		).rejects.toMatchObject({
+			fieldErrors: [{ code: "INVALID_VALUE", path: "files.0.objectEtag" }],
+			name: UploadsValidationError.name,
+		});
+		expect(headObject).not.toHaveBeenCalled();
+		expect(complete).not.toHaveBeenCalled();
+	});
+
+	it("returns a distinct missing-object error for reconciliation", async () => {
+		const complete = vi.fn(async () => [stored()]);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			metadataClient: metadataClient({
+				headObject: async () => {
+					throw new OssMetadataError("OBJECT_NOT_FOUND");
+				},
+			}),
+			repository: repository({ complete }),
+		});
+
+		await expect(
+			service.complete({ files: [reconciliationFile()] }, audit),
+		).rejects.toMatchObject({
+			fieldErrors: [{ code: "OBJECT_NOT_FOUND", path: "files.0.objectKey" }],
+			name: UploadObjectNotFoundError.name,
+		});
+		expect(complete).not.toHaveBeenCalled();
+	});
+
+	it("rejects size mismatches and supplied ETag mismatches", async () => {
 		const cases = [
-			{
-				client: metadataClient({
-					headObject: async () => {
-						throw new OssMetadataError("OBJECT_NOT_FOUND");
-					},
-				}),
-				path: "files.0.objectKey",
-			},
 			{
 				client: metadataClient({
 					headObject: async () => ({ etag: "etag-1", size: 43n }),
 				}),
+				file: reconciliationFile(),
 				path: "files.0.size",
 			},
 			{
 				client: metadataClient({
 					headObject: async () => ({ etag: "etag-2", size: 42n }),
 				}),
+				file: completeFile(),
 				path: "files.0.objectEtag",
 			},
 		] as const;
@@ -413,13 +583,32 @@ describe("uploads service", () => {
 				repository: repository({ complete }),
 			});
 			await expect(
-				service.complete({ files: [completeFile()] }, audit),
+				service.complete({ files: [testCase.file] }, audit),
 			).rejects.toMatchObject({
 				fieldErrors: [{ code: "CONFLICT", path: testCase.path }],
 				name: UploadMetadataConflictError.name,
 			});
 			expect(complete).not.toHaveBeenCalled();
 		}
+	});
+
+	it("rejects an invalid canonical HEAD ETag before repository completion", async () => {
+		const complete = vi.fn(async () => [stored()]);
+		const service = createUploadsService({
+			configuration: CONFIGURATION,
+			metadataClient: metadataClient({
+				headObject: async () => ({ etag: '"unbalanced', size: 42n }),
+			}),
+			repository: repository({ complete }),
+		});
+
+		await expect(
+			service.complete({ files: [reconciliationFile()] }, audit),
+		).rejects.toMatchObject({
+			fieldErrors: [{ code: "CONFLICT", path: "files.0.objectKey" }],
+			name: UploadMetadataConflictError.name,
+		});
+		expect(complete).not.toHaveBeenCalled();
 	});
 
 	it("surfaces the lowest-index conflict deterministically across concurrent HEADs", async () => {

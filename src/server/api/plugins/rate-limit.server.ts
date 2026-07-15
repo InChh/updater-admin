@@ -26,6 +26,18 @@ const PROFILE_CHANGE_PASSWORD_POLICY: RateLimitPolicy = {
 	windowSeconds: 15 * 60,
 };
 
+export const ADMINISTRATOR_CREATE_POLICY: RateLimitPolicy = {
+	endpoint: "administrators.create",
+	limit: 5,
+	windowSeconds: 15 * 60,
+};
+
+export const ADMINISTRATOR_RESET_PASSWORD_POLICY: RateLimitPolicy = {
+	endpoint: "administrators.reset-password",
+	limit: 5,
+	windowSeconds: 15 * 60,
+};
+
 /**
  * One credentials response can authorize a 1,000-file batch, so a small shared
  * issuance budget still permits retries without turning STS into an oracle.
@@ -36,10 +48,40 @@ export const UPLOAD_CREDENTIALS_POLICY: RateLimitPolicy = {
 	windowSeconds: 5 * 60,
 };
 
+/**
+ * Shared, per-actor file-token budget for completion. The upload module applies
+ * this after transport validation because its cost is the validated file count.
+ * One full 1,000-file selection plus one complete reconciliation retry fits in
+ * a window while sustained HEAD amplification is bounded across Netlify
+ * instances.
+ */
+export const UPLOAD_COMPLETION_FILE_POLICY: RateLimitPolicy = {
+	endpoint: "uploads.complete.files",
+	limit: 2_000,
+	windowSeconds: 15 * 60,
+};
+
 const RATE_LIMIT_POLICIES = new Map<string, RateLimitPolicy>([
+	["POST /api/v1/administrators", ADMINISTRATOR_CREATE_POLICY],
 	["POST /api/v1/profile/change-password", PROFILE_CHANGE_PASSWORD_POLICY],
 	["POST /api/v1/uploads/credentials", UPLOAD_CREDENTIALS_POLICY],
 ]);
+
+const ADMINISTRATOR_RESET_PASSWORD_PATH =
+	/^\/api\/v1\/administrators\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/reset-password$/i;
+
+function resolveRateLimitPolicy(
+	method: string,
+	pathname: string,
+	policies: ReadonlyMap<string, RateLimitPolicy>,
+): RateLimitPolicy | undefined {
+	const exact = policies.get(`${method} ${pathname}`);
+	if (exact) return exact;
+	if (method === "POST" && ADMINISTRATOR_RESET_PASSWORD_PATH.test(pathname)) {
+		return ADMINISTRATOR_RESET_PASSWORD_POLICY;
+	}
+	return undefined;
+}
 
 export interface RateLimitPluginDependencies {
 	readonly consume?: (input: RateLimitInput) => Promise<RateLimitDecision>;
@@ -58,7 +100,7 @@ export function createRateLimitPlugin({
 		async ({ request, set }) => {
 			const pathname = canonicalApiPathname(requestPathname(request));
 			if (!isApiV1Path(pathname)) return;
-			const policy = policies.get(`${request.method} ${pathname}`);
+			const policy = resolveRateLimitPolicy(request.method, pathname, policies);
 			if (!policy) return;
 
 			const session = contextStore.require(request).session;

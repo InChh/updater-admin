@@ -15,6 +15,7 @@ import { HydrationScript } from "solid-js/web";
 import { ToastRegion } from "../components/ui/toast";
 import type { getContext } from "../integrations/tanstack-query/provider";
 import { I18nProvider } from "../lib/i18n/i18n";
+import { captureRouteException } from "../lib/sentry";
 import styleCss from "../styles.css?url";
 
 export const Route = createRootRouteWithContext<
@@ -31,6 +32,7 @@ export const Route = createRootRouteWithContext<
 		],
 		title: "版本管理系统",
 	}),
+	onCatch: (error) => captureRouteException(error),
 	shellComponent: RootComponent,
 });
 

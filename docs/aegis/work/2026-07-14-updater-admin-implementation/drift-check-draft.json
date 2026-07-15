@@ -3,14 +3,23 @@
   "taskId": "2026-07-14-updater-admin-implementation",
   "taskIntentRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/task-intent-draft.json",
   "baselineRefs": [
-    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-4"
+    "docs/aegis/specs/2026-07-14-updater-admin-design.md",
+    "docs/aegis/baseline/2026-07-14-initial-baseline.md",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-10",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-11",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-12",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-13",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-14"
   ],
-  "scopeStatus": "Batch 4 stayed within shared API contracts, Elysia security/API foundation, profile/password flow, raw adapters, health, audit/rate repositories, redaction, and tests.",
-  "compatStatus": "No Dashboard, Billing, tenancy, legacy API/client compatibility, alternate auth/session owner, or program/version feature surface added.",
-  "retirementStatus": "Generated frontend demos remain deferred to the authenticated shell and final retirement batches; no demo became an API owner.",
+  "scopeStatus": "Batches 10-14 stayed within the approved administrator/profile/account, system-settings, monitoring/audit, Sentry/Netlify/security, scaffold-retirement, and release-evidence scope.",
+  "compatStatus": "No Dashboard, Billing, tenancy, legacy updater-client/API compatibility, legacy-data import, download STS, Sentry Issue ingestion, automatic OSS deletion, or duplicate identity/cache/API owner was added.",
+  "retirementStatus": "Scaffold demos and routes were retired only after production owners and tests existed for the requested TanStack libraries; the initial baseline remains an append-only historical snapshot.",
   "newRiskSignals": [
-    "Password rotation crosses Better Auth and project metadata stores; AGENTS.md records the fail-closed compensation and irreducible simultaneous-outage boundary.",
-    "Live Vite curl verification was unavailable in this runner; equivalent health, unauthenticated API, and raw Request identity contracts plus Netlify build pass."
+    "The authoritative final local result is 98 test files/568 tests plus the complete static, build, handler, route, client-secret, source-map, and diff matrix.",
+    "The final E2E result has 8 public passes and 18 credential-gated skips, so authenticated lifecycle and visual evidence remain unproven in this environment.",
+    "The guarded database suite loaded 6 files/6 tests and skipped them without an authorized disposable database.",
+    "Disposable database, live OSS, live Sentry, and Netlify Preview evidence require separately authorized external environments.",
+    "ADR-0001 records the durable same-origin Start/Elysia boundary and the baseline already reflects its owner and compatibility state."
   ],
-  "decision": "continue"
+  "decision": "needs-verification"
 }

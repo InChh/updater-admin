@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { REDACTION_MARKER } from "../../security/redact";
 import {
+	type AuditDatabase,
 	type AuditInsertDatabase,
 	createAuditRepository,
 } from "./audit.server";
@@ -52,5 +53,86 @@ describe("audit repository", () => {
 		});
 		expect("update" in repository).toBe(false);
 		expect("delete" in repository).toBe(false);
+	});
+
+	it("paginates stable audit rows and redacts legacy JSON again on read", async () => {
+		const offset = vi.fn(async () => [
+			{
+				action: "program.updated",
+				actorId: "00000000-0000-4000-8000-000000000001",
+				afterJson: { password: "legacy-secret", value: "safe" },
+				beforeJson: null,
+				createdAt: new Date("2026-07-14T01:00:00.000Z"),
+				id: "00000000-0000-4000-8000-000000000010",
+				ip: null,
+				requestId: "req_test",
+				resourceId: "00000000-0000-4000-8000-000000000020",
+				resourceType: "program",
+				result: "success",
+				userAgent: null,
+			},
+		]);
+		const rowsWhere = vi.fn(() => ({
+			orderBy: vi.fn(() => ({
+				limit: vi.fn(() => ({ offset })),
+			})),
+		}));
+		const totalWhere = vi.fn(async () => [{ value: 21 }]);
+		const select = vi
+			.fn()
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: rowsWhere })),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: totalWhere })),
+			});
+		const repository = createAuditRepository({
+			insert: vi.fn(),
+			select,
+		} as unknown as AuditDatabase);
+
+		await expect(
+			repository.list({
+				action: "program.updated",
+				actorId: "00000000-0000-4000-8000-000000000001",
+				createdAtFrom: new Date("2026-07-01T00:00:00.000Z"),
+				createdAtToExclusive: new Date("2026-07-15T00:00:00.000Z"),
+				page: 2,
+				pageSize: 20,
+				resourceType: "program",
+				result: "success",
+				sort: "createdAt:desc",
+			}),
+		).resolves.toMatchObject({
+			items: [
+				{
+					after: { password: REDACTION_MARKER, value: "safe" },
+					before: null,
+					result: "success",
+				},
+			],
+			total: 21,
+		});
+		expect(offset).toHaveBeenCalledWith(20);
+		expect(rowsWhere).toHaveBeenCalledOnce();
+		expect(totalWhere).toHaveBeenCalledOnce();
+	});
+
+	it("reads one append-only detail by ID", async () => {
+		const limit = vi.fn(async () => []);
+		const select = vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({ limit })),
+			})),
+		}));
+		const repository = createAuditRepository({
+			insert: vi.fn(),
+			select,
+		} as unknown as AuditDatabase);
+
+		await expect(
+			repository.findById("00000000-0000-4000-8000-000000000010"),
+		).resolves.toBeNull();
+		expect(limit).toHaveBeenCalledWith(1);
 	});
 });

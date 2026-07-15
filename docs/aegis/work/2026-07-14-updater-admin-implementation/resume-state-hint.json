@@ -2,7 +2,7 @@
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
   "lastCheckpointRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
-  "resumeInstruction": "Continue only in /Users/bytedance/prog/updater-admin/.worktrees/codex-updater-admin-implementation on branch codex/updater-admin-implementation from the completed Batch 8 checkpoint; confirm the root gate and Batch 8 commit are present, then implement Batch 9 nested version management UI",
+  "resumeInstruction": "Do not redo implemented or locally verified Batches 0-14. Continue only for an explicitly authorized disposable-database, authenticated-E2E/visual, live OSS, live Sentry, or Netlify Preview/deployment action; read the intent, checkpoint, evidence, ADR-0001, and deployment guidance first.",
   "knownPartialWork": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
@@ -12,7 +12,13 @@
     "Batch 5: authenticated shell, secure Router guards, forced-password replacement flow, typed localization, accessible Kobalte primitives, responsive navigation, and persistent dynamic tabs; specification and visual/accessibility reviews passed",
     "Batch 6: strict program contracts, transactional repository/domain/API behavior, Query/Table/Form UI, guarded DB and browser verification seams, and the programs layout/index split",
     "Batch 7: strict version/file contracts, canonical semantic-version parsing, transactional repositories/domain/API, mounted Elysia routes, and guarded DB verification seams",
-    "Batch 8: short-lived OSS STS, deterministic verified metadata registration, incremental hashing, browser-direct multipart upload, and memory-only upload queue state"
+    "Batch 8: short-lived OSS STS, deterministic verified metadata registration, incremental hashing, browser-direct multipart upload, and memory-only upload queue state",
+    "Batch 9: nested version route, Query-backed table/forms, upload-to-create orchestration, activation/edit/delete, and credential-gated browser journey",
+    "Batch 10: Better Auth-owned administrator lifecycle, profile/locale updates, account/session management, TanStack Table/Form UI, and credential-gated forced-password/revoke/disable coverage",
+    "Batch 11: optimistic-concurrency system-settings singleton, validated defaults/repository URL, Query cache ownership, and stale-write recovery",
+    "Batch 12: authenticated readiness/metrics, renderer-neutral release series, append-only audit history/detail, native SVG chart, and monitoring/audit pages",
+    "Batch 13: conditional Sentry integration and source-map upload, shared redaction, Netlify/Start security hardening, environment/deployment guidance, loader/correlation hardening, and client-secret scan remediation",
+    "Batch 14: demo retirement, production TanStack owner proof, final local matrix with 98 files/568 tests, clean route/client-secret/source-map scans, 8 public E2E passes, and 18 credential-gated authenticated skips"
   ],
   "mustReadBeforeContinuing": [
     "docs/aegis/work/2026-07-14-updater-admin-implementation/10-intent.md",
@@ -21,7 +27,10 @@
   ],
   "unsafeToAssume": [
     "A disposable database is available; DB-backed concurrency proof requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests and remains an explicit environmental gate when unavailable",
-    "Seeded E2E administrator credentials are available; authenticated multi-page browser coverage remains credential-gated",
-    "An authorized OSS sandbox is available; the optional live STS and multipart smoke remains external while mocked provider contracts are verified"
+    "That the 18 credential-gated authenticated E2E cases or the 6 guarded database tests passed; they explicitly skipped without authorized environments",
+    "Seeded E2E administrator credentials are available; 18 authenticated desktop/mobile tests and their visual artifacts remain credential-gated",
+    "An authorized OSS sandbox is available; live STS and multipart smoke remain external while mocked provider contracts are verified",
+    "Authorized Sentry build/runtime credentials or a Netlify Preview site are available; live event, source-map, cookie, database-readiness, and Preview smoke evidence remain external",
+    "ADR-0001 or the local verification matrix grants deployment authority; both are evidence records only"
   ]
 }

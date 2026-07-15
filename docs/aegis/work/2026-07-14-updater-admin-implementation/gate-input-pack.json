@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "baselineRefs": [
+    "docs/aegis/specs/2026-07-14-updater-admin-design.md",
+    "docs/aegis/baseline/2026-07-14-initial-baseline.md",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-10",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-11",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-12",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-13",
+    "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-14"
+  ],
+  "impactStatement": "docs/aegis/work/2026-07-14-updater-admin-implementation/impact-statement-draft.json",
+  "compatPlan": "New /api/v1 administration contract only; legacy UpdaterServer wire contracts and data are excluded",
+  "retirementPlan": "Scaffold demos and routes were retired only after production owners and tests existed for the requested TanStack libraries; the initial baseline remains an append-only historical snapshot.",
+  "evidenceBundle": [
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch0-baseline.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch0-worktree.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch1-tooling.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch10-14-release.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch2-database.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch3-auth.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch4-api.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch6-programs.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch7-versions.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch8-uploads.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch9-versions-ui.json"
+  ]
+}

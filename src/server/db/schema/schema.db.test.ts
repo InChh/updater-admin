@@ -255,6 +255,7 @@ if (!testDatabaseUrl) {
 				const decisions = await Promise.all(
 					Array.from({ length: 20 }, () =>
 						repository.consume({
+							cost: 2,
 							endpoint,
 							limit: 100,
 							now,
@@ -265,12 +266,12 @@ if (!testDatabaseUrl) {
 				);
 				expect(
 					decisions.map((decision) => decision.count).sort((a, b) => a - b),
-				).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+				).toEqual(Array.from({ length: 20 }, (_, index) => (index + 1) * 2));
 				const rows = await client.db
 					.select({ count: rateLimitWindows.count })
 					.from(rateLimitWindows)
 					.where(eq(rateLimitWindows.endpoint, endpoint));
-				expect(rows).toEqual([{ count: 20 }]);
+				expect(rows).toEqual([{ count: 40 }]);
 			} finally {
 				await client.db
 					.delete(rateLimitWindows)

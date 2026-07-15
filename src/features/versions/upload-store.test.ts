@@ -4,6 +4,7 @@ import type { UploadQueueStorage } from "./upload-store";
 import {
 	calculateAggregateUploadProgress,
 	createUploadQueueController,
+	safeUploadErrorMessage,
 	UPLOAD_UI_STORAGE_KEY,
 } from "./upload-store";
 
@@ -139,7 +140,7 @@ describe("upload queue store", () => {
 		controller.dispose();
 	});
 
-	it("preserves checkpoints and progress across upload retry and cancel", () => {
+	it("preserves failed checkpoints but discards an aborted checkpoint after cancel", () => {
 		const controller = createUploadQueueController({ storage: null });
 		const [created] = controller.addFiles([
 			{ file: file("app.bin", 10), path: "app.bin" },
@@ -165,7 +166,40 @@ describe("upload queue store", () => {
 		expect(controller.cancel(created.id)).toBe("upload");
 		expect(controller.getState().items[0]?.status).toBe("cancelled");
 		expect(controller.prepareRetry(created.id)).toBe("upload");
-		expect(controller.getState().items[0]?.checkpoint).toBe(checkpoint);
+		expect(controller.getState().items[0]?.checkpoint).toBeNull();
+		controller.dispose();
+	});
+
+	it("atomically completes a failed upload from server-reconciled metadata", () => {
+		const controller = createUploadQueueController({ storage: null });
+		const [created] = controller.addFiles([
+			{ file: file("app.bin", 10), path: "app.bin" },
+		]);
+		if (!created) throw new Error("fixture was not created");
+		prepareUpload(controller, created.id);
+		controller.markUploadCheckpoint(created.id, {
+			doneParts: [{ etag: "part", number: 1 }],
+			uploadId: "upload-id",
+		});
+		controller.fail(created.id, "upload", new Error("response lost"));
+
+		controller.markUploadReconciled(
+			created.id,
+			"canonical-etag",
+			"file-metadata-id",
+		);
+
+		expect(controller.getState().items[0]).toMatchObject({
+			attempt: 1,
+			checkpoint: null,
+			error: null,
+			failedStage: null,
+			fileMetadataId: "file-metadata-id",
+			objectEtag: "canonical-etag",
+			status: "complete",
+			uploadProgress: 1,
+		});
+		expect(controller.getState().aggregateProgress).toBe(1);
 		controller.dispose();
 	});
 
@@ -186,9 +220,68 @@ describe("upload queue store", () => {
 		controller.markUploadSucceeded(created.id, "etag");
 		controller.startRegistration(created.id);
 		controller.fail(created.id, "registration", new Error("database busy"));
+		expect(controller.getState().items[0]?.error).toBe("database busy");
 		expect(controller.prepareRetry(created.id)).toBe("registration");
 		expect(controller.getState().items[0]?.status).toBe("uploaded");
 		controller.dispose();
+	});
+
+	it("replaces sensitive Error, string, and nested provider diagnostics", () => {
+		const controller = createUploadQueueController({ storage: null });
+		const items = controller.addFiles([
+			{ file: file("error.bin", 1), path: "error.bin" },
+			{ file: file("string.bin", 1), path: "string.bin" },
+			{ file: file("nested.bin", 1), path: "nested.bin" },
+		]);
+		const diagnostics: readonly unknown[] = [
+			new Error("Authorization: Bearer error-secret"),
+			"OSS failed at https://bucket.example/app.bin?token=string-secret",
+			{
+				message: "Provider request failed",
+				response: {
+					request: {
+						url: "https://bucket.example/app.bin?X-Amz-Signature=nested-secret",
+					},
+				},
+			},
+		];
+
+		for (const [index, item] of items.entries()) {
+			controller.startHash(item.id);
+			controller.fail(item.id, "hash", diagnostics[index]);
+		}
+
+		expect(controller.getState().items.map(({ error }) => error)).toEqual([
+			"Upload failed.",
+			"Upload failed.",
+			"Upload failed.",
+		]);
+		const serialized = JSON.stringify(controller.getState());
+		for (const secret of ["error-secret", "string-secret", "nested-secret"]) {
+			expect(serialized).not.toContain(secret);
+		}
+		controller.dispose();
+	});
+
+	it("recognizes credential and sensitive query variants without hiding safe diagnostics", () => {
+		for (const diagnostic of [
+			"Provider failed https://user:password@bucket.example/app.bin",
+			"Provider failed https://bucket.example/app.bin?authorization=synthetic",
+			"Provider failed https://bucket.example/app.bin?cookie=synthetic",
+			"Provider failed https://bucket.example/app.bin?token=synthetic",
+			"Provider failed https://bucket.example/app.bin?client_secret=synthetic",
+			"Provider failed with securityToken synthetic-secret-123",
+			"Provider failed with Bearer eyJheader12345.eyJpayload12345.signature12345",
+		]) {
+			expect(safeUploadErrorMessage(diagnostic)).toBe("Upload failed.");
+		}
+		expect(
+			safeUploadErrorMessage(
+				"Provider unavailable; see https://status.example/help?code=timeout",
+			),
+		).toBe(
+			"Provider unavailable; see https://status.example/help?code=timeout",
+		);
 	});
 
 	it("persists only serializable UI preference and never queue payloads", () => {

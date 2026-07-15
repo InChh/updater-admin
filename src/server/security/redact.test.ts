@@ -4,6 +4,7 @@ import {
 	CIRCULAR_REFERENCE_MARKER,
 	REDACTION_MARKER,
 	redactSensitiveData,
+	scrubObservabilityEvent,
 } from "./redact";
 
 describe("redactSensitiveData", () => {
@@ -80,20 +81,41 @@ describe("redactSensitiveData", () => {
 	it("redacts complete signed OSS and AWS URLs but preserves ordinary URLs", () => {
 		const ordinaryUrl =
 			"https://downloads.example.com/releases/app.zip?version=1.2.3&download=true";
+		const ordinaryUrlWithFragment =
+			"https://git.example.com/team/repo?tab=readme#setup";
 		const input = {
+			apiKeyUrl:
+				"https://downloads.example.com/app.zip?api_key=synthetic-secret",
 			awsUrl:
 				"https://bucket.s3.amazonaws.com/app.zip?X-Amz-Credential=AKIA%2Fscope&X-Amz-Signature=deadbeef",
+			fragmentTokenUrl:
+				"https://app.example.com/callback#access_token=synthetic-secret&token_type=bearer",
+			githubTokenInBenignParameter:
+				"https://git.example.com/team/repo?ref=ghp_0123456789abcdefghijklmnopqrstuv",
+			jwtInBenignFragment:
+				"https://git.example.com/team/repo#state=eyJheader12345.eyJpayload12345.signature12345",
+			nestedFragmentTokenUrl:
+				"https://app.example.com/#/callback?client_secret=synthetic-secret",
 			ordinaryUrl,
+			ordinaryUrlWithFragment,
 			ossUrl:
 				"https://bucket.oss-cn-hangzhou.aliyuncs.com/app.zip?OSSAccessKeyId=id&Signature=value",
 			relativeSignedUrl: "/app.zip?x-oss-security-token=temporary-value",
+			tokenUrl: "https://downloads.example.com/app.zip?token=synthetic-secret",
 		};
 
 		expect(redactSensitiveData(input)).toEqual({
+			apiKeyUrl: REDACTION_MARKER,
 			awsUrl: REDACTION_MARKER,
+			fragmentTokenUrl: REDACTION_MARKER,
+			githubTokenInBenignParameter: REDACTION_MARKER,
+			jwtInBenignFragment: REDACTION_MARKER,
+			nestedFragmentTokenUrl: REDACTION_MARKER,
 			ordinaryUrl,
+			ordinaryUrlWithFragment,
 			ossUrl: REDACTION_MARKER,
 			relativeSignedUrl: REDACTION_MARKER,
+			tokenUrl: REDACTION_MARKER,
 		});
 	});
 
@@ -167,5 +189,62 @@ describe("redactSensitiveData", () => {
 		expect(input.items[0]).toBe(originalItem);
 		expect(result).not.toBe(input);
 		expect((result as { items: unknown }).items).not.toBe(input.items);
+	});
+
+	it("keeps diagnostic structure while dropping free-form Sentry request and PII fields", () => {
+		const input = {
+			breadcrumbs: [{ message: "typed email admin@example.com" }],
+			exception: {
+				values: [
+					{
+						stacktrace: {
+							frames: [
+								{
+									filename: "src/server/api/app.server.ts",
+									vars: { DATABASE_URL: "postgresql://user:pass@host/db" },
+								},
+							],
+						},
+						type: "Error",
+						value: "failed with password=hunter2",
+					},
+				],
+			},
+			extra: { formValue: "admin@example.com" },
+			message: "token=secret-value",
+			request: {
+				cookies: "better-auth.session_token=secret",
+				data: { email: "admin@example.com", password: "secret" },
+				headers: { authorization: "Bearer secret" },
+				query_string: "download=admin@example.com",
+				url: "https://admin.example.com/programs/3a1c5d9c-db70-4b51-9034-5678a3a6bde3/versions/42?email=admin@example.com#row",
+			},
+			tags: { request_id: "req_safe", route: "/programs" },
+			transaction:
+				"GET /programs/3a1c5d9c-db70-4b51-9034-5678a3a6bde3/versions/42?tab=files",
+			user: { email: "admin@example.com", id: "user_safe", name: "Admin" },
+		};
+
+		expect(scrubObservabilityEvent(input)).toEqual({
+			exception: {
+				values: [
+					{
+						stacktrace: {
+							frames: [{ filename: "src/server/api/app.server.ts" }],
+						},
+						type: "Error",
+						value: REDACTION_MARKER,
+					},
+				],
+			},
+			message: REDACTION_MARKER,
+			request: {
+				url: "https://admin.example.com/programs/:id/versions/:number",
+			},
+			tags: { request_id: "req_safe", route: "/programs" },
+			transaction: "GET /programs/:id/versions/:number",
+			user: { id: "user_safe" },
+		});
+		expect(input.request.headers.authorization).toBe("Bearer secret");
 	});
 });

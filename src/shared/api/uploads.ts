@@ -1,10 +1,26 @@
 import type { FileMetadataDto } from "./files";
 
-/** One credentials or completion request may describe at most this many files. */
+/** One folder selection or credentials request may describe this many files. */
 export const MAX_UPLOAD_FILES = 1_000;
 
-/** Intentional product limit per release file: 5 TiB, represented exactly. */
-export const MAX_UPLOAD_SIZE_BYTES = 5_497_558_138_880n;
+/**
+ * Completion performs one canonical OSS HEAD per file inside a Netlify
+ * function. Keep each request small enough to stay inside the function latency
+ * envelope; the browser splits larger selections into ordered batches.
+ */
+export const MAX_COMPLETE_UPLOAD_FILES = 25;
+
+/** Stable reconciliation problem identifiers consumed by the browser retry path. */
+export const UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE =
+	"UPLOAD_OBJECT_NOT_FOUND" as const;
+export const UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE = "OBJECT_NOT_FOUND" as const;
+
+/**
+ * Browser-safe product limit per release file: 10,000 explicit 4 MiB parts.
+ * This must mirror MAX_OSS_MULTIPART_FILE_SIZE_BYTES without importing a
+ * client-only module into the shared/server graph.
+ */
+export const MAX_UPLOAD_SIZE_BYTES = 41_943_040_000n;
 
 export const MAX_UPLOAD_PATH_CODE_POINTS = 1_024;
 /** Aliyun OSS object keys may contain at most 1,023 UTF-8 bytes. */
@@ -59,9 +75,14 @@ export interface UploadCredentialsResponse {
 	readonly region: string;
 }
 
-/** Metadata proof returned by OSS after a direct browser upload. */
+/**
+ * Metadata proof returned by OSS after a direct browser upload. Omitting the
+ * ETag asks the server to reconcile a potentially successful OSS commit whose
+ * browser response was lost; the server still HEAD-verifies the object before
+ * registering metadata.
+ */
 export interface CompleteUploadItemInput extends UploadFileMetadataInput {
-	readonly objectEtag: string;
+	readonly objectEtag?: string;
 	readonly objectKey: string;
 }
 

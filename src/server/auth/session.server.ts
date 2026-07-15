@@ -1,5 +1,9 @@
 import { eq } from "drizzle-orm";
 
+import {
+	formatWeakEntityTag,
+	type WeakEntityTag,
+} from "../../shared/api/common";
 import { type Database, getDatabase } from "../db/client.server";
 import { adminMetadata } from "../db/schema";
 import { type AppAuth, getAuth } from "./auth.server";
@@ -8,6 +12,7 @@ export type SupportedLocale = "en" | "zh-CN";
 
 export interface SafeSessionView {
 	readonly metadata: {
+		readonly etag: WeakEntityTag;
 		readonly lastLoginAt: string | null;
 		readonly locale: SupportedLocale;
 		readonly mustChangePassword: boolean;
@@ -33,6 +38,7 @@ export interface AdminSessionMetadata {
 	readonly lastLoginAt: Date | null;
 	readonly locale: SupportedLocale;
 	readonly mustChangePassword: boolean;
+	readonly rowVersion: bigint;
 }
 
 type GetSessionApi = AppAuth["api"]["getSession"];
@@ -53,6 +59,7 @@ export async function loadAdminSessionMetadata(
 			lastLoginAt: adminMetadata.lastLoginAt,
 			locale: adminMetadata.locale,
 			mustChangePassword: adminMetadata.mustChangePassword,
+			rowVersion: adminMetadata.rowVersion,
 		})
 		.from(adminMetadata)
 		.where(eq(adminMetadata.userId, userId))
@@ -87,6 +94,9 @@ export async function getSafeSession(
 
 	return {
 		metadata: {
+			// Missing policy metadata remains fail-closed. The placeholder token is
+			// never accepted by a repository because there is no row to compare.
+			etag: formatWeakEntityTag(metadata?.rowVersion ?? 1n),
 			lastLoginAt: metadata?.lastLoginAt?.toISOString() ?? null,
 			locale: metadata?.locale ?? "zh-CN",
 			// Missing metadata is fail-closed until the account is repaired.

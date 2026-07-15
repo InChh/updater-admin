@@ -25,3 +25,6 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch2-database.json | 2026-07-14-updater-admin-implementation evidence batch2-database |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch3-auth.json | 2026-07-14-updater-admin-implementation evidence batch3-auth |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch4-api.json | 2026-07-14-updater-admin-implementation evidence batch4-api |
+| 2026-07-15 | adr | docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md | ADR-0001 - Keep Elysia behind the same-origin TanStack Start boundary |
+| 2026-07-15 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/gate-input-pack.json | 2026-07-14-updater-admin-implementation gate input pack |
+| 2026-07-15 | work | docs/aegis/work/2026-07-14-updater-admin-implementation/proof-bundle.md | 2026-07-14-updater-admin-implementation proof bundle |

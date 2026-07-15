@@ -1,12 +1,23 @@
 import { APIError } from "better-auth/api";
 import { Elysia, type Static, t } from "elysia";
-
+import {
+	formatWeakEntityTag,
+	isWellFormedUnicode,
+	parseWeakEntityTag,
+} from "../../../shared/api/common";
 import type {
 	ChangePasswordInput,
 	PasswordChangedResult,
 	ProfileDto,
+	ProfileSessionSummaryDto,
+	UpdateProfileInput,
 } from "../../../shared/api/profile";
-import type { ProfileRepository } from "../../db/repositories/profile.server";
+import type { SafeSessionView } from "../../auth/session.server";
+import {
+	type ProfileRepository,
+	ProfileStaleWriteRepositoryError,
+	type ProfileUpdateRecord,
+} from "../../db/repositories/profile.server";
 import type { ApiRequestContextStore } from "../context.server";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
@@ -31,9 +42,49 @@ export const profileSchema = t.Object(
 		locale: supportedLocaleSchema,
 		mustChangePassword: t.Boolean(),
 		name: t.String(),
+		otherSessions: t.Array(
+			t.Object(
+				{
+					createdAt: t.String({ format: "date-time" }),
+					expiresAt: t.String({ format: "date-time" }),
+					id: t.String({ format: "uuid" }),
+					ipAddress: t.Union([t.String(), t.Null()]),
+					updatedAt: t.String({ format: "date-time" }),
+					userAgent: t.Union([t.String(), t.Null()]),
+				},
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{ additionalProperties: false },
 );
+
+const PROFILE_NAME_TRANSPORT_MAX_LENGTH = 128 * 2;
+
+export const updateProfileSchema = t.Union([
+	t.Object(
+		{
+			locale: supportedLocaleSchema,
+			name: t.Optional(
+				t.String({
+					maxLength: PROFILE_NAME_TRANSPORT_MAX_LENGTH,
+					minLength: 1,
+				}),
+			),
+		},
+		{ additionalProperties: false },
+	),
+	t.Object(
+		{
+			locale: t.Optional(supportedLocaleSchema),
+			name: t.String({
+				maxLength: PROFILE_NAME_TRANSPORT_MAX_LENGTH,
+				minLength: 1,
+			}),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 export const changePasswordSchema = t.Object(
 	{
@@ -58,11 +109,25 @@ type _PasswordInputSchemaMatchesDto = Assert<
 type _PasswordResultSchemaMatchesDto = Assert<
 	ExactWireShape<Static<typeof passwordChangedSchema>, PasswordChangedResult>
 >;
+type _UpdateProfileSchemaMatchesDto = Assert<
+	ExactWireShape<Static<typeof updateProfileSchema>, UpdateProfileInput>
+>;
 
 export type ProfileSchemaAlignment =
 	| _ProfileSchemaMatchesDto
 	| _PasswordInputSchemaMatchesDto
-	| _PasswordResultSchemaMatchesDto;
+	| _PasswordResultSchemaMatchesDto
+	| _UpdateProfileSchemaMatchesDto;
+
+export interface ProfileAuthSession {
+	readonly createdAt: Date | string;
+	readonly expiresAt: Date | string;
+	readonly id: string;
+	readonly ipAddress?: string | null;
+	readonly token: string;
+	readonly updatedAt: Date | string;
+	readonly userAgent?: string | null;
+}
 
 export interface PasswordAuthApi {
 	changePassword(input: {
@@ -72,6 +137,9 @@ export interface PasswordAuthApi {
 		readonly headers: Headers;
 	}): Promise<unknown>;
 	revokeSessions(input: { readonly headers: Headers }): Promise<unknown>;
+	listSessions?(input: {
+		readonly headers: Headers;
+	}): Promise<readonly ProfileAuthSession[]>;
 }
 
 export interface ProfileModuleDependencies {
@@ -88,6 +156,91 @@ function isInvalidCurrentPassword(error: unknown): boolean {
 		"code" in error.body &&
 		error.body.code === "INVALID_PASSWORD"
 	);
+}
+
+function serializeDate(value: Date | string): string {
+	return value instanceof Date
+		? value.toISOString()
+		: new Date(value).toISOString();
+}
+
+async function loadOtherSessions(
+	authApi: PasswordAuthApi,
+	headers: Headers,
+	currentSessionId: string,
+): Promise<readonly ProfileSessionSummaryDto[]> {
+	const sessions = (await authApi.listSessions?.({ headers })) ?? [];
+	return sessions
+		.filter((session) => session.id !== currentSessionId)
+		.sort(
+			(left, right) =>
+				new Date(right.updatedAt).getTime() -
+				new Date(left.updatedAt).getTime(),
+		)
+		.map((session) => ({
+			createdAt: serializeDate(session.createdAt),
+			expiresAt: serializeDate(session.expiresAt),
+			id: session.id,
+			ipAddress: session.ipAddress ?? null,
+			updatedAt: serializeDate(session.updatedAt),
+			userAgent: session.userAgent?.slice(0, 2048) ?? null,
+		}));
+}
+
+function profileDto(
+	session: SafeSessionView,
+	otherSessions: readonly ProfileSessionSummaryDto[],
+	overrides: { readonly locale?: "en" | "zh-CN"; readonly name?: string } = {},
+): ProfileDto {
+	return {
+		currentSession: session.session,
+		email: session.user.email,
+		emailVerified: session.user.emailVerified,
+		id: session.user.id,
+		image: session.user.image,
+		lastLoginAt: session.metadata.lastLoginAt,
+		locale: overrides.locale ?? session.metadata.locale,
+		mustChangePassword: session.metadata.mustChangePassword,
+		name: overrides.name ?? session.user.name,
+		otherSessions,
+	};
+}
+
+function normalizeProfileName(value: string): string {
+	if (value.includes("\0") || !isWellFormedUnicode(value)) {
+		throw new ApiProblemError({
+			code: "VALIDATION_FAILED",
+			fieldErrors: [{ code: "INVALID_VALUE", path: "name" }],
+			status: 422,
+		});
+	}
+	const name = value.trim();
+	if (name.length === 0) {
+		throw new ApiProblemError({
+			code: "VALIDATION_FAILED",
+			fieldErrors: [{ code: "REQUIRED", path: "name" }],
+			status: 422,
+		});
+	}
+	if ([...name].length > 128) {
+		throw new ApiProblemError({
+			code: "VALIDATION_FAILED",
+			fieldErrors: [{ code: "TOO_LONG", path: "name" }],
+			status: 422,
+		});
+	}
+	return name;
+}
+
+function parseExpectedProfileRowVersion(ifMatch: string | null): bigint {
+	if (ifMatch === null) {
+		throw new ApiProblemError({ code: "PRECONDITION_REQUIRED", status: 428 });
+	}
+	const rowVersion = parseWeakEntityTag(ifMatch);
+	if (rowVersion === null) {
+		throw new ApiProblemError({ code: "STALE_WRITE", status: 409 });
+	}
+	return rowVersion;
 }
 
 async function revokeSessionsBestEffort(
@@ -109,22 +262,67 @@ export function createProfileModule({
 	return new Elysia({ name: "updater-admin.profile" })
 		.get(
 			"/profile",
-			({ request }): ProfileDto => {
+			async ({ request, set }) => {
 				const session = contextStore.require(request).session;
 				if (!session) throw new Error("Profile route requires a session.");
-				return {
-					currentSession: session.session,
-					email: session.user.email,
-					emailVerified: session.user.emailVerified,
-					id: session.user.id,
-					image: session.user.image,
-					lastLoginAt: session.metadata.lastLoginAt,
-					locale: session.metadata.locale,
-					mustChangePassword: session.metadata.mustChangePassword,
-					name: session.user.name,
-				};
+				const authApi = getPasswordAuthApi();
+				const profile = profileDto(
+					session,
+					await loadOtherSessions(authApi, request.headers, session.session.id),
+				);
+				set.headers.etag = session.metadata.etag;
+				return { ...profile, otherSessions: [...profile.otherSessions] };
 			},
 			{ response: { 200: profileSchema } },
+		)
+		.patch(
+			"/profile",
+			async ({ body, request, set }) => {
+				const context = contextStore.require(request);
+				const session = context.session;
+				const audit = context.audit;
+				if (!session || !audit) {
+					throw new Error("Profile update requires security context.");
+				}
+				const name =
+					body.name === undefined
+						? session.user.name
+						: normalizeProfileName(body.name);
+				const locale = body.locale ?? session.metadata.locale;
+				const expectedRowVersion = parseExpectedProfileRowVersion(
+					request.headers.get("if-match"),
+				);
+				let updatedProfile: ProfileUpdateRecord;
+				try {
+					updatedProfile = await profileRepository.updateProfile({
+						actorId: audit.actorId,
+						expectedRowVersion,
+						headers: request.headers,
+						ip: audit.ip,
+						locale,
+						name,
+						requestId: audit.requestId,
+						userAgent: audit.userAgent,
+					});
+				} catch (error) {
+					if (error instanceof ProfileStaleWriteRepositoryError) {
+						throw new ApiProblemError({ code: "STALE_WRITE", status: 409 });
+					}
+					throw error;
+				}
+				const authApi = getPasswordAuthApi();
+				const profile = profileDto(
+					session,
+					await loadOtherSessions(authApi, request.headers, session.session.id),
+					{ locale: updatedProfile.locale, name: updatedProfile.name },
+				);
+				set.headers.etag = formatWeakEntityTag(updatedProfile.rowVersion);
+				return { ...profile, otherSessions: [...profile.otherSessions] };
+			},
+			{
+				body: updateProfileSchema,
+				response: { 200: profileSchema },
+			},
 		)
 		.post(
 			"/profile/change-password",

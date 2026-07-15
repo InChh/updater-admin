@@ -4,6 +4,8 @@ import type { Database } from "../client.server";
 import { rateLimitWindows } from "../schema";
 
 export interface RateLimitInput {
+	/** Number of tokens consumed atomically by this operation. Defaults to one. */
+	readonly cost?: number;
 	readonly endpoint: string;
 	readonly limit: number;
 	readonly now: Date;
@@ -27,11 +29,15 @@ export interface RateLimitRepository {
 type RateLimitDatabase = Pick<Database, "delete" | "insert">;
 
 function validateInput(input: RateLimitInput): void {
+	const cost = input.cost ?? 1;
 	if (
 		!input.endpoint ||
 		!input.subjectKey ||
 		!Number.isInteger(input.limit) ||
 		input.limit < 1 ||
+		!Number.isInteger(cost) ||
+		cost < 1 ||
+		cost > input.limit ||
 		!Number.isInteger(input.windowSeconds) ||
 		input.windowSeconds < 1 ||
 		Number.isNaN(input.now.getTime())
@@ -59,6 +65,7 @@ export function createRateLimitRepository(
 	return {
 		async consume(input) {
 			validateInput(input);
+			const cost = input.cost ?? 1;
 			const { expiresAt, windowStartedAt } = calculateFixedWindow(
 				input.now,
 				input.windowSeconds,
@@ -70,7 +77,7 @@ export function createRateLimitRepository(
 			const [window] = await database
 				.insert(rateLimitWindows)
 				.values({
-					count: 1,
+					count: cost,
 					endpoint: input.endpoint,
 					expiresAt,
 					subjectKey: input.subjectKey,
@@ -78,7 +85,7 @@ export function createRateLimitRepository(
 				})
 				.onConflictDoUpdate({
 					set: {
-						count: sql`${rateLimitWindows.count} + 1`,
+						count: sql`${rateLimitWindows.count} + ${cost}`,
 						expiresAt,
 					},
 					target: [

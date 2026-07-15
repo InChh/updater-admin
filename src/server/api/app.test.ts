@@ -13,6 +13,8 @@ import {
 } from "../../shared/api/common";
 import type { SafeSessionView } from "../auth/session.server";
 import type { AppendAuditEventInput } from "../db/repositories/audit.server";
+import type { AuditService } from "../domain/audit.server";
+import type { MonitoringService } from "../domain/monitoring.server";
 import type { ProgramsService } from "../domain/programs.server";
 import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
@@ -33,10 +35,12 @@ function safeSession(
 	overrides: {
 		readonly banned?: boolean;
 		readonly mustChangePassword?: boolean;
+		readonly role?: string;
 	} = {},
 ): SafeSessionView {
 	return {
 		metadata: {
+			etag: 'W/"1"',
 			lastLoginAt: "2026-07-14T01:00:00.000Z",
 			locale: "zh-CN",
 			mustChangePassword: overrides.mustChangePassword ?? false,
@@ -54,7 +58,7 @@ function safeSession(
 			id: USER_ID,
 			image: null,
 			name: "Admin",
-			role: "admin",
+			role: overrides.role ?? "admin",
 		},
 	};
 }
@@ -238,6 +242,95 @@ describe("Elysia API foundation", () => {
 		});
 	});
 
+	it("mounts authenticated monitoring and audit route plugins without name collisions", async () => {
+		const getStatus = vi.fn(async () => ({
+			application: {
+				buildId: null,
+				commitRef: null,
+				environment: "test",
+				name: "updater-admin" as const,
+				version: null,
+			},
+			checkedAt: "2026-07-14T01:00:00.000Z",
+			dependencies: {
+				neon: {
+					checkedAt: "2026-07-14T01:00:00.000Z",
+					latencyMs: 1,
+					status: "ready" as const,
+				},
+				ossSts: {
+					checkedAt: "2026-07-14T01:00:00.000Z",
+					latencyMs: 2,
+					status: "ready" as const,
+				},
+			},
+			metrics: {
+				activeVersions: 1,
+				files: 2,
+				programs: 3,
+				status: "ready" as const,
+				totalBytes: "4",
+				versions: 5,
+			},
+			recentOperations: { items: [], status: "ready" as const },
+			status: "ready" as const,
+		}));
+		const listAudit = vi.fn(async () => ({
+			items: [],
+			page: 1,
+			pageSize: 20 as const,
+			total: 0,
+		}));
+		const monitoringService: MonitoringService = {
+			getReleaseSeries: async () => ({
+				from: "2026-07-14",
+				interval: "day",
+				points: [],
+				to: "2026-07-14",
+				total: 0,
+			}),
+			getStatus,
+		};
+		const auditService: AuditService = {
+			getById: async () => {
+				throw new Error("Unexpected audit detail call.");
+			},
+			list: listAudit,
+		};
+		const app = createApiApp(
+			testDependencies({
+				getAuditService: () => auditService,
+				getMonitoringService: () => monitoringService,
+			}),
+		);
+
+		const statusResponse = await app.handle(
+			new Request("http://localhost/api/v1/monitoring/status"),
+		);
+		const auditResponse = await app.handle(
+			new Request("http://localhost/api/v1/audit-events?page=1&pageSize=20"),
+		);
+
+		expect(statusResponse.status).toBe(200);
+		expect(await statusResponse.json()).toMatchObject({
+			dependencies: { neon: { status: "ready" }, ossSts: { status: "ready" } },
+			status: "ready",
+		});
+		expect(auditResponse.status).toBe(200);
+		expect(await auditResponse.json()).toEqual({
+			items: [],
+			page: 1,
+			pageSize: 20,
+			total: 0,
+		});
+		expect(getStatus).toHaveBeenCalledOnce();
+		expect(listAudit).toHaveBeenCalledWith({
+			page: 1,
+			pageSize: 20,
+			sort: "createdAt:desc",
+		});
+	});
+
 	it("mounts version and file lists while keeping both services lazy for health", async () => {
 		const listVersions = vi.fn(async () => ({
 			items: [
@@ -402,6 +495,65 @@ describe("Elysia API foundation", () => {
 		});
 	});
 
+	it("wires the shared per-file completion budget before upload service work", async () => {
+		const sha256 = "a".repeat(64);
+		const complete = vi.fn(async () => ({
+			files: [
+				{
+					checksumAlgorithm: "sha256" as const,
+					createdAt: "2026-07-14T01:00:00.000Z",
+					id: FILE_ID,
+					mimeType: "application/octet-stream",
+					objectEtag: "etag-1",
+					path: "desktop/app.bin",
+					sha256,
+					size: "42",
+					updatedAt: "2026-07-14T01:00:00.000Z",
+				},
+			],
+		}));
+		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
+		const app = createApiApp(
+			testDependencies({
+				consumeRateLimit,
+				getUploadsService: () => uploadsService({ complete }),
+			}),
+		);
+
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/uploads/complete", {
+				body: JSON.stringify({
+					files: [
+						{
+							mimeType: "application/octet-stream",
+							objectEtag: "etag-1",
+							objectKey: `releases/${sha256}/desktop/app.bin`,
+							path: "desktop/app.bin",
+							sha256,
+							size: "42",
+						},
+					],
+				}),
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(complete).toHaveBeenCalledOnce();
+		expect(consumeRateLimit).toHaveBeenCalledWith({
+			cost: 1,
+			endpoint: "uploads.complete.files",
+			limit: 2_000,
+			now: new Date("2026-07-14T01:00:00.000Z"),
+			subjectKey: USER_ID,
+			windowSeconds: 15 * 60,
+		});
+	});
+
 	it("returns a sanitized 401 before origin, rate-limit, and routing work", async () => {
 		const getCanonicalOrigin = vi.fn(() => "http://localhost");
 		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
@@ -461,6 +613,24 @@ describe("Elysia API foundation", () => {
 			mustChangePassword: true,
 		});
 		expect(programs.status).toBe(403);
+	});
+
+	it("fails closed when an authenticated account is not an administrator", async () => {
+		const app = createApiApp(
+			testDependencies({
+				getSession: async () => safeSession({ role: "user" }),
+			}),
+		);
+
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/profile"),
+		);
+
+		expect(response.status).toBe(403);
+		expect(await readProblem(response)).toMatchObject({
+			code: "FORBIDDEN",
+			requestId: "req_test",
+		});
 	});
 
 	it("requires the exact canonical Origin before consuming mutation quota", async () => {
@@ -551,6 +721,108 @@ describe("Elysia API foundation", () => {
 		);
 		expect(JSON.stringify(appendFailureAudit.mock.calls)).not.toContain(
 			"also-not-audited",
+		);
+	});
+
+	it("classifies administrator, profile, and settings mutation failures by domain action", async () => {
+		const appendFailureAudit = vi.fn(
+			async (_input: AppendAuditEventInput) => {},
+		);
+		const app = createApiApp(testDependencies({ appendFailureAudit }));
+		const administratorId = "00000000-0000-4000-8000-000000000099";
+		const cases = [
+			{
+				action: "administrator.created",
+				body: {},
+				method: "POST",
+				resourceId: "unassigned",
+				resourceType: "administrator",
+				url: "/api/v1/administrators",
+			},
+			{
+				action: "administrator.updated",
+				body: {},
+				method: "PATCH",
+				resourceId: administratorId,
+				resourceType: "administrator",
+				url: `/api/v1/administrators/${administratorId}`,
+			},
+			{
+				action: "administrator.password.reset",
+				body: {},
+				method: "POST",
+				resourceId: administratorId,
+				resourceType: "administrator",
+				url: `/api/v1/administrators/${administratorId}/reset-password`,
+			},
+			{
+				action: "administrator.sessions.revoked",
+				body: undefined,
+				method: "POST",
+				resourceId: "not-a-uuid",
+				resourceType: "administrator",
+				url: "/api/v1/administrators/not-a-uuid/revoke-sessions",
+			},
+			{
+				action: "profile.updated",
+				body: {},
+				method: "PATCH",
+				resourceId: USER_ID,
+				resourceType: "profile",
+				url: "/api/v1/profile",
+			},
+			{
+				action: "profile.password.changed",
+				body: {},
+				method: "POST",
+				resourceId: USER_ID,
+				resourceType: "profile",
+				url: "/api/v1/profile/change-password",
+			},
+			{
+				action: "system-settings.updated",
+				body: {},
+				method: "PATCH",
+				resourceId: "1",
+				resourceType: "system-settings",
+				url: "/api/v1/settings/system",
+			},
+		] as const;
+
+		for (const testCase of cases) {
+			const response = await app.handle(
+				new Request(`http://localhost${testCase.url}`, {
+					...(testCase.body === undefined
+						? {}
+						: { body: JSON.stringify(testCase.body) }),
+					headers: {
+						...(testCase.body === undefined
+							? {}
+							: { "content-type": "application/json" }),
+						origin: "http://localhost",
+					},
+					method: testCase.method,
+				}),
+			);
+			expect(response.status).toBe(422);
+		}
+
+		expect(
+			appendFailureAudit.mock.calls.map(([event]) => ({
+				action: event.action,
+				after: event.after,
+				resourceId: event.resourceId,
+				resourceType: event.resourceType,
+				result: event.result,
+			})),
+		).toEqual(
+			cases.map((testCase) => ({
+				action: testCase.action,
+				after: { code: "VALIDATION_FAILED", method: testCase.method },
+				resourceId: testCase.resourceId,
+				resourceType: testCase.resourceType,
+				result: "failure",
+			})),
 		);
 	});
 
@@ -708,6 +980,40 @@ describe("Elysia API foundation", () => {
 		});
 		expect(reportInternalError).toHaveBeenCalledWith(
 			expect.any(Error),
+			"req_test",
+		);
+	});
+
+	it("bounds a failure audit that never settles and still returns the original problem", async () => {
+		const appendFailureAudit = vi.fn(() => new Promise<never>(() => undefined));
+		const reportInternalError = vi.fn(async () => {});
+		const app = createApiApp(
+			testDependencies({
+				appendFailureAudit,
+				failureAuditTimeoutMs: 5,
+				reportInternalError,
+			}),
+		);
+
+		const response = await app.handle(
+			new Request("http://localhost/api/v1/programs", {
+				body: JSON.stringify({ extra: true, name: "Invalid" }),
+				headers: {
+					"content-type": "application/json",
+					origin: "http://localhost",
+				},
+				method: "POST",
+			}),
+		);
+
+		expect(appendFailureAudit).toHaveBeenCalledOnce();
+		expect(response.status).toBe(422);
+		expect(await readProblem(response)).toMatchObject({
+			code: "VALIDATION_FAILED",
+			requestId: "req_test",
+		});
+		expect(reportInternalError).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "FailureAuditTimeoutError" }),
 			"req_test",
 		);
 	});

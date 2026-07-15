@@ -86,6 +86,27 @@ describe("Better Auth runtime", () => {
 		).toBe(true);
 	});
 
+	it("requires secure cookies for the canonical production HTTPS origin", async () => {
+		const context = await createTestAuth({
+			...AUTH_ENVIRONMENT,
+			BETTER_AUTH_URL: "https://admin.example.com",
+			CONTEXT: "production",
+		}).$context;
+
+		expect(context.options.baseURL).toBe("https://admin.example.com");
+		expect(context.options.trustedOrigins).toEqual([
+			"https://admin.example.com",
+		]);
+		expect(context.options.advanced).toMatchObject({
+			defaultCookieAttributes: {
+				httpOnly: true,
+				sameSite: "lax",
+				secure: true,
+			},
+			useSecureCookies: true,
+		});
+	});
+
 	it("does not cache authentication secrets at module scope", () => {
 		const environment = { ...AUTH_ENVIRONMENT };
 		expect(() => createTestAuth(environment)).not.toThrow();
@@ -179,6 +200,7 @@ describe("session boundary", () => {
 					lastLoginAt: new Date("2026-07-14T01:00:00.000Z"),
 					locale: "en",
 					mustChangePassword: false,
+					rowVersion: 7n,
 				}),
 			},
 		);
@@ -189,6 +211,7 @@ describe("session boundary", () => {
 		});
 		expect(view).toMatchObject({
 			metadata: {
+				etag: 'W/"7"',
 				lastLoginAt: "2026-07-14T01:00:00.000Z",
 				locale: "en",
 				mustChangePassword: false,
@@ -230,6 +253,7 @@ describe("session boundary", () => {
 			loadMetadata: async () => null,
 		});
 		expect(view?.metadata).toEqual({
+			etag: 'W/"1"',
 			lastLoginAt: null,
 			locale: "zh-CN",
 			mustChangePassword: true,
@@ -247,13 +271,17 @@ describe("session boundary", () => {
 
 	it("uses a monotonic conditional update for lastLoginAt", async () => {
 		let whereClause: unknown;
+		let updatedValues: Record<string, unknown> | undefined;
 		const database = {
 			update: () => ({
-				set: () => ({
-					where: (where: unknown) => {
-						whereClause = where;
-					},
-				}),
+				set: (values: Record<string, unknown>) => {
+					updatedValues = values;
+					return {
+						where: (where: unknown) => {
+							whereClause = where;
+						},
+					};
+				},
 			}),
 		};
 		const createdAt = new Date("2026-07-14T03:00:00.000Z");
@@ -268,6 +296,10 @@ describe("session boundary", () => {
 		expect(query.sql).toContain('"last_login_at" is null');
 		expect(query.sql).toContain('"last_login_at" <');
 		expect(query.params).toContain(createdAt.toISOString());
+		const rowVersionQuery = new PgDialect().sqlToQuery(
+			updatedValues?.rowVersion as Parameters<PgDialect["sqlToQuery"]>[0],
+		);
+		expect(rowVersionQuery.sql).toContain('"row_version" + 1');
 	});
 });
 

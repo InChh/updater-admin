@@ -133,11 +133,15 @@ export const adminMetadata = pgTable(
 		mustChangePassword: boolean("must_change_password").default(true).notNull(),
 		locale: varchar("locale", { length: 16 }).default("zh-CN").notNull(),
 		lastLoginAt: timestamptz("last_login_at"),
+		rowVersion: bigint("row_version", { mode: "bigint" })
+			.default(sql`1`)
+			.notNull(),
 	},
 	(table) => [
 		check(
 			"admin_metadata_locale_supported",
 			sql`${table.locale} in ('zh-CN', 'en')`,
 		),
+		check("admin_metadata_row_version_positive", sql`${table.rowVersion} >= 1`),
 	],
 );

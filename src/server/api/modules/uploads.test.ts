@@ -6,16 +6,31 @@ import type {
 	CompleteUploadsResponse,
 	UploadCredentialsResponse,
 } from "../../../shared/api/uploads";
+import {
+	MAX_COMPLETE_UPLOAD_FILES,
+	UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
+	UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
+} from "../../../shared/api/uploads";
 import type { SafeSessionView } from "../../auth/session.server";
+import type {
+	RateLimitDecision,
+	RateLimitInput,
+} from "../../db/repositories/rate-limit.server";
 import {
 	UploadMetadataConflictError,
+	UploadObjectNotFoundError,
 	type UploadsService,
 	UploadsValidationError,
 	UploadVerificationUnavailableError,
 } from "../../domain/uploads.server";
 import { ApiRequestContextStore } from "../context.server";
+import { UPLOAD_COMPLETION_FILE_POLICY } from "../plugins/rate-limit.server";
 import { mapApiError } from "../problem";
-import { createUploadsModule } from "./uploads";
+import {
+	createUploadCompletionInFlightLimiter,
+	createUploadsModule,
+	type UploadCompletionInFlightLimiter,
+} from "./uploads";
 
 const ACTOR_ID = "00000000-0000-4000-8000-000000000001";
 const FILE_ID = "00000000-0000-4000-8000-000000000002";
@@ -67,6 +82,35 @@ function completedFile() {
 	};
 }
 
+function reconciliationFile() {
+	return {
+		...baseFile(),
+		objectKey: OBJECT_KEY,
+	};
+}
+
+function allowedRateLimitDecision(
+	overrides: Partial<RateLimitDecision> = {},
+): RateLimitDecision {
+	return {
+		allowed: true,
+		count: 1,
+		limit: UPLOAD_COMPLETION_FILE_POLICY.limit,
+		remaining: UPLOAD_COMPLETION_FILE_POLICY.limit - 1,
+		resetAt: new Date("2026-07-15T01:15:00.000Z"),
+		retryAfterSeconds: 900,
+		...overrides,
+	};
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return { promise, resolve };
+}
+
 function service(overrides: Partial<UploadsService> = {}): UploadsService {
 	return {
 		complete: vi.fn(async () => completeResponse),
@@ -77,10 +121,22 @@ function service(overrides: Partial<UploadsService> = {}): UploadsService {
 
 function testApp(
 	uploadsService: UploadsService,
-	options: { readonly audit?: boolean; readonly session?: boolean } = {},
+	options: {
+		readonly audit?: boolean;
+		readonly completionInFlightLimiter?: UploadCompletionInFlightLimiter;
+		readonly consumeCompletionRateLimit?: (
+			input: RateLimitInput,
+		) => Promise<RateLimitDecision>;
+		readonly now?: () => Date;
+		readonly session?: boolean;
+	} = {},
 ) {
 	const contextStore = new ApiRequestContextStore();
 	const getUploadsService = vi.fn(() => uploadsService);
+	const consumeCompletionRateLimit = vi.fn(
+		options.consumeCompletionRateLimit ??
+			(async () => allowedRateLimitDecision()),
+	);
 	const app = new Elysia({ normalize: false })
 		.onError((context) =>
 			mapApiError(context, {
@@ -104,8 +160,20 @@ function testApp(
 				});
 			}
 		})
-		.use(createUploadsModule({ contextStore, getUploadsService }));
-	return { app, getUploadsService };
+		.use(
+			createUploadsModule({
+				...(options.completionInFlightLimiter
+					? {
+							completionInFlightLimiter: options.completionInFlightLimiter,
+						}
+					: {}),
+				consumeCompletionRateLimit,
+				contextStore,
+				getUploadsService,
+				now: options.now ?? (() => new Date("2026-07-15T01:00:00.000Z")),
+			}),
+		);
+	return { app, consumeCompletionRateLimit, getUploadsService };
 }
 
 async function readProblem(response: Response): Promise<ApiProblem> {
@@ -122,6 +190,20 @@ function post(path: string, body: unknown) {
 }
 
 describe("uploads Elysia module", () => {
+	it("tracks in-flight slots per actor and releases them idempotently", () => {
+		const limiter = createUploadCompletionInFlightLimiter(1);
+		const releaseActorA = limiter.tryAcquire("actor-a");
+		expect(releaseActorA).toBeTypeOf("function");
+		expect(limiter.tryAcquire("actor-a")).toBeNull();
+		const releaseActorB = limiter.tryAcquire("actor-b");
+		expect(releaseActorB).toBeTypeOf("function");
+
+		releaseActorA?.();
+		releaseActorA?.();
+		expect(limiter.tryAcquire("actor-a")).toBeTypeOf("function");
+		releaseActorB?.();
+	});
+
 	it("keeps service creation lazy and issues only short-lived credentials", async () => {
 		const issueCredentials = vi.fn(async () => credentialsResponse);
 		const { app, getUploadsService } = testApp(service({ issueCredentials }));
@@ -145,7 +227,7 @@ describe("uploads Elysia module", () => {
 
 	it("forwards metadata-only completion with the request audit context", async () => {
 		const complete = vi.fn(async () => completeResponse);
-		const { app } = testApp(service({ complete }));
+		const { app, consumeCompletionRateLimit } = testApp(service({ complete }));
 
 		const response = await app.handle(
 			post("/uploads/complete", { files: [completedFile()] }),
@@ -160,6 +242,120 @@ describe("uploads Elysia module", () => {
 				actorId: ACTOR_ID,
 				requestId: "req_test",
 			}),
+		);
+		expect(consumeCompletionRateLimit).toHaveBeenCalledWith({
+			cost: 1,
+			endpoint: "uploads.complete.files",
+			limit: 2_000,
+			now: new Date("2026-07-15T01:00:00.000Z"),
+			subjectKey: ACTOR_ID,
+			windowSeconds: 15 * 60,
+		});
+	});
+
+	it("charges completion quota by validated file count", async () => {
+		const second = {
+			...completedFile(),
+			objectKey: `${OBJECT_KEY}.second`,
+			path: "desktop/app-second.bin",
+		};
+		const { app, consumeCompletionRateLimit } = testApp(service());
+
+		const response = await app.handle(
+			post("/uploads/complete", { files: [completedFile(), second] }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(consumeCompletionRateLimit).toHaveBeenCalledWith(
+			expect.objectContaining({ cost: 2, subjectKey: ACTOR_ID }),
+		);
+	});
+
+	it("returns a sanitized rate-limit problem before service work when the file budget is exhausted", async () => {
+		const complete = vi.fn(async () => completeResponse);
+		const { app, getUploadsService } = testApp(service({ complete }), {
+			consumeCompletionRateLimit: async () =>
+				allowedRateLimitDecision({
+					allowed: false,
+					count: 2_001,
+					remaining: 0,
+					retryAfterSeconds: 321,
+				}),
+		});
+
+		const response = await app.handle(
+			post("/uploads/complete", { files: [completedFile()] }),
+		);
+		const serialized = JSON.stringify(await readProblem(response));
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("321");
+		expect(response.headers.get("ratelimit-limit")).toBe("2000");
+		expect(serialized).toContain("RATE_LIMITED");
+		expect(serialized).not.toContain(ACTOR_ID);
+		expect(serialized).not.toContain(OBJECT_KEY);
+		expect(getUploadsService).not.toHaveBeenCalled();
+		expect(complete).not.toHaveBeenCalled();
+	});
+
+	it("caps concurrent completion work per actor and releases the slot deterministically", async () => {
+		const firstStarted = deferred<void>();
+		const firstResult = deferred<CompleteUploadsResponse>();
+		let calls = 0;
+		const complete = vi.fn(async () => {
+			calls += 1;
+			if (calls === 1) {
+				firstStarted.resolve();
+				return firstResult.promise;
+			}
+			return completeResponse;
+		});
+		const { app } = testApp(service({ complete }), {
+			completionInFlightLimiter: createUploadCompletionInFlightLimiter(1),
+		});
+
+		const first = app.handle(
+			post("/uploads/complete", { files: [completedFile()] }),
+		);
+		await firstStarted.promise;
+		const concurrent = await app.handle(
+			post("/uploads/complete", { files: [completedFile()] }),
+		);
+		const concurrentProblem = await readProblem(concurrent);
+		expect(concurrent.status).toBe(429);
+		expect(concurrent.headers.get("retry-after")).toBe("1");
+		expect(concurrentProblem).toMatchObject({
+			code: "RATE_LIMITED",
+			retryAfterSeconds: 1,
+		});
+		expect(JSON.stringify(concurrentProblem)).not.toContain(ACTOR_ID);
+		expect(complete).toHaveBeenCalledTimes(1);
+
+		firstResult.resolve(completeResponse);
+		expect((await first).status).toBe(200);
+		expect(
+			(
+				await app.handle(
+					post("/uploads/complete", { files: [completedFile()] }),
+				)
+			).status,
+		).toBe(200);
+		expect(complete).toHaveBeenCalledTimes(2);
+	});
+
+	it("accepts an omitted ETag for server-side completion reconciliation", async () => {
+		const complete = vi.fn(async () => completeResponse);
+		const { app } = testApp(service({ complete }));
+
+		const response = await app.handle(
+			post("/uploads/complete", { files: [reconciliationFile()] }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual(completeResponse);
+		expect(complete).toHaveBeenCalledWith(
+			{ files: [reconciliationFile()] },
+			expect.objectContaining({ actorId: ACTOR_ID }),
 		);
 	});
 
@@ -176,6 +372,19 @@ describe("uploads Elysia module", () => {
 			post("/uploads/complete", {
 				file: "must-not-cross-netlify",
 				files: [completedFile()],
+			}),
+			post("/uploads/complete", {
+				files: [{ ...completedFile(), objectEtag: "" }],
+			}),
+			post("/uploads/complete", {
+				files: Array.from(
+					{ length: MAX_COMPLETE_UPLOAD_FILES + 1 },
+					(_, index) => ({
+						...completedFile(),
+						objectKey: `${OBJECT_KEY}.${index}`,
+						path: `desktop/app-${index}.bin`,
+					}),
+				),
 			}),
 		]) {
 			const response = await app.handle(request);
@@ -204,6 +413,11 @@ describe("uploads Elysia module", () => {
 				status: 409,
 			},
 			{
+				code: UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
+				error: new UploadObjectNotFoundError(0),
+				status: 409,
+			},
+			{
 				code: "UPLOAD_VERIFICATION_UNAVAILABLE",
 				error: new UploadVerificationUnavailableError(),
 				status: 503,
@@ -228,6 +442,14 @@ describe("uploads Elysia module", () => {
 				requestId: "req_test",
 				status: testCase.status,
 			});
+			if (testCase.code === UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE) {
+				expect(problem.fieldErrors).toEqual([
+					{
+						code: UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
+						path: "files.0.objectKey",
+					},
+				]);
+			}
 			expect(JSON.stringify(problem)).not.toContain("temporary-secret");
 		}
 	});

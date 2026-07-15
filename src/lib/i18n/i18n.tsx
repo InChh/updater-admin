@@ -57,6 +57,7 @@ export interface I18nProviderProps {
 }
 
 export const API_ERROR_MESSAGE_KEYS = {
+	ADMINISTRATOR_EMAIL_CONFLICT: "errors.api.conflict",
 	BAD_REQUEST: "errors.api.badRequest",
 	FORBIDDEN: "errors.api.forbidden",
 	INTERNAL_ERROR: "errors.api.internalError",
@@ -65,9 +66,12 @@ export const API_ERROR_MESSAGE_KEYS = {
 	PRECONDITION_REQUIRED: "errors.api.preconditionRequired",
 	PROGRAM_NAME_CONFLICT: "errors.api.conflict",
 	RATE_LIMITED: "errors.api.rateLimited",
+	SELF_DISABLE_FORBIDDEN: "errors.api.forbidden",
 	STALE_WRITE: "errors.api.staleWrite",
 	UNAUTHENTICATED: "errors.api.unauthenticated",
+	UPLOAD_CREDENTIALS_UNAVAILABLE: "errors.api.uploadCredentialsUnavailable",
 	UPLOAD_METADATA_CONFLICT: "errors.api.conflict",
+	UPLOAD_VERIFICATION_UNAVAILABLE: "errors.api.uploadVerificationUnavailable",
 	VALIDATION_FAILED: "errors.api.validationFailed",
 	VERSION_NOT_GREATER: "errors.api.conflict",
 	VERSION_NUMBER_CONFLICT: "errors.api.conflict",

@@ -13,9 +13,9 @@ Before editing files for a substantial task:
 
 ## Current phase and hard gate
 
-This repository is the active implementation of the replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–8 of the indexed plan are complete on `codex/updater-admin-implementation`; Batch 9 nested version management UI is the next slice. Continue to preserve the plan's vertical-slice order, ownership boundaries, compatibility exclusions, and verification gates.
+This repository is the implemented replacement Updater administration system. The user approved the detailed requirements design on 2026-07-14. Batches 0–14 of the indexed plan are represented on `codex/updater-admin-implementation`; preserve the plan's ownership boundaries, compatibility exclusions, concurrency contracts, and release verification gates when maintaining it.
 
-Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Generated `demo.*` routes still prove integrations that do not yet have production owners and are retired together in Batch 14. The authenticated shell, Better Auth/Neon connection, Elysia foundation, database schema, localization, and dynamic tabs are production-owned now.
+Preserve the generated TanStack Start structure unless an approved design gives a concrete reason to change it. Batch 14 retired the generated demonstrations after every requested TanStack library gained a production owner. The authenticated shell, Better Auth/Neon connection, Elysia API, Drizzle schema, direct OSS upload workflow, localization, dynamic tabs, settings, administration, monitoring, and audit surfaces are production-owned now.
 
 ## Scaffold provenance
 
@@ -77,7 +77,9 @@ The existing upload model obtains Aliyun OSS STS credentials and uploads directl
 - `2026-07-14 — Frontend/backend contract`: redesign communication around `/api/v1/*`, camelCase DTOs, `{ items, page, pageSize, total }` lists, ETag/If-Match concurrency, and a compact Problem Details error model. Do not copy UpdaterServer paths, DTO envelopes, authentication markers, or `App:*` business error codes.
 - `2026-07-14 — Program-management contract`: program lists accept pages `1..1,000,000`, page sizes `20`, `50`, or `100`, case-sensitive literal substring name filters, and stable `createdAt` plus `id` sorting. Program mutations use opaque weak ETags and `If-Match`; successful delete returns `204` without a response ETag. Name and description limits are measured in Unicode code points, and validation paths are bounded, control-free, and well-formed Unicode.
 - `2026-07-14 — Upload/storage`: preserve direct browser-to-Aliyun OSS upload with short-lived STS credentials. Support folder selection, relative paths, SHA-256, byte size, MIME type, per-file progress, retry, and idempotent metadata registration. Do not proxy release files through Netlify Functions.
-- `2026-07-14 — Upload proof/security`: cap each release file at the intentional 5 TiB product limit and each object key at the OSS limit of 1,023 UTF-8 bytes. Browser STS receives prefix-scoped `PutObject`, `AbortMultipartUpload`, and `ListParts` only. The permanent server principal separately receives prefix-scoped `GetObject` for metadata HEAD verification; it never crosses the browser boundary.
+- `2026-07-15 — Upload proof/security (supersedes the earlier 5 TiB limit)`: cap each browser release file at exactly 41,943,040,000 bytes, matching 10,000 explicit 4 MiB multipart parts. Use two in-flight parts per file and at most four files so raw part payloads remain bounded to 32 MiB before SDK/browser overhead. Keep object keys within the OSS limit of 1,023 UTF-8 bytes. Browser STS receives prefix-scoped `PutObject`, `AbortMultipartUpload`, and `ListParts` only; the permanent server principal separately receives prefix-scoped `GetObject` for metadata HEAD verification and never crosses the browser boundary.
+- `2026-07-15 — OSS deployment security`: `x-oss-forbid-overwrite` is defense-in-depth because the browser controls its requests. Production must enable an OSS bucket-level no-overwrite rule for the dedicated upload prefix with bucket versioning disabled, plus a prefix-scoped lifecycle rule that removes incomplete multipart uploads after a short bounded period. Neither rule deletes completed release objects.
+- `2026-07-15 — Upload completion envelope`: folder selection and STS authorization support up to 1,000 files, but browser completion is split into ordered batches of 25 for bounded Netlify HEAD verification. Completion also has a two-request per-actor instance cap and a Neon-backed 2,000-file-token budget per actor per 15 minutes. Missing-object reconciliation uses the distinct `UPLOAD_OBJECT_NOT_FOUND` / `OBJECT_NOT_FOUND` contract; metadata or canonical-key conflicts must never trigger another upload.
 - `2026-07-14 — Upload state/audit`: canonical lock order prevents reversed-batch deadlocks while caller response order is preserved. Credential issuance is a security-sensitive success audit containing only file count and request context; completion success remains atomic with metadata registration. `File` and multipart checkpoint values remain memory-only, and sessionStorage contains only non-sensitive serializable UI preferences.
 - `2026-07-14 — Deletion/audit/concurrency`: soft-delete business records, record actor and before/after audit data, never automatically delete OSS objects, and reject stale mutations with optimistic concurrency versions. Program deletion soft-deletes its live versions while preserving file metadata, version-file history, and OSS objects.
 - `2026-07-14 — Audit ownership exception`: repositories append successful program-operation audits inside the same transaction as the mutation so state and success evidence remain atomic. The Elysia audit plugin owns redacted failure intents; failure-audit persistence or reporting errors never replace or mask the original API response.
@@ -104,12 +106,15 @@ Copy `.env.example` to `.env.local` for local work. Never commit real values.
 - `BETTER_AUTH_SECRET`: high-entropy secret generated with `pnpm dlx @better-auth/cli secret`.
 - `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`: one-time first-administrator values consumed by an idempotent bootstrap command and removed from the deployed environment after success.
 - `VITE_SENTRY_DSN`: Sentry browser DSN; anything prefixed `VITE_` is public.
-- `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_ENVIRONMENT`: server capture and Netlify source-map upload configuration.
+- `SENTRY_DSN`, `SENTRY_ENVIRONMENT`: optional server capture pair. `COMMIT_REF` is the Netlify release; `SENTRY_RELEASE` is the local fallback.
+- `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`: optional all-or-nothing build-time source-map upload group.
+- `APP_VERSION`: optional release label shown on authenticated monitoring. Netlify supplies `DEPLOY_ID`, `COMMIT_REF`, and `CONTEXT` for the other build metadata fields.
 - `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_UPLOAD_RAM_ROLE_ARN`, `OSS_STS_ENDPOINT`: server-only variables for upload STS issuance and upload verification. Download STS is outside this administration project.
 - `OSS_BUCKET`, `OSS_REGION`, `OSS_UPLOAD_PREFIX`: object-storage target and the namespace allowed by upload STS policy.
 - `TEST_DATABASE_URL`: disposable migrated Neon branch used only by destructive/transactional database verification; never point this at shared or production data.
 - `TEST_DATABASE_CONFIRM_DISPOSABLE`: must equal the exact sentinel `updater-admin-destructive-tests` before any destructive database suite can connect, migrate, or truncate.
 - `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`: seeded test administrator used by authenticated Playwright suites. Anonymous guard coverage runs without them; authenticated suites explicitly skip when they are absent.
+- `E2E_PORT`: optional Playwright-only loopback port override. The harness defaults to `3187`, starts Vite directly with `strictPort`, and deliberately refuses to reuse an existing server so another local application's `/health` endpoint cannot produce false browser results.
 
 ## Local commands and verification
 
@@ -126,11 +131,11 @@ pnpm intent:list
 pnpm generate-routes
 ```
 
-Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The Batch 8 gate covers 184 Biome files and 337 unit/contract/repository/domain/API/component tests across 52 files; typecheck and the Netlify client/SSR build pass. Five disposable database suites remain explicitly credential-gated. The optional live OSS STS/multipart smoke also requires an authorized sandbox; mocked provider contracts are part of the passing suite.
+Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The final local matrix on 2026-07-15 passed frozen offline install, route generation, Intent discovery (10 packages/31 skills), TanStack CLI library discovery (16 libraries), Biome over 279 files, TypeScript, 98 Vitest files/568 tests, Drizzle schema check, the Netlify client/SSR build, built-function `/health` smoke with all four dynamic security headers, route/client-secret/source-map scans, and diff-check. Playwright passed 8 public desktop/mobile tests and explicitly skipped 18 credential-gated authenticated tests. `pnpm test:db` loaded 6 files/6 tests and explicitly skipped them because no disposable `TEST_DATABASE_URL` was authorized. Live OSS, Sentry, and Netlify Preview verification also remain external gates rather than implied passes.
 
 ## Netlify deployment
 
-Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generated TanStack Start adapter for server functions. Set the production environment variables in Netlify, use the canonical site URL for `BETTER_AUTH_URL`, provision Neon separately, and run approved database migrations before serving authenticated traffic. Keep release binaries in object storage rather than the deploy artifact.
+Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generated TanStack Start adapter for server functions. Run `pnpm deploy:prepare` against the target Neon branch before a migration-bearing deploy; request startup never runs migrations. Set the canonical HTTPS site origin as `BETTER_AUTH_URL`, keep release binaries in OSS rather than the deploy artifact, and bootstrap the first administrator once after migration. `netlify.toml` covers static-file security headers, while `src/start.ts` applies the same policy to SSR/function responses because Netlify custom headers do not cover those dynamic responses.
 
 ## Known gotchas
 
@@ -140,7 +145,7 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - The CLI's automatic Intent install did not complete, so the two required `npx @tanstack/intent@latest` commands were run manually afterward.
 - `tanstack pin-versions` in CLI `0.69.5` assumes a React Start dependency and does not work for this Solid scaffold; keep dependency changes intentional and verify with typecheck/build.
 - Intent currently detects both `@tanstack/devtools-event-client` `0.5.0` and transitive `0.4.4`, selecting `0.5.0`. The scaffold builds successfully, but recheck the warning after dependency upgrades.
-- Intent `0.3.5` currently reports that `intent.skills` is unset and warns a future version will require an explicit package allowlist. The implementation plan adds the ten currently reviewed TanStack skill sources to `package.json` before business work.
+- Intent `0.3.5` uses the explicit ten-package `intent.skills` allowlist in `package.json`; update that allowlist intentionally when TanStack packages change.
 - In this workspace, `pnpm dlx @tanstack/intent@latest load ...` can fail against the restricted package registry even though Intent is installed locally. Use `pnpm exec intent load ...` as the no-download equivalent and still record the exact skill loaded.
 - Local `npx` may need a writable temporary npm cache on this machine because `~/.npm` contains root-owned entries.
 - Business leaf routes deliberately use `ssr: false`; the pathless authenticated guard remains SSR-capable. Browser loaders call same-origin Elysia through Query, avoiding a duplicate cookie-forwarding adapter.
@@ -155,11 +160,19 @@ Netlify builds with `pnpm build`, publishes `dist/client`, and uses the generate
 - Every multipart request sets `x-oss-forbid-overwrite: true`. Deterministic names are not sufficient overwrite protection because the server verifies size/ETag rather than downloading and rehashing large objects; never remove the header without replacing that integrity boundary.
 - Upload completion transactions acquire file identities in canonical `(path, sha256, size)` order and restore caller order in the response. Preserve that invariant when changing batch registration or uniqueness rules.
 - Browser upload code must continue hashing bounded 4 MiB slices rather than calling whole-file `arrayBuffer()`. Do not persist `File`, credentials, object ETags, or ali-oss checkpoints to web storage.
-- The authenticated locale starts from server-owned `admin_metadata.locale`. Browser changes are session-local until Batch 10 adds the approved profile locale mutation; do not reintroduce a localStorage override that can beat the server profile.
-- Program-version tabs intentionally show the program ID prefix until the program query exists; Batch 9 replaces it with the program name while preserving the concrete href and program-scoped key.
+- The authenticated locale is server-owned by `admin_metadata.locale`; profile and top-bar changes persist through the Elysia profile mutation and refresh the Query-owned session projection. Do not reintroduce a localStorage override that can beat the server profile.
+- Program-version tabs use the program name once Query resolves it while preserving the concrete href and program-scoped key; the ID prefix remains only the loading fallback.
+- `admin_metadata.row_version` is an optimistic-concurrency token for administrator/profile policy mutations; Better Auth remains the identity/password/session/disabled-state owner. Do not copy those fields into another table owner.
+- Monitoring readiness intentionally degrades individual Neon/OSS sections and caches/coalesces provider probes briefly; `/health` remains minimal and unauthenticated.
+- Browser Sentry stays behind a TanStack `createClientOnlyFn` boundary and must not dynamically import the SDK when `VITE_SENTRY_DSN` is empty. Server capture performs a bounded flush so Netlify does not freeze queued events before delivery.
+- Keep `zod` 4.x as a direct production dependency. The generated Netlify server leaves Better Auth's Zod import external; relying only on the transitive dependency can resolve an incompatible ancestor installation and crash before `/health` is served.
+- Playwright must own its loopback listener. Do not enable `reuseExistingServer`: a foreign application on a common port can satisfy the readiness URL while serving the wrong `/health` and routes. Use the isolated default `3187` or set a validated `E2E_PORT` override.
+- This managed workspace rejects local socket binding with `listen EPERM`. The Devtools Vite plugin can make that rejection look like a startup hang; use the built Netlify handler smoke here and run Playwright/local HTTP smoke in a host that permits loopback listeners. The scaffold currently uses Vite 8 while the installed Devtools package advertises Vite 6/7 peer support, so recheck the pairing on upgrades.
 
 ## Current implementation sequence
 
-1. Implement Batch 9 nested version management UI, upload-to-create orchestration, and serialized optimistic activation.
-2. Continue Batches 10–13 in dependency order, parallelizing non-overlapping account, settings, monitoring, and deployment slices.
-3. In Batch 14 retire demos, run the complete DB/E2E/build/secret-scan matrix, compare against the supplied screenshots, and update this file with final cloud setup and remaining external actions.
+1. Keep migrations, shared DTOs, Elysia modules, Query keys, and UI mutations aligned when changing a vertical slice.
+2. Rerun the full static/unit/DB/E2E/build/route/secret matrix before release; treat missing disposable DB, seeded E2E, OSS sandbox, or Netlify Preview credentials as explicit external gates rather than silent passes.
+3. Complete the documented Neon, OSS, Sentry, Netlify, bootstrap, and authorized Preview steps for each environment before production traffic.
+
+The rationale for the single-deployment transport boundary is recorded in `docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md`: TanStack Start remains the thin same-origin Netlify transport while Elysia remains the canonical business API and authorization owner.

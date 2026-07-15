@@ -1,0 +1,2 @@
+ALTER TABLE "admin_metadata" ADD COLUMN "row_version" bigint DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "admin_metadata" ADD CONSTRAINT "admin_metadata_row_version_positive" CHECK ("admin_metadata"."row_version" >= 1);

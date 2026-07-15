@@ -11,17 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HealthRouteImport } from './routes/health'
-import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DemoTanstackQueryRouteImport } from './routes/demo.tanstack-query'
-import { Route as DemoStoreRouteImport } from './routes/demo.store'
-import { Route as DemoFormRouteImport } from './routes/demo.form'
-import { Route as DemoBetterAuthRouteImport } from './routes/demo.better-auth'
 import { Route as AuthenticatedProgramsRouteImport } from './routes/_authenticated/programs'
 import { Route as AuthenticatedAdministratorsRouteImport } from './routes/_authenticated/administrators'
 import { Route as AuthenticatedProgramsIndexRouteImport } from './routes/_authenticated/programs.index'
-import { Route as DemoSentryBadEventHandlerRouteImport } from './routes/demo.sentry.bad-event-handler'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthenticatedSettingsSystemRouteImport } from './routes/_authenticated/settings.system'
@@ -41,11 +35,6 @@ const HealthRoute = HealthRouteImport.update({
   path: '/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -53,26 +42,6 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
-  id: '/demo/tanstack-query',
-  path: '/demo/tanstack-query',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DemoStoreRoute = DemoStoreRouteImport.update({
-  id: '/demo/store',
-  path: '/demo/store',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DemoFormRoute = DemoFormRouteImport.update({
-  id: '/demo/form',
-  path: '/demo/form',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DemoBetterAuthRoute = DemoBetterAuthRouteImport.update({
-  id: '/demo/better-auth',
-  path: '/demo/better-auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedProgramsRoute = AuthenticatedProgramsRouteImport.update({
@@ -91,12 +60,6 @@ const AuthenticatedProgramsIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedProgramsRoute,
-  } as any)
-const DemoSentryBadEventHandlerRoute =
-  DemoSentryBadEventHandlerRouteImport.update({
-    id: '/demo/sentry/bad-event-handler',
-    path: '/demo/sentry/bad-event-handler',
-    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
   id: '/api/v1/$',
@@ -147,15 +110,10 @@ const AuthenticatedProgramsProgramIdVersionsRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/administrators': typeof AuthenticatedAdministratorsRoute
   '/programs': typeof AuthenticatedProgramsRouteWithChildren
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/form': typeof DemoFormRoute
-  '/demo/store': typeof DemoStoreRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
   '/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -163,20 +121,14 @@ export interface FileRoutesByFullPath {
   '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
   '/programs/': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/administrators': typeof AuthenticatedAdministratorsRoute
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/form': typeof DemoFormRoute
-  '/demo/store': typeof DemoStoreRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
   '/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -184,7 +136,6 @@ export interface FileRoutesByTo {
   '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
   '/programs': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
@@ -192,15 +143,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
-  '/about': typeof AboutRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/_authenticated/administrators': typeof AuthenticatedAdministratorsRoute
   '/_authenticated/programs': typeof AuthenticatedProgramsRouteWithChildren
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/form': typeof DemoFormRoute
-  '/demo/store': typeof DemoStoreRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/_authenticated/monitoring/audit': typeof AuthenticatedMonitoringAuditRoute
   '/_authenticated/monitoring/overview': typeof AuthenticatedMonitoringOverviewRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -208,7 +154,6 @@ export interface FileRoutesById {
   '/_authenticated/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/demo/sentry/bad-event-handler': typeof DemoSentryBadEventHandlerRoute
   '/_authenticated/programs/': typeof AuthenticatedProgramsIndexRoute
   '/_authenticated/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
 }
@@ -216,15 +161,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/about'
     | '/health'
     | '/login'
     | '/administrators'
     | '/programs'
-    | '/demo/better-auth'
-    | '/demo/form'
-    | '/demo/store'
-    | '/demo/tanstack-query'
     | '/monitoring/audit'
     | '/monitoring/overview'
     | '/settings/account'
@@ -232,20 +172,14 @@ export interface FileRouteTypes {
     | '/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
-    | '/demo/sentry/bad-event-handler'
     | '/programs/'
     | '/programs/$programId/versions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/about'
     | '/health'
     | '/login'
     | '/administrators'
-    | '/demo/better-auth'
-    | '/demo/form'
-    | '/demo/store'
-    | '/demo/tanstack-query'
     | '/monitoring/audit'
     | '/monitoring/overview'
     | '/settings/account'
@@ -253,22 +187,16 @@ export interface FileRouteTypes {
     | '/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
-    | '/demo/sentry/bad-event-handler'
     | '/programs'
     | '/programs/$programId/versions'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
-    | '/about'
     | '/health'
     | '/login'
     | '/_authenticated/administrators'
     | '/_authenticated/programs'
-    | '/demo/better-auth'
-    | '/demo/form'
-    | '/demo/store'
-    | '/demo/tanstack-query'
     | '/_authenticated/monitoring/audit'
     | '/_authenticated/monitoring/overview'
     | '/_authenticated/settings/account'
@@ -276,7 +204,6 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/system'
     | '/api/auth/$'
     | '/api/v1/$'
-    | '/demo/sentry/bad-event-handler'
     | '/_authenticated/programs/'
     | '/_authenticated/programs/$programId/versions'
   fileRoutesById: FileRoutesById
@@ -284,16 +211,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
-  AboutRoute: typeof AboutRoute
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
-  DemoBetterAuthRoute: typeof DemoBetterAuthRoute
-  DemoFormRoute: typeof DemoFormRoute
-  DemoStoreRoute: typeof DemoStoreRoute
-  DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
-  DemoSentryBadEventHandlerRoute: typeof DemoSentryBadEventHandlerRoute
 }
 
 declare module '@tanstack/solid-router' {
@@ -312,13 +233,6 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof HealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -331,34 +245,6 @@ declare module '@tanstack/solid-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/demo/tanstack-query': {
-      id: '/demo/tanstack-query'
-      path: '/demo/tanstack-query'
-      fullPath: '/demo/tanstack-query'
-      preLoaderRoute: typeof DemoTanstackQueryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/demo/store': {
-      id: '/demo/store'
-      path: '/demo/store'
-      fullPath: '/demo/store'
-      preLoaderRoute: typeof DemoStoreRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/demo/form': {
-      id: '/demo/form'
-      path: '/demo/form'
-      fullPath: '/demo/form'
-      preLoaderRoute: typeof DemoFormRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/demo/better-auth': {
-      id: '/demo/better-auth'
-      path: '/demo/better-auth'
-      fullPath: '/demo/better-auth'
-      preLoaderRoute: typeof DemoBetterAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/programs': {
@@ -381,13 +267,6 @@ declare module '@tanstack/solid-router' {
       fullPath: '/programs/'
       preLoaderRoute: typeof AuthenticatedProgramsIndexRouteImport
       parentRoute: typeof AuthenticatedProgramsRoute
-    }
-    '/demo/sentry/bad-event-handler': {
-      id: '/demo/sentry/bad-event-handler'
-      path: '/demo/sentry/bad-event-handler'
-      fullPath: '/demo/sentry/bad-event-handler'
-      preLoaderRoute: typeof DemoSentryBadEventHandlerRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/api/v1/$': {
       id: '/api/v1/$'
@@ -491,26 +370,21 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
-  AboutRoute: AboutRoute,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
-  DemoBetterAuthRoute: DemoBetterAuthRoute,
-  DemoFormRoute: DemoFormRoute,
-  DemoStoreRoute: DemoStoreRoute,
-  DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
-  DemoSentryBadEventHandlerRoute: DemoSentryBadEventHandlerRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/solid-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/solid-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

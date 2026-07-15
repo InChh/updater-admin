@@ -53,10 +53,9 @@ export function OpenedTabs(props: OpenedTabsProps) {
 	const i18n = useI18n();
 	const title = (tab: OpenedTab) => {
 		const definition = PROTECTED_ROUTE_REGISTRY[tab.routeId];
-		const translated = i18n.t(definition.tabTitleKey);
 		return tab.routeId === "programVersions"
-			? `${translated} · ${tab.title}`
-			: translated;
+			? i18n.t("tabs.programVersions", { program: tab.title })
+			: i18n.t(definition.tabTitleKey);
 	};
 	const plainNavigation = (event: MouseEvent) =>
 		event.button === 0 &&

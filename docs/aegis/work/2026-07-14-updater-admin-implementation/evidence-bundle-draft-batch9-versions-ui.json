@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch9-versions-ui",
+  "type": "verification",
+  "source": "focused Vitest; pnpm check; pnpm typecheck; pnpm test; pnpm test:db; pnpm test:e2e; pnpm build; git diff --check",
+  "summary": "Batch 9 passed 60 test files/421 tests, Biome, TypeScript, the guarded disposable-database harness, Playwright's anonymous and credential-gated projects, the Netlify client/SSR build, and diff-check. Five destructive database suites explicitly skipped without TEST_DATABASE_URL; authenticated browser execution skipped without seeded credentials. Independent acceptance and security re-reviews passed after invalid-folder, discarded-retry, and activation-rollback fixes.",
+  "verifier": "root"
+}

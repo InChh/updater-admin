@@ -1,6 +1,13 @@
 import { Store } from "@tanstack/store";
 
 import { UPLOAD_MIME_TYPE_PATTERN } from "../../shared/api/uploads";
+import {
+	containsHighConfidenceSecretText,
+	isSensitiveUrl,
+	REDACTION_MARKER,
+	type RedactedJsonValue,
+	redactSensitiveData,
+} from "../../shared/security/redact";
 import { normalizeUploadPath } from "../../shared/uploads/path";
 import type { OssMultipartCheckpoint } from "./oss-uploader.client";
 
@@ -28,6 +35,8 @@ export interface UploadFileSelection {
 export interface UploadQueueItem {
 	readonly attempt: number;
 	readonly checkpoint: OssMultipartCheckpoint | null;
+	/** Presentation-only dismissal; lifecycle/output data remains authoritative. */
+	readonly dismissed: boolean;
 	readonly error: string | null;
 	readonly failedStage: UploadWorkStage | null;
 	readonly file: File;
@@ -74,6 +83,11 @@ export interface UploadQueueController {
 	markRegistrationSucceeded(id: string, fileMetadataId: string): void;
 	markUploadCheckpoint(id: string, checkpoint: OssMultipartCheckpoint): void;
 	markUploadProgress(id: string, progress: number): void;
+	markUploadReconciled(
+		id: string,
+		objectEtag: string,
+		fileMetadataId: string,
+	): void;
 	markUploadSucceeded(id: string, objectEtag: string): void;
 	prepareRetry(id: string): UploadWorkStage | null;
 	remove(id: string): void;
@@ -96,6 +110,10 @@ const ACTIVE_STATUS_TO_STAGE = {
 } as const satisfies Partial<Record<UploadQueueStatus, UploadWorkStage>>;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const DEFAULT_UPLOAD_ERROR = "Upload failed.";
+const EMBEDDED_URL_PATTERN = /(?:https?:\/\/|\/\/)[^\s<>"']+/giu;
+const KEY_VALUE_PATTERN =
+	/(?:^|[\s?&#;,])([A-Za-z][A-Za-z0-9_.-]{0,63})\s*(?:=|:)\s*([^\s,;]+)/gu;
 
 function browserSessionStorage(): UploadQueueStorage | null {
 	if (typeof window === "undefined") return null;
@@ -214,15 +232,83 @@ function requireStatus(
 	}
 }
 
-function safeErrorMessage(error: unknown): string {
+function containsRedactionMarker(value: RedactedJsonValue): boolean {
+	if (value === REDACTION_MARKER) return true;
+	if (Array.isArray(value)) return value.some(containsRedactionMarker);
+	if (typeof value !== "object" || value === null) return false;
+	return Object.values(value).some(containsRedactionMarker);
+}
+
+function assignmentUsesSensitiveKey(value: string): boolean {
+	for (const match of value.matchAll(KEY_VALUE_PATTERN)) {
+		const key = match[1];
+		if (!key) continue;
+		const redacted = redactSensitiveData({ [key]: match[2] ?? "value" });
+		if (containsRedactionMarker(redacted)) return true;
+	}
+	return false;
+}
+
+function textContainsSensitiveData(value: string): boolean {
+	if (
+		containsHighConfidenceSecretText(value) ||
+		isSensitiveUrl(value) ||
+		assignmentUsesSensitiveKey(value)
+	) {
+		return true;
+	}
+	for (const match of value.matchAll(EMBEDDED_URL_PATTERN)) {
+		if (match[0] && isSensitiveUrl(match[0])) return true;
+	}
+	return false;
+}
+
+function valueContainsSensitiveText(
+	value: unknown,
+	ancestors = new WeakSet<object>(),
+): boolean {
+	if (typeof value === "string") return textContainsSensitiveData(value);
+	if (typeof value !== "object" || value === null) return false;
+	if (ancestors.has(value)) return false;
+	ancestors.add(value);
+	try {
+		if (Array.isArray(value)) {
+			return value.some((item) => valueContainsSensitiveText(item, ancestors));
+		}
+		return Object.values(value).some((item) =>
+			valueContainsSensitiveText(item, ancestors),
+		);
+	} finally {
+		ancestors.delete(value);
+	}
+}
+
+function diagnosticSource(error: unknown): unknown {
+	if (!(error instanceof Error)) return error;
+	return {
+		...Object.fromEntries(Object.entries(error)),
+		cause: error.cause,
+		message: error.message,
+	};
+}
+
+export function safeUploadErrorMessage(error: unknown): string {
 	const value =
 		error instanceof Error
 			? error.message
 			: typeof error === "string"
 				? error
-				: "Upload failed.";
+				: DEFAULT_UPLOAD_ERROR;
+	const source = diagnosticSource(error);
+	if (
+		containsRedactionMarker(redactSensitiveData(source)) ||
+		valueContainsSensitiveText(source)
+	) {
+		return DEFAULT_UPLOAD_ERROR;
+	}
 	return (
-		[...value].slice(0, MAX_UPLOAD_ERROR_LENGTH).join("") || "Upload failed."
+		[...value].slice(0, MAX_UPLOAD_ERROR_LENGTH).join("") ||
+		DEFAULT_UPLOAD_ERROR
 	);
 }
 
@@ -263,6 +349,7 @@ function createQueueItem(selection: UploadFileSelection): UploadQueueItem {
 	return {
 		attempt: 0,
 		checkpoint: null,
+		dismissed: false,
 		error: null,
 		failedStage: null,
 		file: selection.file,
@@ -356,7 +443,9 @@ export function createUploadQueueController(
 		clearCompleted: () =>
 			store.setState((state) =>
 				withDerivedState({
-					items: state.items.filter((item) => item.status !== "complete"),
+					items: state.items.map((item) =>
+						item.status === "complete" ? { ...item, dismissed: true } : item,
+					),
 					showCompleted: state.showCompleted,
 				}),
 			),
@@ -373,7 +462,7 @@ export function createUploadQueueController(
 					requireStatus(item, [expectedStatus], `fail ${stage}`);
 					return {
 						...item,
-						error: safeErrorMessage(error),
+						error: safeUploadErrorMessage(error),
 						failedStage: stage,
 						status: "failed",
 					};
@@ -412,6 +501,7 @@ export function createUploadQueueController(
 					requireStatus(item, ["registering"], "complete registration for");
 					return {
 						...item,
+						dismissed: false,
 						error: null,
 						failedStage: null,
 						fileMetadataId,
@@ -434,6 +524,35 @@ export function createUploadQueueController(
 					return { ...item, uploadProgress: clampProgress(uploadProgress) };
 				}),
 			),
+		markUploadReconciled: (id, objectEtag, fileMetadataId) => {
+			requireCanonicalValue(objectEtag, "objectEtag");
+			requireCanonicalValue(fileMetadataId, "fileMetadataId");
+			store.setState((state) =>
+				updateItem(state, id, (item) => {
+					requireStatus(item, ["failed", "cancelled"], "reconcile upload for");
+					if (
+						item.failedStage !== "upload" ||
+						!item.objectKey ||
+						!item.sha256
+					) {
+						throw new Error(
+							`Cannot reconcile upload item ${item.id} without failed upload proof.`,
+						);
+					}
+					return {
+						...item,
+						checkpoint: null,
+						dismissed: false,
+						error: null,
+						failedStage: null,
+						fileMetadataId,
+						objectEtag,
+						status: "complete",
+						uploadProgress: 1,
+					};
+				}),
+			);
+		},
 		markUploadSucceeded: (id, objectEtag) => {
 			requireCanonicalValue(objectEtag, "objectEtag");
 			store.setState((state) =>
@@ -455,9 +574,12 @@ export function createUploadQueueController(
 			const item = requireItem(store.state.items, id);
 			const stage = retryStage(item);
 			if (!stage) return null;
+			const discardCancelledCheckpoint =
+				item.status === "cancelled" && stage === "upload";
 			store.setState((state) =>
 				updateItem(state, id, (current) => ({
 					...current,
+					checkpoint: discardCancelledCheckpoint ? null : current.checkpoint,
 					error: null,
 					failedStage: null,
 					status:

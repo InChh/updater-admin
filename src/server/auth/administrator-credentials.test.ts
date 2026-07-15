@@ -15,6 +15,7 @@ interface UnitOfWorkSpies {
 	readonly createMetadata: ReturnType<typeof vi.fn>;
 	readonly createUser: ReturnType<typeof vi.fn>;
 	readonly markTemporaryPassword: ReturnType<typeof vi.fn>;
+	readonly readDefaultLocale: ReturnType<typeof vi.fn>;
 	readonly revokeUserSessions: ReturnType<typeof vi.fn>;
 	readonly setUserPassword: ReturnType<typeof vi.fn>;
 }
@@ -27,6 +28,7 @@ function createTestUnitOfWork(): {
 		createMetadata: vi.fn(async () => {}),
 		createUser: vi.fn(async () => ({ user: { id: ADMINISTRATOR_ID } })),
 		markTemporaryPassword: vi.fn(async () => {}),
+		readDefaultLocale: vi.fn(async () => "en" as const),
 		revokeUserSessions: vi.fn(async () => {}),
 		setUserPassword: vi.fn(async () => {}),
 	};
@@ -41,6 +43,7 @@ function createTestUnitOfWork(): {
 			},
 			createMetadata: spies.createMetadata,
 			markTemporaryPassword: spies.markTemporaryPassword,
+			readDefaultLocale: spies.readDefaultLocale,
 		} as unknown as AdministratorCredentialUnitOfWork,
 	};
 }
@@ -146,8 +149,9 @@ describe("administrator temporary-password credentials", () => {
 			},
 			headers,
 		});
+		expect(spies.readDefaultLocale).toHaveBeenCalledOnce();
 		expect(spies.createMetadata).toHaveBeenCalledWith({
-			locale: "zh-CN",
+			locale: "en",
 			mustChangePassword: true,
 			userId: ADMINISTRATOR_ID,
 		});

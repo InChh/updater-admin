@@ -59,11 +59,13 @@ export interface SidebarProps {
 	readonly collapsed: boolean;
 	readonly mobileOpen: boolean;
 	readonly onMobileOpenChange: (open: boolean) => void;
+	readonly systemName: string;
 }
 
 interface SidebarBodyProps {
 	readonly collapsed: boolean;
 	readonly onNavigate?: () => void;
+	readonly systemName: string;
 }
 
 function SidebarBody(props: SidebarBodyProps) {
@@ -94,7 +96,7 @@ function SidebarBody(props: SidebarBodyProps) {
 				</div>
 				<Show when={!props.collapsed}>
 					<span class="truncate text-[16px] font-semibold tracking-[-0.01em] text-primary-deep">
-						{i18n.t("common.appName")}
+						{props.systemName}
 					</span>
 				</Show>
 			</div>
@@ -126,7 +128,10 @@ export function Sidebar(props: SidebarProps) {
 				class="hidden h-dvh shrink-0 border-r border-border bg-white transition-[width] duration-150 lg:block"
 				style={{ width: props.collapsed ? "64px" : "232px" }}
 			>
-				<SidebarBody collapsed={props.collapsed} />
+				<SidebarBody
+					collapsed={props.collapsed}
+					systemName={props.systemName}
+				/>
 			</aside>
 			<Dialog open={props.mobileOpen} onOpenChange={props.onMobileOpenChange}>
 				<Dialog.Portal>
@@ -144,6 +149,7 @@ export function Sidebar(props: SidebarProps) {
 						<SidebarBody
 							collapsed={false}
 							onNavigate={() => props.onMobileOpenChange(false)}
+							systemName={props.systemName}
 						/>
 					</Dialog.Content>
 				</Dialog.Portal>

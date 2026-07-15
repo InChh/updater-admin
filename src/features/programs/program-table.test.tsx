@@ -10,17 +10,23 @@ interface LinkStubProps {
 	readonly "aria-label"?: string;
 	readonly children?: JSX.Element;
 	readonly params: Readonly<{ programId: string }>;
+	readonly search: Readonly<Record<string, unknown>>;
 }
 
+const linkSearches: Array<Readonly<Record<string, unknown>>> = [];
+
 vi.mock("@tanstack/solid-router", () => ({
-	Link: (props: LinkStubProps) => (
-		<a
-			aria-label={props["aria-label"]}
-			href={`/programs/${props.params.programId}/versions`}
-		>
-			{props.children}
-		</a>
-	),
+	Link: (props: LinkStubProps) => {
+		linkSearches.push(props.search);
+		return (
+			<a
+				aria-label={props["aria-label"]}
+				href={`/programs/${props.params.programId}/versions`}
+			>
+				{props.children}
+			</a>
+		);
+	},
 }));
 vi.mock("../../components/ui/toast", () => ({ notify: vi.fn() }));
 
@@ -37,6 +43,7 @@ const PROGRAM: ProgramListItemDto = {
 const originalClipboard = navigator.clipboard;
 
 afterEach(() => {
+	linkSearches.length = 0;
 	Object.defineProperty(navigator, "clipboard", {
 		configurable: true,
 		value: originalClipboard,
@@ -61,7 +68,7 @@ describe("ProgramTable", () => {
 					onEdit={onEdit}
 					onSortChange={onSortChange}
 					page={2}
-					pageSize={20}
+					pageSize={50}
 					sort="createdAt:desc"
 					total={21}
 				/>
@@ -69,7 +76,7 @@ describe("ProgramTable", () => {
 		));
 
 		expect(screen.getByRole("table", { name: "Programs" })).toBeTruthy();
-		expect(screen.getByRole("cell", { name: "21" })).toBeTruthy();
+		expect(screen.getByRole("cell", { name: "51" })).toBeTruthy();
 		const createdHeader = screen.getByRole("columnheader", {
 			name: "Created",
 		});
@@ -88,6 +95,11 @@ describe("ProgramTable", () => {
 		expect(versionLink.getAttribute("href")).toBe(
 			`/programs/${PROGRAM_ID}/versions`,
 		);
+		expect(linkSearches).toContainEqual({
+			page: 1,
+			pageSize: 50,
+			sort: "createdAt:desc",
+		});
 
 		fireEvent.click(
 			screen.getByRole("button", { name: `Copy program ID ${PROGRAM_ID}` }),

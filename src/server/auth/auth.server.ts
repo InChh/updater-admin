@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins/admin";
 import { tanstackStartCookies } from "better-auth/tanstack-start/solid";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { type Database, getDatabase } from "../db/client.server";
 import {
 	account,
@@ -63,7 +63,10 @@ export async function updateLastLoginAt(
 ): Promise<void> {
 	await database
 		.update(adminMetadata)
-		.set({ lastLoginAt: createdAt })
+		.set({
+			lastLoginAt: createdAt,
+			rowVersion: sql`${adminMetadata.rowVersion} + 1`,
+		})
 		.where(
 			and(
 				eq(adminMetadata.userId, userId),

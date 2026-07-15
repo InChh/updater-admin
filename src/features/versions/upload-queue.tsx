@@ -7,7 +7,6 @@ import type {
 	UploadQueueController,
 	UploadQueueItem,
 	UploadQueueStatus,
-	UploadWorkStage,
 } from "./upload-store";
 
 export interface UploadQueueLabels {
@@ -21,17 +20,17 @@ export interface UploadQueueLabels {
 	readonly retry: string;
 	readonly showCompleted: string;
 	readonly status: Readonly<Record<UploadQueueStatus, string>>;
+	readonly totalSize: (bytes: number) => string;
 }
 
 export interface UploadQueueProps {
 	readonly controller: UploadQueueController;
 	readonly labels?: Partial<UploadQueueLabels>;
-	readonly onCancel?: (
-		item: UploadQueueItem,
-		stage: UploadWorkStage | null,
-	) => void;
+	/** The workflow owns cancellation so it can stop the active worker/client. */
+	readonly onCancel?: (item: UploadQueueItem) => void;
 	readonly onRemove?: (item: UploadQueueItem) => void;
-	readonly onRetry?: (item: UploadQueueItem, stage: UploadWorkStage) => void;
+	/** The workflow owns retry state transitions when this callback is provided. */
+	readonly onRetry?: (item: UploadQueueItem) => void;
 }
 
 const DEFAULT_STATUS_LABELS: Readonly<Record<UploadQueueStatus, string>> = {
@@ -57,9 +56,10 @@ const DEFAULT_LABELS: UploadQueueLabels = {
 	retry: "重试",
 	showCompleted: "显示已完成文件",
 	status: DEFAULT_STATUS_LABELS,
+	totalSize: (bytes) => `总计 ${formatUploadBytes(bytes)}`,
 };
 
-function formatBytes(size: number): string {
+export function formatUploadBytes(size: number): string {
 	const units = ["B", "KB", "MB", "GB", "TB"] as const;
 	let value = size;
 	let unitIndex = 0;
@@ -115,10 +115,16 @@ export function UploadQueue(props: UploadQueueProps) {
 		},
 	});
 	const visibleItems = () =>
-		state().showCompleted
-			? state().items
-			: state().items.filter((item) => item.status !== "complete");
+		state().items.filter(
+			(item) =>
+				!item.dismissed &&
+				(state().showCompleted || item.status !== "complete"),
+		);
+	const hasClearableCompletedItems = () =>
+		state().items.some((item) => item.status === "complete" && !item.dismissed);
 	const aggregatePercent = () => Math.round(state().aggregateProgress * 100);
+	const totalSize = () =>
+		state().items.reduce((total, item) => total + item.size, 0);
 
 	return (
 		<section
@@ -128,7 +134,10 @@ export function UploadQueue(props: UploadQueueProps) {
 			<div class="flex flex-wrap items-center justify-between gap-3">
 				<div class="min-w-48 flex-1">
 					<div class="mb-1.5 flex items-center justify-between gap-3 text-xs text-muted">
-						<span>{labels().files(state().items.length)}</span>
+						<span>
+							{labels().files(state().items.length)} ·{" "}
+							{labels().totalSize(totalSize())}
+						</span>
 						<span aria-live="polite">{aggregatePercent()}%</span>
 					</div>
 					<progress
@@ -138,7 +147,7 @@ export function UploadQueue(props: UploadQueueProps) {
 						value={state().aggregateProgress}
 					/>
 				</div>
-				<Show when={state().items.some((item) => item.status === "complete")}>
+				<Show when={hasClearableCompletedItems()}>
 					<div class="flex items-center gap-2">
 						<label class="flex cursor-pointer items-center gap-2 text-xs text-muted">
 							<input
@@ -173,7 +182,7 @@ export function UploadQueue(props: UploadQueueProps) {
 				}
 				when={visibleItems().length > 0}
 			>
-				<ul class="m-0 grid list-none gap-2 p-0">
+				<ul class="m-0 grid max-h-[min(40vh,24rem)] list-none gap-2 overflow-y-auto p-0 pr-1">
 					<For each={visibleItems()}>
 						{(item) => {
 							const percent = () => Math.round(itemProgress(item) * 100);
@@ -194,7 +203,7 @@ export function UploadQueue(props: UploadQueueProps) {
 												{item.path}
 											</span>
 											<span class="shrink-0 text-xs text-muted">
-												{formatBytes(item.size)}
+												{formatUploadBytes(item.size)}
 											</span>
 										</div>
 										<div class="mt-1 flex items-center gap-2 text-xs">
@@ -239,8 +248,8 @@ export function UploadQueue(props: UploadQueueProps) {
 											<Button
 												aria-label={`${labels().cancel}: ${item.path}`}
 												onClick={() => {
-													const stage = props.controller.cancel(item.id);
-													props.onCancel?.(item, stage);
+													if (props.onCancel) props.onCancel(item);
+													else props.controller.cancel(item.id);
 												}}
 												size="icon"
 												title={labels().cancel}
@@ -258,8 +267,8 @@ export function UploadQueue(props: UploadQueueProps) {
 											<Button
 												aria-label={`${labels().retry}: ${item.path}`}
 												onClick={() => {
-													const stage = props.controller.prepareRetry(item.id);
-													if (stage) props.onRetry?.(item, stage);
+													if (props.onRetry) props.onRetry(item);
+													else props.controller.prepareRetry(item.id);
 												}}
 												size="icon"
 												title={labels().retry}
@@ -273,8 +282,8 @@ export function UploadQueue(props: UploadQueueProps) {
 											<Button
 												aria-label={`${labels().remove}: ${item.path}`}
 												onClick={() => {
-													props.controller.remove(item.id);
-													props.onRemove?.(item);
+													if (props.onRemove) props.onRemove(item);
+													else props.controller.remove(item.id);
 												}}
 												size="icon"
 												title={labels().remove}

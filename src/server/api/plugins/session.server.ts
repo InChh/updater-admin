@@ -37,6 +37,9 @@ export function createSessionPlugin({
 					status: 401,
 				});
 			}
+			if (session.user.role !== "admin") {
+				throw new ApiProblemError({ code: "FORBIDDEN", status: 403 });
+			}
 			if (session.user.banned) {
 				throw new ApiProblemError({ code: "FORBIDDEN", status: 403 });
 			}

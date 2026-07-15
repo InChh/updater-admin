@@ -140,3 +140,32 @@ Authority update: the user explicitly approved the Design Spec on 2026-07-14. Th
 - Preserve only explicitly accepted domain rules, such as multiple active versions and highest-active numeric latest selection.
 - Do not copy known implementation defects such as invalid numeric parsing, remove-only file-update failure, missing database uniqueness, EF shadow relationships, or timezone-less timestamps.
 - Do not infer authority to modify the legacy UpdaterServer, production data, OSS objects, Netlify site, Neon project, or updater clients.
+
+## 10. Implementation Status Update - 2026-07-15
+
+This section appends the completion-candidate state without rewriting the historical scaffold snapshot above.
+
+### 10.1 Implemented State
+
+- Plan Batches 0-14 have implementation owners in the isolated `codex/updater-admin-implementation` worktree.
+- The authenticated entry remains program management; no Dashboard, Billing, tenant, legacy `/api/app/*`, `/about`, or scaffold `/demo/*` production route remains.
+- Better Auth owns identity, password, ban, and session lifecycle; Elysia owns the redesigned `/api/v1` business API and authorization; Drizzle/Neon own persistence.
+- TanStack Start and Router own SSR, transport, routes, guards, nested pages, and dynamic tabs; Query owns remote cache; Table owns list projection; Form owns forms; Store owns only cross-component shell/upload state; CLI and Intent remain represented by project scripts/metadata and durable guidance.
+- Programs, versions, direct-to-OSS uploads, administrators/profile/account, optimistic system settings, authenticated monitoring/audit, native SVG release trends, Sentry, and Netlify security/deployment structure are implemented.
+- Scaffold demonstrations were retired only after their requested library integrations had production owners and verification paths.
+
+### 10.2 Proven Evidence Boundary
+
+- The Batch 13 checkpoint proved 95 test files and 542 tests plus its static, type, build, diff, Netlify-function, and security-header checks. Those values remain Batch 13 historical evidence, not final release totals.
+- The current Batch 14 browser evidence is 8 public desktop/mobile tests passed and 18 authenticated tests explicitly skipped because seeded E2E credentials were unavailable. Credential-gated workflows and screenshot artifacts are not treated as passed.
+- The authoritative final local matrix passed on 2026-07-15: frozen install, route generation, Intent 10 packages/31 skills, TanStack CLI 16-library discovery, Biome over 279 files, TypeScript, 98 Vitest files/568 tests, Drizzle schema check, Netlify client/SSR build, built-function health/security-header smoke, route/client-secret/source-map scans, and diff-check.
+
+### 10.3 Remaining External Gates
+
+- Disposable-database execution requires approved `TEST_DATABASE_URL` and the destructive-test confirmation sentinel.
+- Authenticated E2E and 1920px/390px visual evidence require seeded `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD`.
+- Live OSS STS/multipart, live Sentry event/source-map, and authorized Netlify Preview checks require separately approved external environments and credentials.
+- Production migration, bootstrap-secret removal, cloud configuration, deploy, and Preview verification remain explicit follow-up actions; this documentation update authorizes none of them.
+- The rationale for the same-origin TanStack Start/raw Request/Elysia boundary is recorded in `docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md`; this baseline remains the current-state owner map.
+
+Status: local implementation and verification complete; disposable database, authenticated visual/E2E, live OSS, live Sentry, and authorized Netlify Preview evidence remain external. Method Pack records are advisory and do not grant deployment authority.
