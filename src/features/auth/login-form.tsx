@@ -23,6 +23,7 @@ export interface LoginFormLabels {
 }
 
 export interface LoginFormProps {
+	readonly formatError?: (error: unknown) => string;
 	readonly initialEmail?: string;
 	readonly labels: LoginFormLabels;
 	readonly onSubmit: (credentials: LoginCredentials) => Promise<void>;
@@ -42,8 +43,8 @@ export function LoginForm(props: LoginFormProps) {
 			setSubmitting(true);
 			try {
 				await props.onSubmit(value);
-			} catch {
-				setSubmitError(props.labels.genericError);
+			} catch (error) {
+				setSubmitError(props.formatError?.(error) ?? props.labels.genericError);
 			} finally {
 				setSubmitting(false);
 			}

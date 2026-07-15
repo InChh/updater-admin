@@ -72,7 +72,7 @@ function LoginSurface() {
 		email: i18n.t("auth.email"),
 		emailInvalid: i18n.t("errors.field.email"),
 		emailRequired: i18n.t("errors.field.required"),
-		genericError: i18n.t("errors.api.unauthenticated"),
+		genericError: i18n.t("errors.api.generic"),
 		password: i18n.t("auth.password"),
 		passwordRequired: i18n.t("errors.field.required"),
 		pending: i18n.t("auth.signIn.submitting"),
@@ -89,6 +89,17 @@ function LoginSurface() {
 		pending: i18n.t("auth.changePassword.submitting"),
 		submit: i18n.t("auth.changePassword.submit"),
 	});
+	const formatLoginError = (error: unknown) => {
+		if (error instanceof AuthenticationFlowError) {
+			if (error.code === "INVALID_CREDENTIALS") {
+				return i18n.t("auth.signIn.invalidCredentials");
+			}
+			if (error.code === "RATE_LIMITED") {
+				return i18n.t("errors.api.rateLimited");
+			}
+		}
+		return i18n.t("errors.api.generic");
+	};
 	const signIn = (credentials: {
 		readonly email: string;
 		readonly password: string;
@@ -206,6 +217,7 @@ function LoginSurface() {
 								</output>
 							</Show>
 							<LoginForm
+								formatError={formatLoginError}
 								initialEmail={
 									passwordRotationCompleted()
 										? context().session?.user.email

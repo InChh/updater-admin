@@ -28,6 +28,7 @@ export const zhCN = {
 	"auth.password": "密码",
 	"auth.passwordChangedSignInAgain": "密码已修改，请重新登录。",
 	"auth.signIn.description": "使用管理员账户继续。",
+	"auth.signIn.invalidCredentials": "邮箱或密码不正确。",
 	"auth.signIn.submit": "登录",
 	"auth.signIn.submitting": "正在登录…",
 	"auth.signIn.title": "登录",
@@ -508,6 +509,7 @@ export const en = {
 	"auth.passwordChangedSignInAgain":
 		"Your password was changed. Sign in again.",
 	"auth.signIn.description": "Continue with an administrator account.",
+	"auth.signIn.invalidCredentials": "The email or password is incorrect.",
 	"auth.signIn.submit": "Sign in",
 	"auth.signIn.submitting": "Signing in…",
 	"auth.signIn.title": "Sign in",

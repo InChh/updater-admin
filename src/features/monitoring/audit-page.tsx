@@ -247,12 +247,16 @@ export function AuditPage(props: AuditPageProps) {
 											page: 1,
 										})
 									}
-									value={props.search().action ?? ""}
 								>
-									<option value="">{i18n.t("audit.filters.all")}</option>
+									<option selected={!props.search().action} value="">
+										{i18n.t("audit.filters.all")}
+									</option>
 									<For each={AUDIT_ACTIONS}>
 										{(action) => (
-											<option value={action}>
+											<option
+												selected={props.search().action === action}
+												value={action}
+											>
 												{auditActionLabel(i18n, action)}
 											</option>
 										)}
@@ -277,12 +281,16 @@ export function AuditPage(props: AuditPageProps) {
 												) ?? null,
 										})
 									}
-									value={props.search().resourceType ?? ""}
 								>
-									<option value="">{i18n.t("audit.filters.all")}</option>
+									<option selected={!props.search().resourceType} value="">
+										{i18n.t("audit.filters.all")}
+									</option>
 									<For each={AUDIT_RESOURCE_TYPES}>
 										{(resource) => (
-											<option value={resource}>
+											<option
+												selected={props.search().resourceType === resource}
+												value={resource}
+											>
 												{auditResourceLabel(i18n, resource)}
 											</option>
 										)}
@@ -307,12 +315,16 @@ export function AuditPage(props: AuditPageProps) {
 												) ?? null,
 										})
 									}
-									value={props.search().result ?? ""}
 								>
-									<option value="">{i18n.t("audit.filters.all")}</option>
+									<option selected={!props.search().result} value="">
+										{i18n.t("audit.filters.all")}
+									</option>
 									<For each={AUDIT_RESULTS}>
 										{(result) => (
-											<option value={result}>
+											<option
+												selected={props.search().result === result}
+												value={result}
+											>
 												{auditResultLabel(i18n, result)}
 											</option>
 										)}

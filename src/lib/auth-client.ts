@@ -1,5 +1,12 @@
-interface AuthMutationResult {
-	readonly error?: unknown;
+export type AuthMutationErrorCode =
+	| "AUTH_REQUEST_FAILED"
+	| "INVALID_CREDENTIALS"
+	| "RATE_LIMITED";
+
+export interface AuthMutationResult {
+	readonly error?: {
+		readonly code: AuthMutationErrorCode;
+	} | null;
 }
 
 type AuthClientResult = Promise<AuthMutationResult>;
@@ -14,8 +21,69 @@ type AuthMutationPath =
 	| "/api/auth/sign-in/email"
 	| "/api/auth/sign-out";
 
-function requestFailure(): AuthMutationResult {
-	return { error: { code: "AUTH_REQUEST_FAILED" } };
+const MAX_AUTH_ERROR_BODY_BYTES = 1024;
+
+function requestFailure(
+	code: AuthMutationErrorCode = "AUTH_REQUEST_FAILED",
+): AuthMutationResult {
+	return { error: { code } };
+}
+
+async function hasInvalidCredentialsCode(response: Response): Promise<boolean> {
+	const contentType = response.headers.get("content-type")?.toLowerCase();
+	if (
+		!contentType ||
+		(!contentType.startsWith("application/json") &&
+			!contentType.startsWith("application/problem+json"))
+	) {
+		return false;
+	}
+
+	const declaredLength = response.headers.get("content-length");
+	if (
+		declaredLength &&
+		(/^\d+$/.test(declaredLength) === false ||
+			Number(declaredLength) > MAX_AUTH_ERROR_BODY_BYTES)
+	) {
+		return false;
+	}
+
+	const reader = response.body?.getReader();
+	if (!reader) return false;
+	const decoder = new TextDecoder("utf-8", { fatal: true });
+	let body = "";
+	let bytesRead = 0;
+
+	try {
+		while (true) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			if (!chunk.value) continue;
+			bytesRead += chunk.value.byteLength;
+			if (bytesRead > MAX_AUTH_ERROR_BODY_BYTES) {
+				await reader.cancel();
+				return false;
+			}
+			body += decoder.decode(chunk.value, { stream: true });
+		}
+		body += decoder.decode();
+	} catch {
+		return false;
+	} finally {
+		reader.releaseLock();
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(body);
+		return (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			"code" in parsed &&
+			parsed.code === "INVALID_EMAIL_OR_PASSWORD"
+		);
+	} catch {
+		return false;
+	}
 }
 
 async function postAuthMutation(
@@ -29,7 +97,17 @@ async function postAuthMutation(
 			headers: { "content-type": "application/json" },
 			method: "POST",
 		});
-		return response.ok ? {} : requestFailure();
+		if (response.ok) return {};
+		if (path === "/api/auth/sign-in/email") {
+			if (response.status === 429) return requestFailure("RATE_LIMITED");
+			if (
+				response.status === 401 &&
+				(await hasInvalidCredentialsCode(response))
+			) {
+				return requestFailure("INVALID_CREDENTIALS");
+			}
+		}
+		return requestFailure();
 	} catch {
 		return requestFailure();
 	}

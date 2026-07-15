@@ -1,9 +1,6 @@
+import type { AuthMutationResult } from "../../lib/auth-client";
 import type { ChangePasswordInput } from "../../shared/api/profile";
 import type { LoginCredentials } from "./login-form";
-
-export interface AuthMutationResult {
-	readonly error?: unknown;
-}
 
 export interface SignInFlowDependencies<Session> {
 	readonly loadSession: () => Promise<Session | null>;
@@ -19,7 +16,13 @@ export interface PasswordRotationDependencies<Session>
 }
 
 export class AuthenticationFlowError extends Error {
-	constructor(readonly code: "SIGN_IN_FAILED" | "SESSION_NOT_ESTABLISHED") {
+	constructor(
+		readonly code:
+			| "INVALID_CREDENTIALS"
+			| "RATE_LIMITED"
+			| "SIGN_IN_FAILED"
+			| "SESSION_NOT_ESTABLISHED",
+	) {
 		super(code);
 		this.name = "AuthenticationFlowError";
 	}
@@ -30,7 +33,14 @@ export async function signInAndLoadSession<Session>(
 	dependencies: SignInFlowDependencies<Session>,
 ): Promise<Session> {
 	const result = await dependencies.signIn(credentials);
-	if (result.error) throw new AuthenticationFlowError("SIGN_IN_FAILED");
+	if (result.error) {
+		const code =
+			result.error.code === "INVALID_CREDENTIALS" ||
+			result.error.code === "RATE_LIMITED"
+				? result.error.code
+				: "SIGN_IN_FAILED";
+		throw new AuthenticationFlowError(code);
+	}
 	const session = await dependencies.loadSession();
 	if (!session) throw new AuthenticationFlowError("SESSION_NOT_ESTABLISHED");
 	return session;

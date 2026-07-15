@@ -39,6 +39,34 @@ function renderPage(search: AuditRouteSearch) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AuditPage", () => {
+	it("hydrates route-backed select filters", async () => {
+		renderPage({
+			action: "profile.updated",
+			page: 1,
+			pageSize: 20,
+			resourceType: "profile",
+			result: "failure",
+			sort: "createdAt:desc",
+		});
+		await screen.findByText(EVENT.resourceId);
+
+		expect(
+			(screen.getByRole("combobox", { name: "Action" }) as HTMLSelectElement)
+				.value,
+		).toBe("profile.updated");
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: "Resource type",
+				}) as HTMLSelectElement
+			).value,
+		).toBe("profile");
+		expect(
+			(screen.getByRole("combobox", { name: "Result" }) as HTMLSelectElement)
+				.value,
+		).toBe("failure");
+	});
+
 	it("keeps filters and the selected detail in route search", async () => {
 		const search = {
 			page: 1,

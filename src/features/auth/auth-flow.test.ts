@@ -32,6 +32,22 @@ describe("authentication browser flow", () => {
 		).rejects.toEqual(new AuthenticationFlowError("SESSION_NOT_ESTABLISHED"));
 	});
 
+	it.each([
+		["INVALID_CREDENTIALS", "INVALID_CREDENTIALS"],
+		["RATE_LIMITED", "RATE_LIMITED"],
+		["AUTH_REQUEST_FAILED", "SIGN_IN_FAILED"],
+	] as const)("maps the bounded %s transport error to %s", async (transportCode, flowCode) => {
+		await expect(
+			signInAndLoadSession(
+				{ email: "admin@example.com", password: "temporary-password" },
+				{
+					loadSession: async () => ({ userId: "unexpected" }),
+					signIn: async () => ({ error: { code: transportCode } }),
+				},
+			),
+		).rejects.toEqual(new AuthenticationFlowError(flowCode));
+	});
+
 	it("rotates the password, clears stale Query state, and signs in with the new password in order", async () => {
 		const order: string[] = [];
 		const clearSessionCache = vi.fn(() => order.push("clear"));
@@ -103,7 +119,7 @@ describe("authentication browser flow", () => {
 					loadSession: async () => null,
 					signIn: async () => {
 						order.push("sign-in");
-						return { error: new Error("cookie blocked") };
+						return { error: { code: "AUTH_REQUEST_FAILED" } };
 					},
 				},
 			),

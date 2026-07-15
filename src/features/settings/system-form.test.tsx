@@ -33,6 +33,24 @@ const initialValue = {
 };
 
 describe("SystemSettingsForm", () => {
+	it("hydrates the persisted default page size", () => {
+		render(() => (
+			<SystemSettingsForm
+				initialValue={{ ...initialValue, defaultPageSize: 50 }}
+				labels={labels}
+				onSubmit={vi.fn(async () => {})}
+			/>
+		));
+
+		expect(
+			(
+				screen.getByRole("combobox", {
+					name: "Default rows per page",
+				}) as HTMLSelectElement
+			).value,
+		).toBe("50");
+	});
+
 	it("rejects insecure and credential-bearing repository URLs", async () => {
 		const onSubmit = vi.fn(async () => {});
 		render(() => (

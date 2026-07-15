@@ -1,6 +1,6 @@
 import { createForm } from "@tanstack/solid-form";
 import { Languages, Link2, Rows3, Save, Type } from "lucide-solid";
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { Button } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
@@ -233,11 +233,17 @@ export function SystemSettingsForm(props: SystemSettingsFormProps) {
 											field().handleChange(pageSize(event.currentTarget.value));
 											props.onFieldInput?.("defaultPageSize");
 										}}
-										value={String(field().state.value)}
 									>
-										{SYSTEM_SETTINGS_PAGE_SIZES.map((value) => (
-											<option value={value}>{value}</option>
-										))}
+										<For each={SYSTEM_SETTINGS_PAGE_SIZES}>
+											{(value) => (
+												<option
+													selected={field().state.value === value}
+													value={value}
+												>
+													{value}
+												</option>
+											)}
+										</For>
 									</select>
 								</div>
 							)}

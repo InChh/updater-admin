@@ -31,6 +31,82 @@ describe("auth client transport", () => {
 		expect(result).toEqual({});
 	});
 
+	it("maps only Better Auth's invalid-credentials code to the specific error", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							code: "INVALID_EMAIL_OR_PASSWORD",
+							message: "Invalid email or password",
+						}),
+						{
+							headers: { "content-type": "application/json" },
+							status: 401,
+						},
+					),
+			),
+		);
+
+		const result = await authClient.signIn.email({
+			email: "admin@example.com",
+			password: "Temporary!Password-2026",
+		});
+
+		expect(result).toEqual({ error: { code: "INVALID_CREDENTIALS" } });
+	});
+
+	it.each([
+		[401, "FAILED_TO_CREATE_SESSION", "AUTH_REQUEST_FAILED"],
+		[429, "TOO_MANY_REQUESTS", "RATE_LIMITED"],
+		[500, "INTERNAL_SERVER_ERROR", "AUTH_REQUEST_FAILED"],
+	] as const)("does not misclassify sign-in status %s with code %s", async (status, responseCode, code) => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ code: responseCode }), {
+						headers: { "content-type": "application/json" },
+						status,
+					}),
+			),
+		);
+
+		const result = await authClient.signIn.email({
+			email: "admin@example.com",
+			password: "Temporary!Password-2026",
+		});
+
+		expect(result).toEqual({ error: { code } });
+	});
+
+	it("fails closed when an authentication error body exceeds the read limit", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							code: "INVALID_EMAIL_OR_PASSWORD",
+							padding: "x".repeat(2048),
+						}),
+						{
+							headers: { "content-type": "application/json" },
+							status: 401,
+						},
+					),
+			),
+		);
+
+		const result = await authClient.signIn.email({
+			email: "admin@example.com",
+			password: "Temporary!Password-2026",
+		});
+
+		expect(result).toEqual({ error: { code: "AUTH_REQUEST_FAILED" } });
+	});
+
 	it.each([
 		["sign out", "/api/auth/sign-out", () => authClient.signOut()],
 		[

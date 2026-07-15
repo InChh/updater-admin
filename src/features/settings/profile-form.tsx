@@ -74,7 +74,6 @@ function ProfileDetailsForm(props: ProfileDetailsFormProps) {
 								}
 							: current,
 				);
-				await i18n.setLocale(updated.data.locale);
 				shellUiController.setLocale(updated.data.locale);
 				await router.invalidate({ sync: true });
 				notify(i18n.t("profile.notifications.saved"));

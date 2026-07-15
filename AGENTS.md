@@ -131,6 +131,12 @@ pnpm intent:list
 pnpm generate-routes
 ```
 
+For this project, a user-requested E2E acceptance pass means starting the real
+full-stack application against a disposable Postgres database and operating it
+through the Codex in-app browser: navigate, click, submit forms, reload, and
+inspect the resulting UI state. `pnpm test:e2e` remains useful regression
+coverage, but it is not a substitute for that manual browser acceptance pass.
+
 Biome uses the installed `2.4.5` schema with Tailwind directive parsing. `src/routeTree.gen.ts` is generated and excluded from formatting. The final local matrix on 2026-07-15 passed frozen offline install, route generation, Intent discovery (10 packages/31 skills), TanStack CLI library discovery (16 libraries), Biome over 279 files, TypeScript, 98 Vitest files/568 tests, Drizzle schema check, the Netlify client/SSR build, built-function `/health` smoke with all four dynamic security headers, route/client-secret/source-map scans, and diff-check. Playwright passed 8 public desktop/mobile tests and explicitly skipped 18 credential-gated authenticated tests. `pnpm test:db` loaded 6 files/6 tests and explicitly skipped them because no disposable `TEST_DATABASE_URL` was authorized. Live OSS, Sentry, and Netlify Preview verification also remain external gates rather than implied passes.
 
 ## Netlify deployment
