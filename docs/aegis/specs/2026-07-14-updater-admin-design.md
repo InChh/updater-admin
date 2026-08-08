@@ -2,6 +2,7 @@
 
 - 状态：用户已于 2026-07-14 整体批准
 - 日期：2026-07-14
+- 修订：2026-07-19 增加 Netlify Functions 并发请求头平台例外与真实 Preview Mutation 验收门禁
 - 目标项目：/Users/bytedance/prog/updater-admin
 - 参考后端：/Users/bytedance/prog/UpdaterServer，commit 277b28e
 - 约束：业务实现必须遵循已索引实施计划、所有权边界和验证门禁
@@ -44,7 +45,7 @@
 - ABP 用户、角色、权限、设置、Feature、Bootstrap API。
 - OpenIddict 的 /connect/*、Discovery 或 JWKS 协议面。
 - 现有客户端改造、路由切换、上线兼容验收或旧服务退役。
-- UpdaterServer 路径、DTO、ABP 错误 Envelope、App:* 错误码和匿名客户端接口的兼容层。
+- UpdaterServer 路径、DTO、ABP 错误 Envelope、App:* 错误码和匿名客户端接口的兼容层。2026-07-20 新增的匿名只读发布接口是重新设计的独立合同，不恢复旧客户端兼容。
 - 从 Sentry API 拉取 Issue 数据。
 - 自动删除任何 OSS 对象。
 - 邮件邀请服务或公开注册。
@@ -263,7 +264,7 @@ type TimeSeries = {
 
 | 库 | 唯一职责 | 首期证明点 |
 |---|---|---|
-| TanStack Start | SSR、应用壳、Netlify 请求入口 | 同域 SSR 和 API transport adapter |
+| TanStack Start | SSR、应用壳、Netlify 请求入口 | 浏览器同域 transport 与 request-scoped SSR direct bridge |
 | TanStack Router | 嵌套路由、Guard、URL search state | programs/$programId/versions 和可回退弹窗 |
 | TanStack Query | 唯一远端缓存所有者 | 列表、详情、监控序列、Mutation 和精确失效 |
 | TanStack Table | 服务端表格状态 | 程序、版本、管理员、审计表格 |
@@ -280,8 +281,9 @@ TanStack Router loader 只调用 queryClient.ensureQueryData。defaultPreloadSta
 flowchart LR
   B["Solid 管理后台"] --> R["TanStack Router"]
   R --> Q["TanStack Query"]
-  Q --> S["TanStack Start Server Route"]
+  Q -->|"浏览器同域 HTTP"| S["TanStack Start Server Route"]
   S --> E["Elysia API"]
+  SSR["TanStack Start SSR Request Context"] -->|"same-origin direct bridge"| E
   E --> A["Better Auth Session 校验"]
   E --> D["Drizzle"]
   D --> N["Neon Postgres"]
@@ -295,7 +297,8 @@ flowchart LR
 ### 8.1 所有权边界
 
 - /api/auth/* 由 Better Auth 专用 Start route 处理。
-- /api/v1/* 由 Start catch-all transport route 转交 Elysia Fetch handler。
+- 浏览器发出的 /api/v1/* 由 Start catch-all transport route 转交 Elysia Fetch handler。
+- SSR 内部 API 调用默认使用当前请求作用域内的同域 direct Elysia bridge，只继承 `authorization`、`cookie` 和 `origin`，拒绝跨域目标，不向同一个 Netlify Function 发起 HTTP 自请求。
 - /health 是最小公开存活检查。
 - Start route 不包含业务规则、数据库查询或授权决定。
 - Elysia service 负责验证、鉴权、事务、错误映射和审计。
@@ -388,6 +391,16 @@ UpdaterServer 只作为业务能力和边界条件的参考，不作为 HTTP Con
 - 新后台只需要上传 STS；旧下载 STS、匿名版本清单和面向现有更新客户端的文件 URL 接口不属于本后台。
 - 不复制 ABP Conventional Controller、DTO Envelope、认证标记或 App:* 错误码。
 
+### 9.4 匿名只读发布接口（2026-07-20 新增）
+
+- `GET /api/public/v1/programs/:programId/releases/latest` 返回未删除程序中数值最高的启用版本。
+- `GET /api/public/v1/programs/:programId/releases/:versionNumber` 只返回指定的未删除、已启用、规范 `major.minor.patch` 版本。
+- 响应包含程序 ID/名称、版本号、描述、以版本创建时间表示的 `publishedAt`、统一下载过期时间，以及按路径稳定排序的文件 `path/size/sha256/checksumAlgorithm/mimeType/downloadUrl`。
+- `downloadUrl` 是永久服务端身份签发的单对象 300 秒 OSS GET URL；不发放下载 STS，不返回原始 `objectKey` 字段、OSS ETag、内部版本/文件 ID、操作者或凭证。
+- Manifest 使用 `Cache-Control: no-store`，避免缓存过期签名地址。
+- 该命名空间不鉴权但只读；所有管理接口和上传接口继续位于受管理员 Session 保护的 `/api/v1`。
+- 浏览器跨域只允许 `PUBLIC_API_ALLOWED_ORIGINS` 中的精确 Origin，不携带 Cookie/凭证；无 Origin 的原生和服务端调用可用。GET/HEAD 按 Netlify 客户端 IP 使用 Neon 固定窗口限流。
+
 ## 10. 错误与并发合同
 
 ### 10.1 Problem Details
@@ -427,7 +440,7 @@ UpdaterServer 只作为业务能力和边界条件的参考，不作为 HTTP Con
 | 409 | STALE_WRITE | rowVersion 已过期 |
 | 409 | LAST_ADMIN_REQUIRED | 试图禁用最后一个有效管理员 |
 | 422 | VALIDATION_FAILED | 一个或多个字段不合法 |
-| 428 | PRECONDITION_REQUIRED | 写操作缺少 If-Match |
+| 428 | PRECONDITION_REQUIRED | 并发写操作缺少 X-Updater-If-Match |
 | 429 | RATE_LIMITED | 超过速率限制 |
 | 500 | INTERNAL_ERROR | 未预期服务端错误 |
 
@@ -435,10 +448,12 @@ UpdaterServer 只作为业务能力和边界条件的参考，不作为 HTTP Con
 
 ### 10.3 乐观并发
 
-- GET 单资源和成功 Mutation 返回 ETag，值由 rowVersion 生成。
-- 列表项包含同一个不透明 etag 字段，支持表格行内启停等操作直接提交 If-Match；单资源仍同时返回 HTTP ETag Header。
-- PATCH、DELETE 和 activation 必须携带 If-Match；缺少时返回 428，过期时返回 409 STALE_WRITE。
-- TanStack Query 在缓存中保存 ETag，并在 Mutation 时自动附带；冲突后重新拉取详情并让用户决定是否重试。
+- 2026-07-14 的原设计选择了标准 `If-Match` 请求头；2026-07-19 的真实 Netlify Functions 路径证明平台代理会在 Function 前剥离该请求头，因此以下平台例外取代原请求头选择，但不改变 ETag/rowVersion 并发模型。
+- 每个受乐观并发保护的 Mutation 必须发送应用自有的 `X-Updater-If-Match`。客户端和服务端都从 `src/shared/api/common.ts` 导入 `UPDATER_IF_MATCH_HEADER`，不允许各自复制字符串。
+- 服务端只读取 `X-Updater-If-Match`。不得双读标准 `If-Match` 作为兼容 fallback；即使请求只带标准头，也按缺少应用头处理并返回 `428 PRECONDITION_REQUIRED`。过期应用头返回 `409 STALE_WRITE`。
+- 详情 GET 和返回实体的成功 Mutation 继续使用标准 `ETag` 响应头，值由 rowVersion 生成；列表项继续包含同一个不透明 `etag` 字段。成功 DELETE 仍返回无 ETag 的 `204`。
+- TanStack Query 在缓存中保存 ETag，并在 Mutation 时把该值放入 `X-Updater-If-Match`；冲突后重新拉取详情并让用户决定是否重试。
+- Domain/service/repository 层的参数名保留为 `ifMatch`，因为它表达内部前置条件概念，不代表 wire header 名称。
 
 ## 11. Neon 与 Drizzle 数据模型
 
@@ -630,11 +645,11 @@ sequenceDiagram
 - OSS_ACCESS_KEY_ID
 - OSS_ACCESS_KEY_SECRET
 - OSS_UPLOAD_RAM_ROLE_ARN
-- OSS_DOWNLOAD_RAM_ROLE_ARN
 - OSS_STS_ENDPOINT
 - OSS_BUCKET
 - OSS_REGION
 - OSS_UPLOAD_PREFIX
+- PUBLIC_API_ALLOWED_ORIGINS
 
 ### 16.2 部署规则
 
@@ -664,7 +679,7 @@ sequenceDiagram
 - 新后台版本号严格按无前导零的三个数字段验证和排序。
 - 同程序重复版本返回 409 VERSION_NUMBER_CONFLICT，非新版本返回 409 VERSION_NOT_GREATER。
 - 多个版本可同时启用，版本列表只对最高启用版本标记 isLatest。
-- 所有写入产生审计事件，过期 If-Match 返回 409。
+- 所有写入产生审计事件；并发写入缺少 `X-Updater-If-Match` 返回 428，应用头过期返回 409。
 
 ### 17.3 文件上传
 
@@ -679,6 +694,7 @@ sequenceDiagram
 - Contract Test 覆盖第 9 节 /api/v1 路径、请求/响应 Schema、分页和认证边界。
 - 所有 /api/v1 接口必须登录，公开面只有 /health 和 Better Auth 自身所需入口。
 - Error Contract Test 覆盖 Problem Details 字段、HTTP 状态、新错误码和 requestId。
+- 并发 Contract Test 证明客户端和服务端共享 `UPDATER_IF_MATCH_HEADER`，标准 `If-Match` 不触发兼容 fallback，详情/Mutation 仍返回标准 `ETag`。
 - 不测试 UpdaterServer 路径、DTO、App:* 错误码或现有更新客户端兼容性。
 
 ### 17.5 UI、监控和国际化
@@ -700,6 +716,7 @@ sequenceDiagram
 - Component Test 覆盖 Table、Form、Dialog、Switch 和上传队列。
 - E2E 覆盖登录、程序 CRUD、版本上传、启停、管理员创建和语言切换。
 - Netlify Preview 完成登录、数据库、Elysia、Sentry 和 OSS Smoke Test。
+- 最终并发验收必须由真实已登录浏览器向授权 Netlify Preview 发起至少一次受保护 Mutation，穿过平台代理并到达 Function，证明请求携带 `X-Updater-If-Match`、状态确实更新且响应返回新的标准 `ETag`；直接调用 Elysia、mock 路由、local dev 或 built-handler smoke 均不能替代该门禁。
 
 ## 18. 参考证据
 
@@ -780,4 +797,4 @@ sequenceDiagram
 
 ## 20. 设计批准的含义
 
-用户已于 2026-07-14 批准本文件。下一步是交付并选择执行 `docs/aegis/plans/2026-07-14-updater-admin-implementation.md`，然后按垂直切片开始业务实现。批准不代表允许创建真实云资源、写入生产数据库、修改旧 UpdaterServer、删除 OSS 对象或切换现有客户端。
+用户已于 2026-07-14 批准本文件；2026-07-19 的 Netlify 请求头平台例外按第 10.3 节修订并收紧最终 Preview 验收。下一步是交付并选择执行 `docs/aegis/plans/2026-07-14-updater-admin-implementation.md`，然后按垂直切片开始业务实现。批准不代表允许创建真实云资源、写入生产数据库、修改旧 UpdaterServer、删除 OSS 对象或切换现有客户端。

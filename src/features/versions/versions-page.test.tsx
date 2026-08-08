@@ -63,13 +63,17 @@ function version(
 	overrides: Partial<VersionListItemDto> = {},
 ): VersionListItemDto {
 	return {
+		associatedFileCount: 1,
 		createdAt: "2026-07-15T00:00:00.000Z",
 		description: `${versionNumber} release`,
 		etag: 'W/"1"',
+		expectedFileCount: null,
 		fileCount: 1,
+		finalizedAt: "2026-07-15T00:00:00.000Z",
 		id,
 		isActive: true,
 		isLatest: false,
+		lifecycleStatus: "finalized",
 		programId: PROGRAM_ID,
 		updatedAt: "2026-07-15T00:00:00.000Z",
 		versionNumber,
@@ -100,7 +104,6 @@ function detail(
 	const { etag: _etag, ...data } = item;
 	return {
 		...data,
-		fileIds: ["ca6f79db-c7c4-4a34-9ab5-2a85ca9df503"],
 		...overrides,
 	};
 }
@@ -337,7 +340,9 @@ describe("VersionsPage", () => {
 		const putCall = fetcher.mock.calls.find(
 			([, init]) => requestMethod(init) === "PUT",
 		);
-		expect((putCall?.[1]?.headers as Headers).get("if-match")).toBe('W/"1"');
+		expect((putCall?.[1]?.headers as Headers).get("x-updater-if-match")).toBe(
+			'W/"1"',
+		);
 
 		const activated = detail(FIRST, { isActive: true, isLatest: true });
 		serverPage = page([

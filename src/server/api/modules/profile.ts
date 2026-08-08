@@ -19,6 +19,7 @@ import {
 	type ProfileUpdateRecord,
 } from "../../db/repositories/profile.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { readUpdaterIfMatch } from "../preconditions";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 import { supportedLocaleSchema } from "../schemas/common";
@@ -290,7 +291,7 @@ export function createProfileModule({
 						: normalizeProfileName(body.name);
 				const locale = body.locale ?? session.metadata.locale;
 				const expectedRowVersion = parseExpectedProfileRowVersion(
-					request.headers.get("if-match"),
+					readUpdaterIfMatch(request),
 				);
 				let updatedProfile: ProfileUpdateRecord;
 				try {

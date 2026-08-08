@@ -90,7 +90,7 @@ describe("settings Elysia module", () => {
 		expect(get).toHaveBeenCalledOnce();
 	});
 
-	it("forwards the exact If-Match, body, and audit context on update", async () => {
+	it("forwards the exact X-Updater-If-Match, body, and audit context on update", async () => {
 		const update = vi.fn(async () => ({
 			data: {
 				...settings,
@@ -112,7 +112,7 @@ describe("settings Elysia module", () => {
 				body: JSON.stringify(body),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 				},
 				method: "PATCH",
 			}),
@@ -146,7 +146,7 @@ describe("settings Elysia module", () => {
 				body: JSON.stringify(unicodeSettings),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 				},
 				method: "PATCH",
 			}),
@@ -189,7 +189,10 @@ describe("settings Elysia module", () => {
 			const response = await app.handle(
 				new Request("http://localhost/settings/system", {
 					body: JSON.stringify(settings),
-					headers: { "content-type": "application/json" },
+					headers: {
+						"content-type": "application/json",
+						"x-updater-if-match": 'W/"3"',
+					},
 					method: "PATCH",
 				}),
 			);

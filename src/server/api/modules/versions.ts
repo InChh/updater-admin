@@ -1,8 +1,8 @@
 import { Elysia, type Static, t } from "elysia";
 
-import type { FilePage } from "../../../shared/api/files";
 import type {
-	CreateVersionInput,
+	CreateDraftVersionInput,
+	FinalizeDraftVersionRequest,
 	SetVersionActivationInput,
 	UpdateVersionInput,
 	VersionDetailDto,
@@ -14,6 +14,11 @@ import { VERSION_MAX_PAGE } from "../../../shared/api/versions";
 import { ProgramNotFoundError } from "../../domain/programs.server";
 import {
 	createVersionsService,
+	DraftFileCountConflictError,
+	DraftIncompleteError,
+	DraftPathConflictError,
+	VersionDraftRequiredError,
+	VersionFinalizedRequiredError,
 	VersionNotFoundError,
 	VersionNotGreaterError,
 	VersionNumberConflictError,
@@ -23,23 +28,27 @@ import {
 	VersionsValidationError,
 } from "../../domain/versions.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { readUpdaterIfMatch } from "../preconditions";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 import { weakEntityTagSchema } from "../schemas/common";
-import { filePageSchema } from "./files";
 
 const VERSION_DESCRIPTION_TRANSPORT_MAX_LENGTH = 1024 * 2;
-const VERSION_FILE_IDS_MAX_ITEMS = 10_000;
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 const versionBaseProperties = {
+	associatedFileCount: t.Integer({ minimum: 0 }),
 	createdAt: t.String({ format: "date-time" }),
 	description: t.String({
 		maxLength: VERSION_DESCRIPTION_TRANSPORT_MAX_LENGTH,
 	}),
+	expectedFileCount: t.Union([t.Integer({ minimum: 0 }), t.Null()]),
 	fileCount: t.Integer({ minimum: 0 }),
+	finalizedAt: t.Union([t.String({ format: "date-time" }), t.Null()]),
 	id: t.String({ format: "uuid" }),
 	isActive: t.Boolean(),
 	isLatest: t.Boolean(),
+	lifecycleStatus: t.Union([t.Literal("draft"), t.Literal("finalized")]),
 	programId: t.String({ format: "uuid" }),
 	updatedAt: t.String({ format: "date-time" }),
 	versionNumber: t.String({
@@ -53,16 +62,9 @@ export const versionListItemSchema = t.Object(
 	{ additionalProperties: false },
 );
 
-export const versionDetailSchema = t.Object(
-	{
-		...versionBaseProperties,
-		fileIds: t.Array(t.String({ format: "uuid" }), {
-			maxItems: VERSION_FILE_IDS_MAX_ITEMS,
-			uniqueItems: true,
-		}),
-	},
-	{ additionalProperties: false },
-);
+export const versionDetailSchema = t.Object(versionBaseProperties, {
+	additionalProperties: false,
+});
 
 export const versionPageSchema = t.Object(
 	{
@@ -87,25 +89,17 @@ export const versionListSearchSchema = t.Object(
 	{ additionalProperties: false },
 );
 
-const versionNumberInputSchema = t.String({
-	maxLength: 20,
-	minLength: 1,
-});
+const versionNumberInputSchema = t.String({ maxLength: 20, minLength: 1 });
 const versionDescriptionInputSchema = t.String({
 	maxLength: VERSION_DESCRIPTION_TRANSPORT_MAX_LENGTH,
 });
-const versionFileIdsInputSchema = t.Array(t.String({ format: "uuid" }), {
-	maxItems: VERSION_FILE_IDS_MAX_ITEMS,
-	uniqueItems: true,
-});
 
-export const createVersionSchema = t.Object(
+export const createDraftVersionSchema = t.Object(
 	{
 		description: t.Optional(versionDescriptionInputSchema),
-		fileIds: t.Array(t.String({ format: "uuid" }), {
-			maxItems: VERSION_FILE_IDS_MAX_ITEMS,
-			minItems: 1,
-			uniqueItems: true,
+		expectedFileCount: t.Integer({
+			maximum: POSTGRES_INTEGER_MAX,
+			minimum: 1,
 		}),
 		versionNumber: versionNumberInputSchema,
 	},
@@ -116,7 +110,6 @@ export const updateVersionSchema = t.Union([
 	t.Object(
 		{
 			description: t.Optional(versionDescriptionInputSchema),
-			fileIds: t.Optional(versionFileIdsInputSchema),
 			versionNumber: versionNumberInputSchema,
 		},
 		{ additionalProperties: false },
@@ -124,34 +117,19 @@ export const updateVersionSchema = t.Union([
 	t.Object(
 		{
 			description: versionDescriptionInputSchema,
-			fileIds: t.Optional(versionFileIdsInputSchema),
-			versionNumber: t.Optional(versionNumberInputSchema),
-		},
-		{ additionalProperties: false },
-	),
-	t.Object(
-		{
-			description: t.Optional(versionDescriptionInputSchema),
-			fileIds: versionFileIdsInputSchema,
 			versionNumber: t.Optional(versionNumberInputSchema),
 		},
 		{ additionalProperties: false },
 	),
 ]);
 
-export const setVersionActivationSchema = t.Object(
-	{ isActive: t.Boolean() },
+export const finalizeDraftVersionSchema = t.Object(
+	{},
 	{ additionalProperties: false },
 );
 
-export const versionFileListSearchSchema = t.Object(
-	{
-		page: t.Optional(t.Numeric({ maximum: VERSION_MAX_PAGE, minimum: 1 })),
-		pageSize: t.Optional(
-			t.Union([t.Literal("20"), t.Literal("50"), t.Literal("100")]),
-		),
-		sort: t.Optional(t.Union([t.Literal("path:asc"), t.Literal("path:desc")])),
-	},
+export const setVersionActivationSchema = t.Object(
+	{ isActive: t.Boolean() },
 	{ additionalProperties: false },
 );
 
@@ -179,19 +157,25 @@ type _PageSchemaMatchesDto = Assert<
 	ExactWireShape<Static<typeof versionPageSchema>, VersionPage>
 >;
 type _CreateSchemaMatchesDto = Assert<
-	ExactWireShape<Static<typeof createVersionSchema>, CreateVersionInput>
+	ExactWireShape<
+		Static<typeof createDraftVersionSchema>,
+		CreateDraftVersionInput
+	>
 >;
 type _UpdateSchemaMatchesDto = Assert<
 	ExactWireShape<Static<typeof updateVersionSchema>, UpdateVersionInput>
+>;
+type _FinalizeSchemaMatchesDto = Assert<
+	ExactWireShape<
+		Static<typeof finalizeDraftVersionSchema>,
+		FinalizeDraftVersionRequest
+	>
 >;
 type _ActivationSchemaMatchesDto = Assert<
 	ExactWireShape<
 		Static<typeof setVersionActivationSchema>,
 		SetVersionActivationInput
 	>
->;
-type _NestedFilesSchemaMatchesDto = Assert<
-	ExactWireShape<Static<typeof filePageSchema>, FilePage>
 >;
 
 export type VersionsSchemaAlignment =
@@ -200,8 +184,8 @@ export type VersionsSchemaAlignment =
 	| _PageSchemaMatchesDto
 	| _CreateSchemaMatchesDto
 	| _UpdateSchemaMatchesDto
-	| _ActivationSchemaMatchesDto
-	| _NestedFilesSchemaMatchesDto;
+	| _FinalizeSchemaMatchesDto
+	| _ActivationSchemaMatchesDto;
 
 export interface VersionsModuleDependencies {
 	readonly contextStore: ApiRequestContextStore;
@@ -249,6 +233,29 @@ function mapVersionsError(error: unknown): never {
 	}
 	if (error instanceof VersionStaleWriteError) {
 		throw new ApiProblemError({ code: "STALE_WRITE", status: 409 });
+	}
+	if (error instanceof VersionDraftRequiredError) {
+		throw new ApiProblemError({ code: "VERSION_FINALIZED", status: 409 });
+	}
+	if (error instanceof VersionFinalizedRequiredError) {
+		throw new ApiProblemError({ code: "VERSION_NOT_FINALIZED", status: 409 });
+	}
+	if (error instanceof DraftIncompleteError) {
+		throw new ApiProblemError({
+			code: "DRAFT_INCOMPLETE",
+			detail: `Expected ${error.expected} files but found ${error.actual}.`,
+			status: 409,
+		});
+	}
+	if (error instanceof DraftFileCountConflictError) {
+		throw new ApiProblemError({
+			code: "DRAFT_FILE_COUNT_CONFLICT",
+			detail: `Expected ${error.expected} files but found ${error.actual}.`,
+			status: 409,
+		});
+	}
+	if (error instanceof DraftPathConflictError) {
+		throw new ApiProblemError({ code: "DRAFT_PATH_CONFLICT", status: 409 });
 	}
 	throw error;
 }
@@ -306,19 +313,20 @@ export function createVersionsModule({
 			},
 		)
 		.post(
-			"/programs/:programId/versions",
+			"/programs/:programId/versions/drafts",
 			async ({ body, params, request, set }) => {
 				const audit = requireMutationContext(contextStore, request);
 				const result = await execute(() =>
-					getVersionsService().create(params.programId, body, audit),
+					getVersionsService().createDraft(params.programId, body, audit),
 				);
 				set.status = 201;
 				set.headers.etag = result.etag;
 				set.headers.location = `/api/v1/programs/${params.programId}/versions/${result.data.id}`;
-				return { ...result.data, fileIds: [...result.data.fileIds] };
+				set.headers["cache-control"] = "no-store";
+				return result.data;
 			},
 			{
-				body: createVersionSchema,
+				body: createDraftVersionSchema,
 				params: programIdParamsSchema,
 				response: { 201: versionDetailSchema },
 			},
@@ -331,7 +339,8 @@ export function createVersionsModule({
 					getVersionsService().getById(params.programId, params.versionId),
 				);
 				set.headers.etag = result.etag;
-				return { ...result.data, fileIds: [...result.data.fileIds] };
+				set.headers["cache-control"] = "no-store";
+				return result.data;
 			},
 			{
 				params: versionIdParamsSchema,
@@ -346,13 +355,13 @@ export function createVersionsModule({
 					getVersionsService().update(
 						params.programId,
 						params.versionId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						body,
 						audit,
 					),
 				);
 				set.headers.etag = result.etag;
-				return { ...result.data, fileIds: [...result.data.fileIds] };
+				return result.data;
 			},
 			{
 				body: updateVersionSchema,
@@ -368,7 +377,7 @@ export function createVersionsModule({
 					getVersionsService().delete(
 						params.programId,
 						params.versionId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						audit,
 					),
 				);
@@ -379,6 +388,28 @@ export function createVersionsModule({
 				response: { 204: t.Void() },
 			},
 		)
+		.post(
+			"/programs/:programId/versions/:versionId/finalize",
+			async ({ params, request, set }) => {
+				const audit = requireMutationContext(contextStore, request);
+				const result = await execute(() =>
+					getVersionsService().finalize(
+						params.programId,
+						params.versionId,
+						readUpdaterIfMatch(request),
+						audit,
+					),
+				);
+				set.headers.etag = result.etag;
+				set.headers["cache-control"] = "no-store";
+				return result.data;
+			},
+			{
+				body: finalizeDraftVersionSchema,
+				params: versionIdParamsSchema,
+				response: { 200: versionDetailSchema },
+			},
+		)
 		.put(
 			"/programs/:programId/versions/:versionId/activation",
 			async ({ body, params, request, set }) => {
@@ -387,37 +418,18 @@ export function createVersionsModule({
 					getVersionsService().setActivation(
 						params.programId,
 						params.versionId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						body,
 						audit,
 					),
 				);
 				set.headers.etag = result.etag;
-				return { ...result.data, fileIds: [...result.data.fileIds] };
+				return result.data;
 			},
 			{
 				body: setVersionActivationSchema,
 				params: versionIdParamsSchema,
 				response: { 200: versionDetailSchema },
-			},
-		)
-		.get(
-			"/programs/:programId/versions/:versionId/files",
-			async ({ params, query, request }) => {
-				requireSession(contextStore, request);
-				const result = await execute(() =>
-					getVersionsService().listFiles(params.programId, params.versionId, {
-						page: query.page ?? 1,
-						pageSize: Number(query.pageSize ?? 20) as 20 | 50 | 100,
-						sort: query.sort ?? "path:asc",
-					}),
-				);
-				return { ...result, items: [...result.items] };
-			},
-			{
-				params: versionIdParamsSchema,
-				query: versionFileListSearchSchema,
-				response: { 200: filePageSchema },
 			},
 		);
 }

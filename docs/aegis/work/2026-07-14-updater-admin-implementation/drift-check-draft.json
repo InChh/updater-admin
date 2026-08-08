@@ -11,15 +11,20 @@
     "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-13",
     "docs/aegis/plans/2026-07-14-updater-admin-implementation.md#batch-14"
   ],
-  "scopeStatus": "Batches 10-14 stayed within the approved administrator/profile/account, system-settings, monitoring/audit, Sentry/Netlify/security, scaffold-retirement, and release-evidence scope.",
+  "scopeStatus": "Batches 10-14, the 2026-07-19/20 nonproduction provider and browser verification, and the 2026-08-06 authorized production cleanup/bootstrap, secret configuration, Sentry upload, formal deployment, anonymous release smoke, and in-app-browser acceptance stayed within the approved administration and release scope.",
   "compatStatus": "No Dashboard, Billing, tenancy, legacy updater-client/API compatibility, legacy-data import, download STS, Sentry Issue ingestion, automatic OSS deletion, or duplicate identity/cache/API owner was added.",
-  "retirementStatus": "Scaffold demos and routes were retired only after production owners and tests existed for the requested TanStack libraries; the initial baseline remains an append-only historical snapshot.",
+  "retirementStatus": "Scaffold demos and routes remain retired after production owners and tests were established for the requested TanStack libraries; the initial baseline and the first failed 2026-07-19 external attempt remain append-only historical records.",
   "newRiskSignals": [
-    "The authoritative final local result is 98 test files/568 tests plus the complete static, build, handler, route, client-secret, source-map, and diff matrix.",
-    "The final E2E result has 8 public passes and 18 credential-gated skips, so authenticated lifecycle and visual evidence remain unproven in this environment.",
-    "The guarded database suite loaded 6 files/6 tests and skipped them without an authorized disposable database.",
-    "Disposable database, live OSS, live Sentry, and Netlify Preview evidence require separately authorized external environments.",
-    "ADR-0001 records the durable same-origin Start/Elysia boundary and the baseline already reflects its owner and compatibility state."
+    "The Zod runtime test now imports the module namespace directly instead of relying on the convenience alias and preserves the same assertion. Test-only @tanstack/solid-start inlining keeps Solid Router JSX in the transform pipeline, so literal pnpm test under standard Node 22 and the full direct-Bun suite are both green at 101 of 101 files and 589 of 589 tests.",
+    "The first guarded database rerun was partial at 5/6 files and 23/25 tests, but is superseded after bounded 30-second test/hook timeout remediation: the versions file passed 6/6 three consecutive times, the full suite passed 6/6 files and 25/25 tests, all 13 approved tables had zero rows afterward, and migrations/bootstrap plus public health/anonymous-401 recovery smoke passed.",
+    "Netlify strips standard If-Match before the Function. The application-owned X-Updater-If-Match request header and standard ETag response passed direct and real-UI verification, without a compatibility fallback.",
+    "The intermittent dynamic-tab exception was fixed by stable-key retitling with AppShell as sole navigation owner; a fresh-tab hard-reload final-deploy retest preserved exact query/title state with zero console errors.",
+    "Sentry source-map association passed after explicit disclosure approval: artifact bundle 4d712dfc-e2e0-54a6-a122-d8564eedba27 contains paired debug-ID JavaScript/maps, deployed browser event 3359719d22b9454690cdb85dd7199ac5 resolves to original TypeScript without processing errors, and post-build cleanup keeps maps out of the deployed artifact.",
+    "The real browser OSS multipart flow now passes through STS issuance, provider init/part upload/abort, server-side HEAD recovery, version creation, and activation. The existing bucket CORS rule still needs ETag in exposed headers for the one-step completion path; lifecycle configuration remains operator-verifiable only because the least-privileged application principal correctly receives AccessDenied for bucket-configuration reads.",
+    "The forced-password journey was completed in the real browser. The temporary E2E administrator is disabled and its sessions are revoked after evidence capture.",
+    "ADR-0001 records the durable same-origin Start/Elysia boundary and does not grant production-deployment authority.",
+    "The formal Free-plan Site directly proved masked secret support; only granular scope selection is unavailable, so the earlier blanket plan-upgrade blocker was inaccurate and is superseded.",
+    "Production deploy 6a73ec801b96527dc4878d85 and the positive anonymous manifest plus SHA-256-verified signed OSS download closed publication and public-contract gates. The browser-tool log exposed the submitted administrator password value, so operator rotation remains a security follow-up without changing the application completion result."
   ],
-  "decision": "needs-verification"
+  "decision": "production-accepted-with-operator-followups"
 }

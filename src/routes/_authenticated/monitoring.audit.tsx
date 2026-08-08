@@ -1,26 +1,23 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 
 import { AuditPage } from "../../features/monitoring/audit-page";
-import { auditListQueryOptions } from "../../features/monitoring/queries";
 import {
 	auditListLoaderDeps,
 	validateAuditRouteSearch,
 } from "../../features/monitoring/search";
-import { applySystemDefaultPageSize } from "../../features/settings/system-defaults";
-import { systemSettingsQueryOptions } from "../../features/settings/system-queries";
+import {
+	applySystemDefaultPageSize,
+	resolveSystemDefaultPageSize,
+} from "../../features/settings/system-defaults";
 
 export const Route = createFileRoute("/_authenticated/monitoring/audit")({
 	validateSearch: validateAuditRouteSearch,
 	loaderDeps: ({ search }) => auditListLoaderDeps(search),
-	loader: async ({ context, deps }) => {
-		const settingsOptions = systemSettingsQueryOptions();
-		await context.queryClient.prefetchQuery(settingsOptions);
-		const settings = context.queryClient.getQueryData(settingsOptions.queryKey);
+	loader: ({ context, deps }) => {
 		const listSearch = applySystemDefaultPageSize(
 			deps,
-			settings?.data.defaultPageSize ?? 20,
+			resolveSystemDefaultPageSize(context.queryClient),
 		);
-		await context.queryClient.prefetchQuery(auditListQueryOptions(listSearch));
 		return { pageSize: listSearch.pageSize };
 	},
 	component: MonitoringAuditRoute,

@@ -32,6 +32,8 @@ function prepareUpload(
 ) {
 	controller.startHash(id);
 	controller.markHashSucceeded(id, SHA256);
+	controller.startResolution(id);
+	controller.markResolutionSucceeded(id, "uploadRequired");
 	controller.setObjectTarget(id, `releases/${id}`);
 	controller.startUpload(id);
 }
@@ -83,6 +85,40 @@ describe("upload queue store", () => {
 		controller.dispose();
 	});
 
+	it("applies validated hash and resolution batches atomically", () => {
+		const controller = createUploadQueueController({ storage: null });
+		const [first, second] = controller.addFiles([
+			{ file: file("first.bin", 1), path: "first.bin" },
+			{ file: file("second.bin", 1), path: "second.bin" },
+		]);
+		if (!first || !second) throw new Error("fixtures were not created");
+
+		expect(() => controller.startHashBatch([first.id, "missing-item"])).toThrow(
+			"Unknown upload queue item",
+		);
+		expect(controller.getState().items.map(({ status }) => status)).toEqual([
+			"queued",
+			"queued",
+		]);
+
+		controller.startHashBatch([first.id, second.id]);
+		controller.markHashSucceededBatch([
+			{ id: first.id, sha256: SHA256 },
+			{ id: second.id, sha256: "b".repeat(64) },
+		]);
+		controller.startResolutionBatch([first.id, second.id]);
+		controller.markResolutionSucceededBatch([
+			{ id: first.id, status: "reused" },
+			{ id: second.id, status: "uploadRequired" },
+		]);
+
+		expect(controller.getState().items).toMatchObject([
+			{ resolutionStatus: "reused", status: "complete" },
+			{ resolutionStatus: "uploadRequired", status: "ready" },
+		]);
+		controller.dispose();
+	});
+
 	it("enforces deterministic hash, upload, and registration transitions", () => {
 		const controller = createUploadQueueController({ storage: null });
 		const [created] = controller.addFiles([
@@ -97,10 +133,12 @@ describe("upload queue store", () => {
 		controller.markHashProgress(created.id, 1.5);
 		expect(controller.getState().items[0]?.hashProgress).toBe(1);
 		controller.markHashSucceeded(created.id, SHA256);
+		controller.startResolution(created.id);
+		controller.markResolutionSucceeded(created.id, "uploadRequired");
 		controller.setObjectTarget(created.id, "releases/a/app.bin");
 		controller.startUpload(created.id);
 		controller.markUploadProgress(created.id, 0.45);
-		controller.markUploadSucceeded(created.id, '"etag"');
+		controller.markUploadSucceeded(created.id);
 		controller.startRegistration(created.id);
 		expect(controller.cancel(created.id)).toBeNull();
 		expect(controller.getState().items[0]?.status).toBe("registering");
@@ -110,7 +148,6 @@ describe("upload queue store", () => {
 			attempt: 1,
 			checkpoint: null,
 			fileMetadataId: "file-metadata-id",
-			objectEtag: '"etag"',
 			sha256: SHA256,
 			status: "complete",
 			uploadProgress: 1,
@@ -183,11 +220,7 @@ describe("upload queue store", () => {
 		});
 		controller.fail(created.id, "upload", new Error("response lost"));
 
-		controller.markUploadReconciled(
-			created.id,
-			"canonical-etag",
-			"file-metadata-id",
-		);
+		controller.markUploadReconciled(created.id, "file-metadata-id");
 
 		expect(controller.getState().items[0]).toMatchObject({
 			attempt: 1,
@@ -195,7 +228,6 @@ describe("upload queue store", () => {
 			error: null,
 			failedStage: null,
 			fileMetadataId: "file-metadata-id",
-			objectEtag: "canonical-etag",
 			status: "complete",
 			uploadProgress: 1,
 		});
@@ -217,7 +249,7 @@ describe("upload queue store", () => {
 		expect(controller.getState().items[0]?.status).toBe("queued");
 
 		prepareUpload(controller, created.id);
-		controller.markUploadSucceeded(created.id, "etag");
+		controller.markUploadSucceeded(created.id);
 		controller.startRegistration(created.id);
 		controller.fail(created.id, "registration", new Error("database busy"));
 		expect(controller.getState().items[0]?.error).toBe("database busy");

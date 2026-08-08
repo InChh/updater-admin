@@ -134,6 +134,11 @@ export function VersionTable(props: VersionTableProps) {
 							{i18n.t("versions.latest")}
 						</span>
 					</Show>
+					<Show when={row.original.lifecycleStatus === "draft"}>
+						<span class="inline-flex rounded-full bg-[#fff7df] px-2 py-0.5 text-[10px] font-semibold text-[#8a5a00]">
+							{i18n.t("versions.draft")}
+						</span>
+					</Show>
 				</div>
 			),
 			header: i18n.t("versions.form.versionNumber"),
@@ -155,6 +160,7 @@ export function VersionTable(props: VersionTableProps) {
 				const disabled = () =>
 					Boolean(
 						props.loading ||
+							row.original.lifecycleStatus === "draft" ||
 							pending() ||
 							props.isActivationDisabled?.(row.original),
 					);
@@ -169,6 +175,7 @@ export function VersionTable(props: VersionTableProps) {
 				return (
 					<div class="flex min-w-24 items-center gap-2">
 						<Switch
+							aria-label={activationLabel()}
 							checked={row.original.isActive}
 							disabled={disabled()}
 							id={activationId()}
@@ -176,9 +183,6 @@ export function VersionTable(props: VersionTableProps) {
 								props.onActivation(row.original, nextActive)
 							}
 						/>
-						<label class="sr-only" for={`${activationId()}-input`}>
-							{activationLabel()}
-						</label>
 						<Show when={pending()}>
 							<span class="inline-flex items-center text-muted">
 								<LoaderCircle
@@ -206,11 +210,20 @@ export function VersionTable(props: VersionTableProps) {
 		{
 			cell: ({ row }) => (
 				<div class="flex min-w-20 items-center gap-0.5">
-					<Tooltip content={i18n.t("common.edit")}>
+					<Tooltip
+						content={
+							row.original.lifecycleStatus === "draft"
+								? i18n.t("versions.actions.resume")
+								: i18n.t("common.edit")
+						}
+					>
 						<Button
-							aria-label={i18n.t("versions.actions.edit", {
-								version: row.original.versionNumber,
-							})}
+							aria-label={i18n.t(
+								row.original.lifecycleStatus === "draft"
+									? "versions.actions.resumeWithVersion"
+									: "versions.actions.edit",
+								{ version: row.original.versionNumber },
+							)}
 							class="h-8 w-8"
 							onClick={(event) =>
 								props.onEdit(row.original, event.currentTarget)
@@ -285,7 +298,7 @@ export function VersionTable(props: VersionTableProps) {
 													: "ascending"
 												: undefined
 										}
-										class="h-11 border-b border-border px-4 font-semibold first:pl-5 last:sticky last:right-0 last:z-10 last:border-l last:bg-mist last:pr-5"
+										class="h-11 border-b border-border px-4 font-semibold first:pl-5 last:border-l last:bg-mist last:pr-5"
 										scope="col"
 									>
 										<Show
@@ -346,7 +359,7 @@ export function VersionTable(props: VersionTableProps) {
 							<tr class="group border-b border-border/80 transition-colors last:border-b-0 hover:bg-mist/45">
 								<For each={row.getVisibleCells()}>
 									{(cell) => (
-										<td class="px-4 py-3.5 align-middle text-xs text-ink first:pl-5 last:sticky last:right-0 last:z-[1] last:border-l last:border-border last:bg-white last:pr-5 group-hover:last:bg-[#f7faf9]">
+										<td class="px-4 py-3.5 align-middle text-xs text-ink first:pl-5 last:border-l last:border-border last:bg-white last:pr-5 group-hover:last:bg-[#f7faf9]">
 											{flexRender(
 												cell.column.columnDef.cell,
 												cell.getContext(),

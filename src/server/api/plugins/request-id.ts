@@ -8,7 +8,17 @@ import {
 	requestPathname,
 } from "../context.server";
 
-const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+export const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export function resolveRequestId(
+	request: Request,
+	generateRequestId: () => string,
+): string {
+	const supplied = request.headers.get("x-request-id");
+	return supplied && REQUEST_ID_PATTERN.test(supplied)
+		? supplied
+		: generateRequestId();
+}
 
 export interface RequestIdPluginDependencies {
 	readonly contextStore: ApiRequestContextStore;
@@ -23,11 +33,7 @@ export function createRequestIdPlugin({
 		({ request, set }) => {
 			if (!isApiV1Path(requestPathname(request))) return;
 
-			const supplied = request.headers.get("x-request-id");
-			const requestId =
-				supplied && REQUEST_ID_PATTERN.test(supplied)
-					? supplied
-					: generateRequestId();
+			const requestId = resolveRequestId(request, generateRequestId);
 			contextStore.initialize(request, requestId);
 			set.headers["cache-control"] = "no-store";
 			set.headers.vary = "Cookie";

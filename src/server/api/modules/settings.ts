@@ -12,6 +12,7 @@ import {
 	SettingsValidationError,
 } from "../../domain/settings.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { readUpdaterIfMatch } from "../preconditions";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 
@@ -141,11 +142,7 @@ export function createSettingsModule({
 			async ({ body, request, set }): Promise<SystemSettingsDto> => {
 				const audit = requireMutationContext(contextStore, request);
 				const result = await execute(() =>
-					getSettingsService().update(
-						request.headers.get("if-match"),
-						body,
-						audit,
-					),
+					getSettingsService().update(readUpdaterIfMatch(request), body, audit),
 				);
 				set.headers.etag = result.etag;
 				return result.data;

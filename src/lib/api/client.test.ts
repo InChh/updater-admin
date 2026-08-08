@@ -50,7 +50,7 @@ describe("browser API client", () => {
 		expect(calls[1]?.init?.body).toBe(JSON.stringify({ name: "Updater" }));
 		const patchHeaders = new Headers(calls[1]?.init?.headers);
 		expect(patchHeaders.get("content-type")).toBe("application/json");
-		expect(patchHeaders.get("if-match")).toBe('W/"4"');
+		expect(patchHeaders.get("x-updater-if-match")).toBe('W/"4"');
 	});
 
 	it("sanitizes bounded Problem Details and throws the browser error type", async () => {

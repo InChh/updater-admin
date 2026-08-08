@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_UPLOAD_OBJECT_KEY_BYTES } from "../../../shared/api/uploads";
+import { createUploadObjectKey as createSharedUploadObjectKey } from "../../../shared/uploads/object-key";
 import {
 	createUploadObjectKey,
 	type UploadObjectKeyValidationError,
@@ -82,7 +83,7 @@ describe("OSS upload path", () => {
 });
 
 describe("OSS object key", () => {
-	it("is deterministic across canonically equivalent paths", () => {
+	it("is deterministic across shared and server imports for Unicode paths", () => {
 		const decomposed = createUploadObjectKey({
 			path: "release/e\u0301/app.bin",
 			prefix: "updater-admin",
@@ -93,8 +94,14 @@ describe("OSS object key", () => {
 			prefix: "updater-admin/",
 			sha256: SHA256,
 		});
+		const shared = createSharedUploadObjectKey({
+			path: "release/e\u0301/app.bin",
+			prefix: "updater-admin",
+			sha256: SHA256,
+		});
 
 		expect(decomposed).toBe(composed);
+		expect(shared).toBe(composed);
 		expect(composed).toBe(`updater-admin/${SHA256}/release/%C3%A9/app.bin`);
 	});
 

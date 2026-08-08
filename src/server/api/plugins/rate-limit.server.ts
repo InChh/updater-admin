@@ -39,26 +39,14 @@ export const ADMINISTRATOR_RESET_PASSWORD_POLICY: RateLimitPolicy = {
 };
 
 /**
- * One credentials response can authorize a 1,000-file batch, so a small shared
- * issuance budget still permits retries without turning STS into an oracle.
+ * One credential response authorizes the configured upload prefix for its
+ * validity window. This request-count budget permits recovery while preventing
+ * STS issuance from becoming an oracle.
  */
 export const UPLOAD_CREDENTIALS_POLICY: RateLimitPolicy = {
 	endpoint: "uploads.credentials",
 	limit: 10,
 	windowSeconds: 5 * 60,
-};
-
-/**
- * Shared, per-actor file-token budget for completion. The upload module applies
- * this after transport validation because its cost is the validated file count.
- * One full 1,000-file selection plus one complete reconciliation retry fits in
- * a window while sustained HEAD amplification is bounded across Netlify
- * instances.
- */
-export const UPLOAD_COMPLETION_FILE_POLICY: RateLimitPolicy = {
-	endpoint: "uploads.complete.files",
-	limit: 2_000,
-	windowSeconds: 15 * 60,
 };
 
 const RATE_LIMIT_POLICIES = new Map<string, RateLimitPolicy>([

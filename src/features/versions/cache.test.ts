@@ -33,13 +33,17 @@ function row(
 	overrides: Partial<VersionListItemDto> = {},
 ): VersionListItemDto {
 	return {
+		associatedFileCount: 1,
 		createdAt: "2026-07-15T00:00:00.000Z",
 		description: id,
 		etag: ETAG_1,
+		expectedFileCount: null,
 		fileCount: 1,
+		finalizedAt: "2026-07-15T00:00:00.000Z",
 		id,
 		isActive: true,
 		isLatest: false,
+		lifecycleStatus: "finalized",
 		programId,
 		updatedAt: "2026-07-15T00:00:00.000Z",
 		versionNumber: id === VERSION_A ? "2.0.0" : "1.0.0",
@@ -68,7 +72,6 @@ function detail(
 	return {
 		data: {
 			...data,
-			fileIds: ["14f42b35-baa6-4ed7-a979-e0fa180bba81"],
 			...overrides,
 		},
 		etag,

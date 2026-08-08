@@ -185,7 +185,7 @@
 - Batch 8: short-lived OSS STS, deterministic destinations, server HEAD verification, atomic idempotent metadata registration, incremental worker hashing, ali-oss multipart upload, and memory-only TanStack Store queue
 - Evidence refs:
 - Upload requests accept metadata only, enforce canonical relative POSIX paths, lowercase SHA-256, MIME type/subtype grammar, and 1,023 UTF-8-byte OSS keys. The earlier 5 TiB draft limit is superseded by Batch 9's exact 41,943,040,000-byte multipart bound.
-- Temporary browser policy contains only `PutObject`, `AbortMultipartUpload`, and `ListParts`; the permanent server principal separately needs prefix-scoped `GetObject` for metadata verification. README documents RAM/CORS and keeps permanent credentials server-only.
+- Temporary browser policy contains only `PutObject` and `AbortMultipartUpload`; retry/resume uses the in-memory client checkpoint without remote reconciliation. The permanent server principal separately needs `sts:AssumeRole` plus prefix-scoped `GetObject` for metadata verification. Bucket lifecycle owns incomplete multipart cleanup. Any authorized sandbox deletion of a completed smoke-test object requires a separate test-only identity; README documents this RAM/CORS boundary and keeps permanent credentials server-only.
 - Completion verifies object key, size, and ETag before deterministic lock-ordered repository registration. Matching concurrent replays share IDs; conflicting proofs fail with a sanitized Problem Details response and success audit commits atomically.
 - Hashing reads 4 MiB slices in a worker. Multipart upload uses per-file clients, concurrency four, checkpoint/progress/cancel/retry, and required ETag. Files and checkpoints remain in memory; sessionStorage stores only the completed-item display preference.
 - Root gate passed `pnpm check` over 184 files, `pnpm typecheck`, 52 test files/337 tests, guarded DB harness with 5 explicit skips, Netlify client/SSR build, and `git diff --check`.
@@ -254,3 +254,130 @@
 - Retirement status: Scaffold demos and their routes are retired only after real production owners and tests existed; the initial baseline remains historical rather than rewritten.
 - Verification status: Local implementation and the authoritative local matrix pass. Credential/database/cloud-backed release evidence remains explicitly open.
 - Advisory decision: local-verification-complete-external-gates-open
+
+## Checkpoint Update - External environment validation paused on database safety
+
+- Current todo: Provision two isolated Neon targets before external verification continues
+- Active slice: Netlify project provisioning completed; database migration/bootstrap stopped before any reset or destructive test
+- Evidence refs:
+- Created the blank Netlify E2E project `updater-admin-e2e-019f5bdd32ab7261` with Project ID `f8a4c65a-eebc-4519-8eb8-57964c6f695f`; the ignored worktree `.env.local` contains the ID.
+- The application Neon URL accepts WebSocket queries, but the target is not fresh: it already contains two users, six sessions, two programs, one version, two file rows, and one relation row. Its migration ledger reports two entries while `admin_metadata` is absent.
+- Bootstrap failed on the missing `admin_metadata` relation before creating an administrator. No schema drop, data reset, or destructive DB suite was run.
+- `DATABASE_URL` and `TEST_DATABASE_URL` identify the same database, and the destructive confirmation sentinel is absent, so the guarded DB tests correctly remain blocked.
+- The embedded signed Node runtimes cannot load Rolldown's ad-hoc native binding on this Mac. At this historical checkpoint, the direct-Bun rerun completed the client/SSR Netlify build and passed 588/589 tests; the later namespace-import remediation and all-green rerun supersede this result.
+- Blocked on: a fresh application Neon branch/database and a second, distinct disposable test branch/database.
+- Next step: replace both URLs, keep each connection string on one line, set `TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests`, then migrate/bootstrap and resume the in-app-browser plus OSS/Sentry/Preview gates.
+
+## DriftCheckDraft
+
+- Scope status: External validation stayed within the approved Neon, auth, Sentry, OSS, and Netlify gates.
+- Data-safety status: The non-empty inconsistent database was inspected read-only after migration/bootstrap failures; no destructive repair was attempted.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy compatibility, or alternate persistence owner was introduced.
+- Advisory decision: pause-for-user-database-isolation
+
+## Checkpoint Update - External Preview and in-app-browser E2E verified - 2026-07-19
+
+This checkpoint supersedes the database-safety pause above for current state while retaining that first attempt as historical evidence.
+
+- Current todo: Resolve the remaining guarded-database, OSS upload-role/lifecycle/live-smoke, Sentry source-map, and forced-password final-submit gates.
+- Active slice: Core nonproduction Preview and actual in-app-browser acceptance are complete.
+- Completed todos:
+- The user expressly authorized destructive database repair; reset, migration, and bootstrap passed.
+- Netlify project `updater-admin-e2e-019f5bdd32ab7261` (`f8a4c65a-eebc-4519-8eb8-57964c6f695f`) has ready deploy `6a5ccba51967b64766b10fce`, titled `tab-retitle-owner-fix`, only on branch alias `codex-e2e-332273d`. Production was never published.
+- Public Preview checks passed: `/health` returned 200 with `Permissions-Policy`, `Referrer-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, and HSTS; `/` returned 307 to programs; anonymous `/api/v1/programs` returned 401 `application/problem+json` with `UNAUTHENTICATED`.
+- Netlify strips standard request `If-Match` before the Function. The application now sends `X-Updater-If-Match`, keeps standard response `ETag`, and has no fallback/double-read path. Direct authenticated sign-in/GET/PATCH advanced the ETag; standard `If-Match` alone returned 428; real UI edit, delete, and administrator mutations passed.
+- Actual Codex in-app-browser flows passed for login/session; program create/filter/reset/edit/delete; nested versions and dynamic-tab persistence; monitoring and audit detail; Chinese/English persistence; system-name update/revert; and administrator disable.
+- An intermittent `Tab href must match its registered protected route` error was fixed with stable-key retitle-only behavior, leaving AppShell as the sole navigation owner. A fresh-tab final-deploy retest created a program, opened its nested route, changed `pageSize` from 20 to 50, preserved the exact URL query and program-name tab across hard reload, and produced zero console errors. The test program was deleted and all browser tabs were finalized.
+- Focused tests, TypeScript, Biome, and the production build pass. The initial full direct-Bun suite at this checkpoint passed 100/101 files and 588/589 tests; the later namespace-import remediation and 101/101-file, 589/589-test proof supersede this historical result.
+- Sentry events/releases reads work. Source maps were not uploaded because source-disclosure approval was absent. The forced-password gate was verified without performing the final credential-changing submit; the temporary administrator was disabled.
+- Evidence ref: `docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-external-preview-e2e-2026-07-19.json`.
+- Blocked on:
+- Guarded DB verification is partial: 5/6 files and 23/25 tests passed; two `versions.server.db.test.ts` cases timed out after five seconds against remote Neon, and cleanup then hit FK RESTRICT because child version rows remained.
+- OSS readiness is abnormal: the temporary upload role lacks required `oss:AbortMultipartUpload`. Browser retry/resume uses only the in-memory checkpoint and never queries remote part state. Incomplete multipart cleanup belongs to the bucket lifecycle rule, while the permanent application principal remains limited to `sts:AssumeRole` plus prefix-scoped `oss:GetObject`. Deleting a completed sandbox smoke-test object, if explicitly authorized, requires a separate test-only identity. Live upload/version creation remains unproven.
+- Sentry source-map association requires explicit source-disclosure approval.
+- Browser automation intentionally did not perform the final forced-password-changing submit.
+- Next step: Remediate and rerun the two failing guarded DB cases, add only `oss:AbortMultipartUpload` to the temporary upload role, configure/verify lifecycle cleanup, and run a sandbox multipart smoke using a separate explicitly authorized test identity only if the completed test object must be deleted; obtain source-map disclosure approval if association proof is required, and have an authorized human complete the forced-password final submit if that proof is required.
+
+## DriftCheckDraft - 2026-07-19 superseding status
+
+- Scope status: The authorized database repair, nonproduction Netlify deployment, optimistic-concurrency remediation, dynamic-tab ownership fix, and in-app-browser verification stayed within the approved release scope.
+- Compatibility status: No Dashboard, Billing, tenancy, legacy API/client compatibility, or standard-`If-Match` fallback was introduced.
+- Ownership status: AppShell remains the sole tab open/activate navigation owner; the version route can only retitle an existing stable-key tab. Elysia remains the business API owner and standard `ETag` remains the response validator.
+- Verification status: Core Preview and actual browser flows pass; the guarded DB suite is partial and the three provider/security gates remain explicit.
+- Advisory decision: external-preview-core-passed-residual-verification-failures-open
+
+## Checkpoint Amendment - Guarded database gate passed - 2026-07-19
+
+This amendment supersedes the partial guarded-database result in the immediately preceding checkpoint while preserving it as the first remediation attempt.
+
+- `vitest.db.config.ts` now applies bounded 30-second test and hook timeouts. This accommodates measured remote-Neon transaction and cleanup latency without allowing unbounded hangs.
+- `versions.server.db.test.ts` passed all 6 tests on three consecutive runs: 35.20s, 28.22s, and 27.47s.
+- The complete guarded suite passed 6/6 files and 25/25 tests in 61.56s.
+- Exact post-suite verification found zero rows in each of all 13 approved tables.
+- Recovery passed: migrations were applied, a one-time high-entropy nonproduction bootstrap administrator was created without persisting or disclosing its password, `/health` returned 200 `application/json`, and anonymous `/api/v1/programs` returned 401 `application/problem+json` with `UNAUTHENTICATED`.
+- Current todo: Resolve only the OSS upload-role/lifecycle/live-smoke gate, explicit Sentry source-map disclosure approval, and the human forced-password final-submit boundary.
+- Current advisory decision: external-preview-core-passed-residual-security-gates-open
+
+## Checkpoint Amendment - Unit gate, OSS least privilege, and latest Preview - 2026-07-19
+
+- The Zod runtime gate now uses the direct module namespace without changing its `coerce`/metadata assertion. Test-only `@tanstack/solid-start` inlining keeps Solid Router JSX inside the Vite/Vitest transform pipeline.
+- Literal `pnpm test` under standard Node 22.23.1 passed 101/101 files and 589/589 tests in 29.66s; the complete Bun fallback independently passed 101/101 files and 589/589 tests.
+- The temporary OSS role was narrowed to prefix-scoped `oss:PutObject` plus `oss:AbortMultipartUpload`. Unused `oss:ListParts` was removed from source, tests, and guidance; retry/resume remains checkpoint-only.
+- Latest ready nonproduction deploy is `6a5ce3d089887ba14c119407`, titled `least-privilege-oss-node-test-fix-rebundle`, on alias `codex-e2e-332273d`. Production was never published.
+- Against that final deploy, the Codex in-app browser rendered the protected-root login redirect with zero console errors, observed `/health` as `application/json` with `{"status":"ok"}`, and observed anonymous `/api/v1/programs` as 401 `application/problem+json` with `UNAUTHENTICATED`. All browser tabs were then closed.
+
+## Checkpoint Amendment - Sentry source-map association passed - 2026-07-20
+
+This amendment supersedes the open Sentry approval/association gate above while retaining the earlier statements as historical evidence.
+
+- The user explicitly approved uploading source maps to the configured Sentry project.
+- The first authorized upload exposed a multi-stage build defect: Sentry's Vite plugin deleted `dist/**/*.map` during an earlier TanStack/Netlify build environment, after which a later environment uploaded source-only artifacts for the same debug IDs. `filesToDeleteAfterUpload` was removed from the environment-scoped plugin; the top-level build now runs `scripts/remove-source-maps.mjs` only after all Vite environments and uploads succeed.
+- The repaired build produced 153 hidden maps before cleanup. Sentry accepted complete artifact bundle `4d712dfc-e2e0-54a6-a122-d8564eedba27` with 304 files. Both browser debug ID `16dcb119-ef23-44c4-a303-78f415db0e3b` and server debug ID `4dd85e44-de99-4f73-b8b0-3008f7e69a8d` have paired JavaScript and map files in that bundle.
+- Post-upload cleanup reduced the local `dist` map count to zero while retaining both debug IDs. On the deployed alias, `/assets/client-AwLcjBtf.js` returns 200 and `/assets/client-AwLcjBtf.js.map` returns 404.
+- Netlify deploy `6a5d7460187ccd05113f28e7`, titled `sentry-sourcemap-upload-verified`, is ready only on alias `codex-e2e-332273d`; production was never published.
+- The Codex in-app browser rendered the login page with zero console events, observed `/health` 200 JSON and anonymous `/api/v1/programs` 401 Problem Details, and then triggered a read-only anonymous API failure through the deployed compiled API client. Sentry event `3359719d22b9454690cdb85dd7199ac5` on release `updater-admin-e2e-332273d` has an empty processing-error list and resolves to `src/lib/api/client.ts` lines 399 and 383.
+- Current todo: Resolve only the OSS upload-role/lifecycle/live-smoke gate and the human forced-password final-submit boundary.
+- Current advisory decision: external-preview-and-sentry-passed-residual-security-gates-open
+
+## Checkpoint Amendment - Live OSS and final in-app-browser E2E - 2026-07-20
+
+This amendment supersedes the open live-OSS and forced-password bullets above while preserving the earlier attempts as diagnostic history.
+
+- The authorized test account completed the forced-password journey and was used only for the nonproduction acceptance run.
+- Direct provider proof passed: permanent credentials assumed the configured upload role; multipart initiation, one-part upload, and `AbortMultipartUpload` all returned success under the prefix-scoped temporary policy. No completed object was deleted and neither application identity received `DeleteObject`.
+- The first live browser upload exposed a server packaging defect. `createRequire("ali-oss")` was not visible to Netlify NFT, so the Function ZIP contained the package manifest but omitted `lib/client.js`; `/api/v1/uploads/complete` therefore returned 503. The server now uses a static import with an interop resolver, targeted tests pass, and the rebuilt ZIP contains the SDK entry and dependency graph.
+- On deploy `6a5d91653c4efdfb5a6ee569`, the Codex in-app browser retried completion and observed HTTP 200. It then created version `1.0.0` with HTTP 201. Neon verification found one live relation to the expected 303-byte file, a nonempty ETag, the exact canonical object key, and the active version state.
+- Real-browser activation testing then exposed that the library-backed switch rendered a hidden input whose visible control could be obscured by the sticky action column. The switch was replaced with a native accessible button (`role="switch"`); focused tests, TypeScript, Sentry-uploading production build, and map cleanup passed. Final deploy `6a5d95ea2c8afd55c56dc095` returned HTTP 200 for activation and the UI showed `1.0.0` as active/latest with no browser warning/error logs.
+- OSS accepted the browser multipart request, but bucket CORS did not expose the response `ETag`. The designed server-HEAD retry recovered without re-uploading. An environment operator should add `ETag` to the existing CORS rule's exposed headers for the one-step path. The application principal received 403 for read-only bucket lifecycle/CORS inspection as expected; verify incomplete-multipart lifecycle separately rather than widening the runtime role.
+- Production was never published. The completed E2E object remains intentionally preserved under `updater-admin-e2e/`.
+- Current advisory decision: live-application-e2e-passed-bucket-configuration-follow-up-open
+
+## Checkpoint Amendment - Public release API Preview passed; production gated - 2026-07-20
+
+- The anonymous read-only `/api/public/v1` latest and specified active-release contract is implemented without changing administrator authorization. Public manifests are capped at 256 version files, and the domain signs individual 300-second GET URLs with at most eight signer calls in flight while preserving response order.
+- The first live query exposed an invalid derived-table column reference. The repository now binds the outer query to the selected-release SQL aliases explicitly, and the public API passed Preview verification after that fix.
+- The authoritative corrected Preview deploy ID is `6a5daddfadd194231b14ea70`. It is nonproduction; no production publish is claimed. Source maps were not uploaded for this latest Preview, so the earlier Sentry association applies only to its historical build and does not cover this deploy.
+- Formal Netlify Site `180cc440-4b2f-4313-867d-d33146376287` with canonical domain `https://updater-admin-019f5bdd32ab7261.netlify.app` now exists, but it has no production deploy.
+- Exact read-only E2E cleanup enumeration is recorded in `docs/aegis/plans/2026-07-20-production-e2e-cleanup-manifest.md`. It preserves non-target rows, settings, migrations, and OSS objects and does not authorize deletion or administrator bootstrap.
+- Production remains blocked on the Netlify plan restriction for required deploy-context secret scoping, explicit confirmation of the exact E2E database cleanup plus intended production administrator bootstrap, and fresh informed approval before uploading source maps for the current candidate.
+- Current advisory decision: public-api-preview-passed-production-publication-blocked
+
+## Checkpoint Amendment - Production authorization and read-only preflight - 2026-07-20
+
+- The operator confirmed the exact cleanup manifest, production administrator identity, and production Sentry source-map upload.
+- A fresh production Neon read-only preflight matched every fixed row and all 18 audit IDs, found no unlisted logical dependencies, and found the optional rate window already expired. Settings and migration fingerprints were captured; no write or OSS action occurred.
+- Destructive execution remains paused until the operator adds an operator-known `BOOTSTRAP_ADMIN_PASSWORD` to ignored `.env.local`. Independent review rejected generating or logging a password inside the cleanup command because a crash could lose it and cleanup output must not disclose credentials.
+- Netlify's current team plan still blocks the explicit variable scopes required by Secrets Controller. Continue after the operator upgrades the team and marks the production values as scoped secrets.
+- Current advisory decision: production-preflight-passed-waiting-secret-controller-and-bootstrap-password
+
+## Checkpoint Amendment - Formal production published and verified - 2026-08-06
+
+- Netlify capability correction: the formal Site's Free account supports Secrets Controller (`env_var_secrets=true`). A reversible secret probe was created, observed masked, and deleted. Only granular scope selection is unavailable; no plan upgrade was required for masked production secrets.
+- Production configuration: 19 Production-context variables are present. Five credential values are write-only secrets; bootstrap, disposable-test, and Netlify access credentials are not deployed.
+- Database maintenance: the guarded preflight matched the exact manifest. The serializable execute step deleted one temporary program, version, file, relation, user, account, administrator metadata row, all 18 audit rows, and zero already-expired rate rows. Settings and migration fingerprints remained unchanged.
+- Identity: Better Auth bootstrapped the intended `admin` account. Database verification found one user, one credential account, one administrator metadata row, and zero sessions before browser login.
+- Release: migrations were already current; Biome checked 299 files, TypeScript passed, and Vitest passed 108 files/641 tests. The production build uploaded Sentry artifact bundle `646a6712-fff7-5856-a9bb-a12247086e52` for release `332273de028fc8faca34e9058cee0d55bc0b33fc`; the deploy artifact contains zero `.map` files.
+- Deployment: formal production deploy `6a73ec801b96527dc4878d85` is live at `https://updater-admin-019f5bdd32ab7261.netlify.app`.
+- HTTP/public API: health 200, anonymous administrator API 401, missing public release 404, allowed-origin preflight 204, and rejected-origin preflight 403 passed. A temporary active release proved both public manifest routes return 200 without authentication and its signed OSS URL downloads the expected 303-byte SHA-256-matching object. Exact fixture cleanup restored zero business rows and the test URL to 404.
+- Actual browser E2E: the Codex in-app browser passed protected redirect, production-admin login, empty program table, administrator listing, dynamic-tab persistence, monitoring/provider readiness, chart-range filter, audit, system settings, language/account menus, logout, and zero console warnings/errors.
+- Current advisory decision: formal-production-published-and-verified

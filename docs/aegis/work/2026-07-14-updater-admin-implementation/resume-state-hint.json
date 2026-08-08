@@ -2,7 +2,7 @@
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
   "lastCheckpointRef": "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
-  "resumeInstruction": "Do not redo implemented or locally verified Batches 0-14. Continue only for an explicitly authorized disposable-database, authenticated-E2E/visual, live OSS, live Sentry, or Netlify Preview/deployment action; read the intent, checkpoint, evidence, ADR-0001, and deployment guidance first.",
+  "resumeInstruction": "Do not redo implemented Batches 0-14, the nonproduction provider/browser proof, the exact production cleanup/bootstrap, production Sentry upload, formal Netlify deployment, positive anonymous release/download smoke, or the 2026-08-06 in-app-browser acceptance. Formal production deploy 6a73ec801b96527dc4878d85 is ready. Remaining external follow-ups are OSS bucket-level CORS/lifecycle configuration and operator rotation of the production administrator password after it was visible in the browser-tool task log.",
   "knownPartialWork": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
@@ -18,19 +18,29 @@
     "Batch 11: optimistic-concurrency system-settings singleton, validated defaults/repository URL, Query cache ownership, and stale-write recovery",
     "Batch 12: authenticated readiness/metrics, renderer-neutral release series, append-only audit history/detail, native SVG chart, and monitoring/audit pages",
     "Batch 13: conditional Sentry integration and source-map upload, shared redaction, Netlify/Start security hardening, environment/deployment guidance, loader/correlation hardening, and client-secret scan remediation",
-    "Batch 14: demo retirement, production TanStack owner proof, final local matrix with 98 files/568 tests, clean route/client-secret/source-map scans, 8 public E2E passes, and 18 credential-gated authenticated skips"
+    "Batch 14: demo retirement, production TanStack owner proof, final local matrix with 98 files/568 tests, clean route/client-secret/source-map scans, 8 public E2E passes, and 18 credential-gated authenticated skips",
+    "External 2026-07-19: user-authorized database reset/migration/bootstrap; nonproduction Netlify alias and in-app-browser rendered-login/health/401 smoke plus earlier direct authenticated ETag and full program, nested-route/tab, monitoring/audit, locale, settings, and administrator flows",
+    "Guarded DB rerun 2026-07-19: partial failure at 5/6 files and 23/25 tests; two versions.server.db.test.ts cases timed out after five seconds on remote Neon and cleanup then hit FK RESTRICT",
+    "Guarded DB remediation 2026-07-19 supersedes that partial attempt: bounded 30-second test/hook timeouts; versions file 6/6 across three consecutive runs (35.20s, 28.22s, 27.47s); full suite 6/6 files and 25/25 tests in 61.56s; zero rows in all 13 approved tables afterward; migrations/bootstrap recovery and final public health/anonymous-401 smoke passed without persisting or disclosing the one-time credential",
+    "Tab remediation 2026-07-19: stable-key retitle-only API leaves AppShell as the sole navigation owner; fresh-tab hard-reload Preview retest preserved the exact query/title and produced zero console errors",
+    "Current local rerun: focused tests, TypeScript, Biome, and build pass; after the direct Zod module-namespace import and test-only @tanstack/solid-start inlining, literal pnpm test under standard Node 22 and the full direct-Bun suite both pass 101/101 files and 589/589 tests",
+    "External 2026-07-20: explicit source-disclosure approval; repaired multi-stage Sentry upload with complete artifact bundle 4d712dfc-e2e0-54a6-a122-d8564eedba27; source-mapped browser event 3359719d22b9454690cdb85dd7199ac5 with no processing errors; public maps absent",
+    "External 2026-07-20 live OSS/browser completion: STS AssumeRole and multipart init/upload-part/abort passed, the browser reached Aliyun OSS with HTTP 200, server HEAD recovery completed the upload, version creation returned 201, activation returned 200, and database evidence ties the active version to the 303-byte object. The final nonproduction deploy is 6a5d95ea2c8afd55c56dc095; production was never published.",
+    "External 2026-08-06 formal production: Free-plan Secrets Controller support was verified; 19 Production variables were configured; exact E2E cleanup and Better Auth administrator bootstrap passed; TypeScript/Biome/108-file 641-test/build/migration gates passed; Sentry release 332273de028fc8faca34e9058cee0d55bc0b33fc and artifact bundle 646a6712-fff7-5856-a9bb-a12247086e52 uploaded; Netlify deploy 6a73ec801b96527dc4878d85 is ready; positive anonymous public manifests and signed OSS download passed; fixed-ID smoke metadata was cleaned; and the real in-app browser passed authenticated pages, dynamic tabs, provider monitoring, logout, and zero console errors."
   ],
   "mustReadBeforeContinuing": [
     "docs/aegis/work/2026-07-14-updater-admin-implementation/10-intent.md",
     "docs/aegis/work/2026-07-14-updater-admin-implementation/20-checkpoint.md",
-    "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json"
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/todo-checkpoint-draft.json",
+    "docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-external-preview-e2e-2026-07-19.json",
+    "docs/aegis/plans/2026-07-20-production-e2e-cleanup-manifest.md",
+    "docs/aegis/plans/2026-07-20-public-release-api-production-deploy.md"
   ],
   "unsafeToAssume": [
-    "A disposable database is available; DB-backed concurrency proof requires TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests and remains an explicit environmental gate when unavailable",
-    "That the 18 credential-gated authenticated E2E cases or the 6 guarded database tests passed; they explicitly skipped without authorized environments",
-    "Seeded E2E administrator credentials are available; 18 authenticated desktop/mobile tests and their visual artifacts remain credential-gated",
-    "An authorized OSS sandbox is available; live STS and multipart smoke remain external while mocked provider contracts are verified",
-    "Authorized Sentry build/runtime credentials or a Netlify Preview site are available; live event, source-map, cookie, database-readiness, and Preview smoke evidence remain external",
-    "ADR-0001 or the local verification matrix grants deployment authority; both are evidence records only"
+    "That the OSS provider configuration is fully finished: live upload/version creation/activation passed, but the existing CORS rule must expose ETag and an operator identity must still verify incomplete-multipart lifecycle; do not widen the application or upload roles with bucket-configuration permissions",
+    "That the preserved E2E object should be deleted: it is retained as release evidence and the runtime roles intentionally lack DeleteObject",
+    "That the historical alias deploy is production; 6a5d95ea2c8afd55c56dc095 remains nonproduction, while current formal production is ready deploy 6a73ec801b96527dc4878d85 on the canonical Site",
+    "That the app-bundled signed Node is a valid literal-test runtime on this Mac; it cannot load Rolldown's ad-hoc native binding, so use standard standalone Node 22, under which literal pnpm test is proven green at 101/101 files and 589/589 tests",
+    "ADR-0001, the local verification matrix, or the external evidence record grants production deployment authority; they are evidence records only"
   ]
 }

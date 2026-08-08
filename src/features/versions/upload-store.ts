@@ -1,5 +1,6 @@
 import { Store } from "@tanstack/store";
 
+import type { DraftFileResolveStatus } from "../../shared/api/uploads";
 import { UPLOAD_MIME_TYPE_PATTERN } from "../../shared/api/uploads";
 import {
 	containsHighConfidenceSecretText,
@@ -17,6 +18,7 @@ export const MAX_UPLOAD_ERROR_LENGTH = 500;
 export type UploadQueueStatus =
 	| "queued"
 	| "hashing"
+	| "resolving"
 	| "ready"
 	| "uploading"
 	| "uploaded"
@@ -25,7 +27,7 @@ export type UploadQueueStatus =
 	| "failed"
 	| "cancelled";
 
-export type UploadWorkStage = "hash" | "upload" | "registration";
+export type UploadWorkStage = "hash" | "resolution" | "upload" | "registration";
 
 export interface UploadFileSelection {
 	readonly file: File;
@@ -44,13 +46,36 @@ export interface UploadQueueItem {
 	readonly hashProgress: number;
 	readonly id: string;
 	readonly mimeType: string;
-	readonly objectEtag: string | null;
 	readonly objectKey: string | null;
 	readonly path: string;
+	readonly resolutionStatus: DraftFileResolveStatus | null;
 	readonly sha256: string | null;
 	readonly size: number;
 	readonly status: UploadQueueStatus;
 	readonly uploadProgress: number;
+	/** Server must HEAD the deterministic object before registration. */
+	readonly verifyObject: boolean;
+}
+
+export interface UploadHashResult {
+	readonly id: string;
+	readonly sha256: string;
+}
+
+export interface UploadResolutionResult {
+	readonly canonicalMimeType?: string;
+	readonly id: string;
+	readonly status: DraftFileResolveStatus;
+}
+
+export interface UploadRegistrationResult {
+	readonly fileMetadataId: string;
+	readonly id: string;
+}
+
+export interface UploadObjectTarget {
+	readonly id: string;
+	readonly objectKey: string;
 }
 
 export interface UploadQueueState {
@@ -77,24 +102,44 @@ export interface UploadQueueController {
 	clearCompleted(): void;
 	dispose(): void;
 	fail(id: string, stage: UploadWorkStage, error: unknown): void;
+	failBatch(
+		ids: readonly string[],
+		stage: UploadWorkStage,
+		error: unknown,
+	): void;
+	getItem(id: string): UploadQueueItem | null;
 	getState(): UploadQueueState;
 	markHashProgress(id: string, progress: number): void;
 	markHashSucceeded(id: string, sha256: string): void;
-	markRegistrationSucceeded(id: string, fileMetadataId: string): void;
-	markUploadCheckpoint(id: string, checkpoint: OssMultipartCheckpoint): void;
-	markUploadProgress(id: string, progress: number): void;
-	markUploadReconciled(
+	markHashSucceededBatch(results: readonly UploadHashResult[]): void;
+	markResolutionSucceeded(
 		id: string,
-		objectEtag: string,
-		fileMetadataId: string,
+		status: DraftFileResolveStatus,
+		canonicalMimeType?: string,
 	): void;
-	markUploadSucceeded(id: string, objectEtag: string): void;
+	markResolutionSucceededBatch(
+		results: readonly UploadResolutionResult[],
+	): void;
+	markRegistrationSucceeded(id: string, fileMetadataId: string): void;
+	markRegistrationSucceededBatch(
+		results: readonly UploadRegistrationResult[],
+	): void;
+	markUploadCheckpoint(id: string, checkpoint: OssMultipartCheckpoint): void;
+	markUploadCommitted(id: string): void;
+	markUploadProgress(id: string, progress: number): void;
+	markUploadReconciled(id: string, fileMetadataId: string): void;
+	markUploadSucceeded(id: string): void;
 	prepareRetry(id: string): UploadWorkStage | null;
 	remove(id: string): void;
 	setObjectTarget(id: string, objectKey: string): void;
+	setObjectTargetBatch(targets: readonly UploadObjectTarget[]): void;
 	setShowCompleted(showCompleted: boolean): void;
 	startHash(id: string): void;
+	startHashBatch(ids: readonly string[]): void;
 	startRegistration(id: string): void;
+	startRegistrationBatch(ids: readonly string[]): void;
+	startResolution(id: string): void;
+	startResolutionBatch(ids: readonly string[]): void;
 	startUpload(id: string): void;
 	subscribe(listener: (state: UploadQueueState) => void): () => void;
 }
@@ -106,6 +151,7 @@ interface PersistedUploadQueueUiState {
 
 const ACTIVE_STATUS_TO_STAGE = {
 	hashing: "hash",
+	resolving: "resolution",
 	uploading: "upload",
 } as const satisfies Partial<Record<UploadQueueStatus, UploadWorkStage>>;
 
@@ -211,15 +257,6 @@ function requireCanonicalValue(value: string, name: string): void {
 	}
 }
 
-function requireItem(
-	items: readonly UploadQueueItem[],
-	id: string,
-): UploadQueueItem {
-	const item = items.find((candidate) => candidate.id === id);
-	if (!item) throw new RangeError(`Unknown upload queue item: ${id}`);
-	return item;
-}
-
 function requireStatus(
 	item: UploadQueueItem,
 	allowed: readonly UploadQueueStatus[],
@@ -312,18 +349,6 @@ export function safeUploadErrorMessage(error: unknown): string {
 	);
 }
 
-function updateItem(
-	state: UploadQueueState,
-	id: string,
-	updater: (item: UploadQueueItem) => UploadQueueItem,
-): UploadQueueState {
-	requireItem(state.items, id);
-	return withDerivedState({
-		items: state.items.map((item) => (item.id === id ? updater(item) : item)),
-		showCompleted: state.showCompleted,
-	});
-}
-
 function cancelledStage(item: UploadQueueItem): UploadWorkStage | null {
 	if (item.status in ACTIVE_STATUS_TO_STAGE) {
 		return ACTIVE_STATUS_TO_STAGE[
@@ -331,7 +356,8 @@ function cancelledStage(item: UploadQueueItem): UploadWorkStage | null {
 		];
 	}
 	if (!item.sha256) return "hash";
-	if (!item.objectEtag) return "upload";
+	if (!item.resolutionStatus) return "resolution";
+	if (!item.objectKey) return "upload";
 	if (!item.fileMetadataId) return "registration";
 	return null;
 }
@@ -359,13 +385,14 @@ function createQueueItem(selection: UploadFileSelection): UploadQueueItem {
 		mimeType: UPLOAD_MIME_TYPE_PATTERN.test(selection.file.type)
 			? selection.file.type
 			: "application/octet-stream",
-		objectEtag: null,
 		objectKey: null,
 		path: selection.path,
+		resolutionStatus: null,
 		sha256: null,
 		size: selection.file.size,
 		status: "queued",
 		uploadProgress: 0,
+		verifyObject: false,
 	};
 }
 
@@ -384,6 +411,56 @@ export function createUploadQueueController(
 		}
 	}
 	const store = new Store<UploadQueueState>(initialState(showCompleted));
+	const itemIndexes = new Map<string, number>();
+	const getItem = (id: string): UploadQueueItem | null => {
+		const index = itemIndexes.get(id);
+		if (index === undefined) return null;
+		const item = store.state.items[index];
+		return item?.id === id ? item : null;
+	};
+	const getRequiredItem = (id: string): UploadQueueItem => {
+		const item = getItem(id);
+		if (!item) throw new RangeError(`Unknown upload queue item: ${id}`);
+		return item;
+	};
+	const rebuildItemIndexes = (items: readonly UploadQueueItem[]) => {
+		itemIndexes.clear();
+		for (let index = 0; index < items.length; index += 1) {
+			const item = items[index];
+			if (item) itemIndexes.set(item.id, index);
+		}
+	};
+	const updateStoredItems = (
+		state: UploadQueueState,
+		ids: readonly string[],
+		updater: (item: UploadQueueItem, id: string) => UploadQueueItem,
+	): UploadQueueState => {
+		if (ids.length === 0) return state;
+		const seen = new Set<string>();
+		const updates: Array<readonly [number, UploadQueueItem]> = [];
+		for (const id of ids) {
+			if (seen.has(id)) throw new Error(`Duplicate upload queue item: ${id}`);
+			seen.add(id);
+			const index = itemIndexes.get(id);
+			if (index === undefined) {
+				throw new RangeError(`Unknown upload queue item: ${id}`);
+			}
+			const item = state.items[index];
+			if (!item || item.id !== id) {
+				throw new RangeError(`Unknown upload queue item: ${id}`);
+			}
+			updates.push([index, updater(item, id)]);
+		}
+		const items = [...state.items];
+		for (const [index, item] of updates) items[index] = item;
+		return withDerivedState({ items, showCompleted: state.showCompleted });
+	};
+	const updateStoredItem = (
+		state: UploadQueueState,
+		id: string,
+		updater: (item: UploadQueueItem) => UploadQueueItem,
+	): UploadQueueState =>
+		updateStoredItems(state, [id], (item) => updater(item));
 	let lastPersistedShowCompleted = showCompleted;
 	const persistenceSubscription = store.subscribe((state) => {
 		if (!storage || state.showCompleted === lastPersistedShowCompleted) return;
@@ -410,6 +487,11 @@ export function createUploadQueueController(
 				batchPaths.add(path);
 				return createQueueItem({ ...selection, path });
 			});
+			const firstIndex = store.state.items.length;
+			for (let index = 0; index < created.length; index += 1) {
+				const item = created[index];
+				if (item) itemIndexes.set(item.id, firstIndex + index);
+			}
 			store.setState((state) =>
 				withDerivedState({
 					items: [...state.items, ...created],
@@ -419,7 +501,7 @@ export function createUploadQueueController(
 			return created;
 		},
 		cancel: (id) => {
-			const item = requireItem(store.state.items, id);
+			const item = getRequiredItem(id);
 			if (
 				item.status === "complete" ||
 				item.status === "uploaded" ||
@@ -431,7 +513,7 @@ export function createUploadQueueController(
 			}
 			const stage = cancelledStage(item);
 			store.setState((state) =>
-				updateItem(state, id, (current) => ({
+				updateStoredItem(state, id, (current) => ({
 					...current,
 					error: null,
 					failedStage: stage,
@@ -452,13 +534,15 @@ export function createUploadQueueController(
 		dispose: () => persistenceSubscription.unsubscribe(),
 		fail: (id, stage, error) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					const expectedStatus =
 						stage === "hash"
 							? "hashing"
-							: stage === "upload"
-								? "uploading"
-								: "registering";
+							: stage === "resolution"
+								? "resolving"
+								: stage === "upload"
+									? "uploading"
+									: "registering";
 					requireStatus(item, [expectedStatus], `fail ${stage}`);
 					return {
 						...item,
@@ -468,10 +552,31 @@ export function createUploadQueueController(
 					};
 				}),
 			),
+		failBatch: (ids, stage, error) =>
+			store.setState((state) =>
+				updateStoredItems(state, ids, (item) => {
+					const expectedStatus =
+						stage === "hash"
+							? "hashing"
+							: stage === "resolution"
+								? "resolving"
+								: stage === "upload"
+									? "uploading"
+									: "registering";
+					requireStatus(item, [expectedStatus], `fail ${stage}`);
+					return {
+						...item,
+						error: safeUploadErrorMessage(error),
+						failedStage: stage,
+						status: "failed",
+					};
+				}),
+			),
+		getItem,
 		getState: () => store.state,
 		markHashProgress: (id, hashProgress) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["hashing"], "report hash progress for");
 					return { ...item, hashProgress: clampProgress(hashProgress) };
 				}),
@@ -481,7 +586,7 @@ export function createUploadQueueController(
 				throw new TypeError("sha256 must be lowercase hexadecimal.");
 			}
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["hashing"], "complete hashing for");
 					return {
 						...item,
@@ -494,10 +599,97 @@ export function createUploadQueueController(
 				}),
 			);
 		},
+		markHashSucceededBatch: (results) => {
+			for (const { sha256 } of results) {
+				if (!SHA256_PATTERN.test(sha256)) {
+					throw new TypeError("sha256 must be lowercase hexadecimal.");
+				}
+			}
+			const resultsById = new Map(results.map((result) => [result.id, result]));
+			store.setState((state) =>
+				updateStoredItems(
+					state,
+					results.map(({ id }) => id),
+					(item, id) => {
+						const result = resultsById.get(id);
+						if (!result) throw new RangeError(`Missing hash result: ${id}`);
+						requireStatus(item, ["hashing"], "complete hashing for");
+						return {
+							...item,
+							error: null,
+							failedStage: null,
+							hashProgress: 1,
+							sha256: result.sha256,
+							status: "ready",
+						};
+					},
+				),
+			);
+		},
+		markResolutionSucceeded: (id, resolutionStatus, canonicalMimeType) => {
+			if (
+				canonicalMimeType !== undefined &&
+				!UPLOAD_MIME_TYPE_PATTERN.test(canonicalMimeType)
+			) {
+				throw new TypeError("canonicalMimeType must be a valid MIME type.");
+			}
+			store.setState((state) =>
+				updateStoredItem(state, id, (item) => {
+					requireStatus(item, ["resolving"], "complete resolution for");
+					return {
+						...item,
+						dismissed: false,
+						error: null,
+						failedStage: null,
+						mimeType: canonicalMimeType ?? item.mimeType,
+						resolutionStatus,
+						status:
+							resolutionStatus === "uploadRequired" ? "ready" : "complete",
+						uploadProgress:
+							resolutionStatus === "uploadRequired" ? item.uploadProgress : 1,
+					};
+				}),
+			);
+		},
+		markResolutionSucceededBatch: (results) => {
+			for (const { canonicalMimeType } of results) {
+				if (
+					canonicalMimeType !== undefined &&
+					!UPLOAD_MIME_TYPE_PATTERN.test(canonicalMimeType)
+				) {
+					throw new TypeError("canonicalMimeType must be a valid MIME type.");
+				}
+			}
+			const resultsById = new Map(results.map((result) => [result.id, result]));
+			store.setState((state) =>
+				updateStoredItems(
+					state,
+					results.map(({ id }) => id),
+					(item, id) => {
+						const result = resultsById.get(id);
+						if (!result) {
+							throw new RangeError(`Missing resolution result: ${id}`);
+						}
+						requireStatus(item, ["resolving"], "complete resolution for");
+						return {
+							...item,
+							dismissed: false,
+							error: null,
+							failedStage: null,
+							mimeType: result.canonicalMimeType ?? item.mimeType,
+							resolutionStatus: result.status,
+							status: result.status === "uploadRequired" ? "ready" : "complete",
+							uploadProgress:
+								result.status === "uploadRequired" ? item.uploadProgress : 1,
+						};
+					},
+				),
+			);
+		},
 		markRegistrationSucceeded: (id, fileMetadataId) => {
 			requireCanonicalValue(fileMetadataId, "fileMetadataId");
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["registering"], "complete registration for");
 					return {
 						...item,
@@ -505,30 +697,75 @@ export function createUploadQueueController(
 						error: null,
 						failedStage: null,
 						fileMetadataId,
+						resolutionStatus: "uploadRequired",
 						status: "complete",
+						verifyObject: false,
 					};
 				}),
 			);
 		},
+		markRegistrationSucceededBatch: (results) => {
+			for (const { fileMetadataId } of results) {
+				requireCanonicalValue(fileMetadataId, "fileMetadataId");
+			}
+			const resultsById = new Map(results.map((result) => [result.id, result]));
+			store.setState((state) =>
+				updateStoredItems(
+					state,
+					results.map(({ id }) => id),
+					(item, id) => {
+						const result = resultsById.get(id);
+						if (!result) {
+							throw new RangeError(`Missing registration result: ${id}`);
+						}
+						requireStatus(item, ["registering"], "complete registration for");
+						return {
+							...item,
+							dismissed: false,
+							error: null,
+							failedStage: null,
+							fileMetadataId: result.fileMetadataId,
+							resolutionStatus: "uploadRequired",
+							status: "complete",
+							verifyObject: false,
+						};
+					},
+				),
+			);
+		},
 		markUploadCheckpoint: (id, checkpoint) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["uploading"], "checkpoint");
 					return { ...item, checkpoint };
 				}),
 			),
+		markUploadCommitted: (id) =>
+			store.setState((state) =>
+				updateStoredItem(state, id, (item) => {
+					requireStatus(item, ["uploading"], "complete upload for");
+					return {
+						...item,
+						checkpoint: null,
+						error: null,
+						failedStage: null,
+						status: "uploaded",
+						uploadProgress: 1,
+						verifyObject: true,
+					};
+				}),
+			),
 		markUploadProgress: (id, uploadProgress) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["uploading"], "report upload progress for");
 					return { ...item, uploadProgress: clampProgress(uploadProgress) };
 				}),
 			),
-		markUploadReconciled: (id, objectEtag, fileMetadataId) => {
-			requireCanonicalValue(objectEtag, "objectEtag");
+		markUploadReconciled: (id, fileMetadataId) => {
 			requireCanonicalValue(fileMetadataId, "fileMetadataId");
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["failed", "cancelled"], "reconcile upload for");
 					if (
 						item.failedStage !== "upload" ||
@@ -546,73 +783,96 @@ export function createUploadQueueController(
 						error: null,
 						failedStage: null,
 						fileMetadataId,
-						objectEtag,
+						resolutionStatus: "uploadRequired",
 						status: "complete",
 						uploadProgress: 1,
+						verifyObject: false,
 					};
 				}),
 			);
 		},
-		markUploadSucceeded: (id, objectEtag) => {
-			requireCanonicalValue(objectEtag, "objectEtag");
+		markUploadSucceeded: (id) => {
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["uploading"], "complete upload for");
 					return {
 						...item,
 						checkpoint: null,
 						error: null,
 						failedStage: null,
-						objectEtag,
 						status: "uploaded",
 						uploadProgress: 1,
+						verifyObject: false,
 					};
 				}),
 			);
 		},
 		prepareRetry: (id) => {
-			const item = requireItem(store.state.items, id);
+			const item = getRequiredItem(id);
 			const stage = retryStage(item);
 			if (!stage) return null;
 			const discardCancelledCheckpoint =
 				item.status === "cancelled" && stage === "upload";
 			store.setState((state) =>
-				updateItem(state, id, (current) => ({
+				updateStoredItem(state, id, (current) => ({
 					...current,
 					checkpoint: discardCancelledCheckpoint ? null : current.checkpoint,
 					error: null,
 					failedStage: null,
+					verifyObject: stage === "upload" ? false : current.verifyObject,
 					status:
 						stage === "hash"
 							? "queued"
-							: stage === "upload"
+							: stage === "resolution"
 								? "ready"
-								: "uploaded",
+								: stage === "upload"
+									? "ready"
+									: "uploaded",
 				})),
 			);
 			return stage;
 		},
 		remove: (id) => {
-			const item = requireItem(store.state.items, id);
+			const item = getRequiredItem(id);
 			requireStatus(
 				item,
 				["queued", "ready", "uploaded", "complete", "failed", "cancelled"],
 				"remove",
 			);
-			store.setState((state) =>
-				withDerivedState({
-					items: state.items.filter((candidate) => candidate.id !== id),
+			store.setState((state) => {
+				const items = state.items.filter((candidate) => candidate.id !== id);
+				rebuildItemIndexes(items);
+				return withDerivedState({
+					items,
 					showCompleted: state.showCompleted,
-				}),
-			);
+				});
+			});
 		},
 		setObjectTarget: (id, objectKey) => {
 			requireCanonicalValue(objectKey, "objectKey");
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["ready"], "assign an object target to");
 					return { ...item, objectKey };
 				}),
+			);
+		},
+		setObjectTargetBatch: (targets) => {
+			for (const { objectKey } of targets) {
+				requireCanonicalValue(objectKey, "objectKey");
+			}
+			const targetsById = new Map(targets.map((target) => [target.id, target]));
+			store.setState((state) =>
+				updateStoredItems(
+					state,
+					targets.map(({ id }) => id),
+					(item, id) => {
+						const target = targetsById.get(id);
+						if (!target) throw new RangeError(`Missing object target: ${id}`);
+						requireStatus(item, ["ready"], "assign an object target to");
+						return { ...item, objectKey: target.objectKey };
+					},
+				),
 			);
 		},
 		setShowCompleted: (nextShowCompleted) =>
@@ -622,7 +882,20 @@ export function createUploadQueueController(
 			})),
 		startHash: (id) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
+					requireStatus(item, ["queued"], "start hashing");
+					return {
+						...item,
+						error: null,
+						failedStage: null,
+						hashProgress: 0,
+						status: "hashing",
+					};
+				}),
+			),
+		startHashBatch: (ids) =>
+			store.setState((state) =>
+				updateStoredItems(state, ids, (item) => {
 					requireStatus(item, ["queued"], "start hashing");
 					return {
 						...item,
@@ -635,7 +908,7 @@ export function createUploadQueueController(
 			),
 		startRegistration: (id) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["uploaded"], "start registration for");
 					return {
 						...item,
@@ -645,11 +918,57 @@ export function createUploadQueueController(
 					};
 				}),
 			),
+		startRegistrationBatch: (ids) =>
+			store.setState((state) =>
+				updateStoredItems(state, ids, (item) => {
+					requireStatus(item, ["uploaded"], "start registration for");
+					return {
+						...item,
+						error: null,
+						failedStage: null,
+						status: "registering",
+					};
+				}),
+			),
+		startResolution: (id) =>
+			store.setState((state) =>
+				updateStoredItem(state, id, (item) => {
+					requireStatus(item, ["ready"], "start resolution for");
+					if (!item.sha256) {
+						throw new Error("A hash is required before draft resolution.");
+					}
+					return {
+						...item,
+						error: null,
+						failedStage: null,
+						status: "resolving",
+					};
+				}),
+			),
+		startResolutionBatch: (ids) =>
+			store.setState((state) =>
+				updateStoredItems(state, ids, (item) => {
+					requireStatus(item, ["ready"], "start resolution for");
+					if (!item.sha256) {
+						throw new Error("A hash is required before draft resolution.");
+					}
+					return {
+						...item,
+						error: null,
+						failedStage: null,
+						status: "resolving",
+					};
+				}),
+			),
 		startUpload: (id) =>
 			store.setState((state) =>
-				updateItem(state, id, (item) => {
+				updateStoredItem(state, id, (item) => {
 					requireStatus(item, ["ready"], "start upload for");
-					if (!item.sha256 || !item.objectKey) {
+					if (
+						!item.sha256 ||
+						!item.objectKey ||
+						item.resolutionStatus !== "uploadRequired"
+					) {
 						throw new Error(
 							"A hash and object target are required before upload.",
 						);

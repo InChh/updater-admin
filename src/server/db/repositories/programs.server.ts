@@ -121,12 +121,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+const MAX_DATABASE_ERROR_CAUSE_DEPTH = 8;
+
 export function isLiveProgramNameUniqueViolation(error: unknown): boolean {
-	return (
-		isRecord(error) &&
-		error.code === "23505" &&
-		error.constraint === "applications_live_name_unique"
-	);
+	const visited = new Set<object>();
+	let current = error;
+
+	for (
+		let depth = 0;
+		depth < MAX_DATABASE_ERROR_CAUSE_DEPTH && isRecord(current);
+		depth++
+	) {
+		if (visited.has(current)) return false;
+		visited.add(current);
+
+		if (
+			current.code === "23505" &&
+			current.constraint === "applications_live_name_unique"
+		) {
+			return true;
+		}
+
+		current = current.cause;
+	}
+
+	return false;
 }
 
 export function escapeLikeLiteral(value: string): string {
@@ -284,15 +303,18 @@ export function createProgramsRepository(
 			const [program] = await resolveDatabase()
 				.select({
 					...PROGRAM_SELECTION,
-					versionCount: sql<number>`(
-						select count(*)::integer
-						from ${applicationVersions}
-						where ${applicationVersions.applicationId} = ${applications.id}
-							and ${applicationVersions.deletedAt} is null
-					)`,
+					versionCount: count(applicationVersions.id),
 				})
 				.from(applications)
+				.leftJoin(
+					applicationVersions,
+					and(
+						eq(applicationVersions.applicationId, applications.id),
+						isNull(applicationVersions.deletedAt),
+					),
+				)
 				.where(and(eq(applications.id, id), isNull(applications.deletedAt)))
+				.groupBy(applications.id)
 				.limit(1);
 			return program ?? null;
 		},

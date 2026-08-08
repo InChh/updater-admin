@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { ApiProblemError } from "../../lib/api/client";
 import type {
 	CompleteUploadItemInput,
 	CompleteUploadsRequest,
-	CompleteUploadsResponse,
-	UploadCredentialsRequest,
+	ResolveDraftFilesRequest,
 	UploadCredentialsResponse,
 } from "../../shared/api/uploads";
 import {
 	MAX_COMPLETE_UPLOAD_FILES,
+	MAX_RESOLVE_DRAFT_FILES,
 	UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
 	UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
 } from "../../shared/api/uploads";
@@ -17,24 +18,27 @@ import type {
 	OssMultipartUploadInput,
 	OssMultipartUploadResult,
 } from "./oss-uploader.client";
-import { OssUploadCancelledError } from "./oss-uploader.client";
+import { OssUploadAlreadyExistsError } from "./oss-uploader.client";
 import { createUploadQueueController } from "./upload-store";
-import type {
-	StartUploadWorkflowHashTask,
-	StartUploadWorkflowMultipartTask,
-} from "./upload-workflow.client";
 import {
 	createUploadWorkflow,
 	UPLOAD_FILE_CONCURRENCY,
 	UPLOAD_HASH_CONCURRENCY,
+	UPLOAD_HASH_RESULT_BATCH_SIZE,
+	UPLOAD_REGISTRATION_CONCURRENCY,
+	UPLOAD_RESOLUTION_CONCURRENCY,
 } from "./upload-workflow.client";
 
 vi.mock("ali-oss", () => ({ default: class AliOssStub {} }));
 
+const PROGRAM_ID = "ca6f79db-c7c4-4a34-9ab5-2a85ca9df501";
+const VERSION_ID = "31ddcbe4-4a31-4c35-9738-e88d974a20f4";
 const HASH_A = "a".repeat(64);
-const HASH_B = "b".repeat(64);
 const CHECKPOINT = {
 	doneParts: [{ etag: "part-etag", number: 1 }],
+	fileSize: 1,
+	name: `releases/${HASH_A}/release/file-0.bin`,
+	partSize: 4 * 1024 * 1024,
 	uploadId: "multipart-upload-id",
 };
 
@@ -51,65 +55,58 @@ function deferred<Value>(): Deferred<Value> {
 		resolvePromise = resolve;
 		rejectPromise = reject;
 	});
+	return { promise, reject: rejectPromise, resolve: resolvePromise };
+}
+
+function releaseFile(index: number): File {
+	return new File([String(index)], `file-${index}.bin`, {
+		type: "application/octet-stream",
+	});
+}
+
+function addFiles(
+	queue: ReturnType<typeof createUploadQueueController>,
+	count: number,
+) {
+	queue.addFiles(
+		Array.from({ length: count }, (_, index) => ({
+			file: releaseFile(index),
+			path: `release/file-${index}.bin`,
+		})),
+	);
+}
+
+function hashTask(itemId: string): HashWorkerTask {
 	return {
-		promise,
-		reject: rejectPromise,
-		resolve: resolvePromise,
+		cancel: vi.fn(),
+		jobId: itemId,
+		promise: Promise.resolve(HASH_A),
 	};
 }
 
-function releaseFile(name: string, contents: string): File {
-	return new File([contents], name, { type: "application/octet-stream" });
-}
-
-function hashForFile(file: File): string {
-	return file.name.startsWith("alpha") ? HASH_A : HASH_B;
-}
-
-function resolvedHashTask(
-	itemId: string,
-	sha256: string,
-	cancel = vi.fn(),
-): HashWorkerTask {
-	return { cancel, jobId: itemId, promise: Promise.resolve(sha256) };
-}
-
-function credentialsResponse(
-	request: UploadCredentialsRequest,
+function credentials(
+	accessKeyId = "temporary-access-key",
+	expiration = 4_102_444_800_000,
 ): UploadCredentialsResponse {
 	return {
 		bucket: "release-bucket",
 		credentials: {
-			accessKeyId: "temporary-access-key",
+			accessKeyId,
 			accessKeySecret: "temporary-secret",
-			expiration: "2099-07-15T05:00:00.000Z",
+			expiration: new Date(expiration).toISOString(),
 			securityToken: "temporary-token",
 		},
-		// Reverse the response to prove that targets are joined by canonical path.
-		objects: request.files
-			.map(({ path, sha256 }) => ({
-				objectKey: `releases/${sha256}/${path}`,
-				path,
-			}))
-			.reverse(),
 		region: "oss-cn-hangzhou",
+		uploadPrefix: "releases/",
 	};
 }
 
-function completedFile(
-	file: CompleteUploadItemInput,
-): CompleteUploadsResponse["files"][number] {
-	const submittedEtag = file.objectEtag ?? `"etag:${file.objectKey}"`;
-	const objectEtag =
-		submittedEtag.startsWith('"') && submittedEtag.endsWith('"')
-			? submittedEtag.slice(1, -1)
-			: submittedEtag;
+function completedFile(file: CompleteUploadItemInput) {
 	return {
-		checksumAlgorithm: "sha256",
+		checksumAlgorithm: "sha256" as const,
 		createdAt: "2026-07-15T04:00:00.000Z",
 		id: `metadata:${file.path}`,
 		mimeType: file.mimeType,
-		objectEtag,
 		path: file.path,
 		sha256: file.sha256,
 		size: file.size,
@@ -117,1054 +114,639 @@ function completedFile(
 	};
 }
 
-function apiProblem(
-	code: string,
-	status: number,
-	fieldErrors?: readonly { readonly code: string; readonly path: string }[],
-): ApiProblemError {
+function completionResponse(request: CompleteUploadsRequest) {
+	return { files: request.files.map(completedFile) };
+}
+
+function transientCompletionError(status: 502 | 503 | 504): ApiProblemError {
 	return new ApiProblemError({
-		code,
-		...(fieldErrors ? { fieldErrors } : {}),
-		requestId: "request-id",
+		code:
+			status === 503 ? "UPLOAD_VERIFICATION_UNAVAILABLE" : "INVALID_RESPONSE",
+		requestId: `req-${status}`,
 		status,
-		title: code,
-		type: "https://updater.example/problems/upload",
+		title: "Request failed",
+		type: "about:blank",
 	});
 }
 
-function missingObjectProblem(): ApiProblemError {
-	return apiProblem(UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE, 409, [
-		{ code: UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE, path: "files.0.objectKey" },
-	]);
-}
-
-async function completeUploadedOrReportMissing(
-	request: CompleteUploadsRequest,
-): Promise<CompleteUploadsResponse> {
-	if (request.files.some(({ objectEtag }) => objectEtag === undefined)) {
-		throw missingObjectProblem();
-	}
-	return completionResponse(request);
-}
-
-function completionResponse(
-	request: CompleteUploadsRequest,
-): CompleteUploadsResponse {
-	return {
-		// Reverse the response to prove that metadata IDs are joined by path.
-		files: request.files.map(completedFile).reverse(),
-	};
-}
-
-function successfulUploader(
-	uploads: OssMultipartUploadInput[],
-): StartUploadWorkflowMultipartTask {
-	return (input) => {
+function successfulUploader(uploads: OssMultipartUploadInput[]) {
+	return (input: OssMultipartUploadInput) => {
 		uploads.push(input);
-		input.onProgress?.(0.5);
 		return {
 			cancel: vi.fn(),
 			promise: Promise.resolve({
-				objectEtag: `"etag:${input.objectKey}"`,
 				objectKey: input.objectKey,
 			}),
 		};
 	};
 }
 
-function addTwoFiles(queue: ReturnType<typeof createUploadQueueController>) {
-	return queue.addFiles([
-		{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		{ file: releaseFile("beta.bin", "beta"), path: "assets/beta.bin" },
-	]);
+function configureDraft(
+	workflow: ReturnType<typeof createUploadWorkflow>,
+): void {
+	workflow.setDraft({ programId: PROGRAM_ID, versionId: VERSION_ID });
 }
 
-describe("browser upload workflow", () => {
-	it("runs one credentials batch, maps targets and ETags by path, and exposes ordered completed IDs", async () => {
+describe("incremental browser upload workflow", () => {
+	it("hashes files with four bounded browser workers", async () => {
 		const queue = createUploadQueueController({ storage: null });
-		addTwoFiles(queue);
-		const credentialsRequests: UploadCredentialsRequest[] = [];
-		const completionRequests: CompleteUploadsRequest[] = [];
-		const uploads: OssMultipartUploadInput[] = [];
-		const hashCalls: string[] = [];
-		const startHashTask: StartUploadWorkflowHashTask = (input) => {
-			hashCalls.push(input.file.name);
-			input.onProgress(1);
-			return resolvedHashTask(input.itemId, hashForFile(input.file));
-		};
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => {
-				completionRequests.push(request);
-				return completionResponse(request);
-			},
-			requestCredentials: async (request) => {
-				credentialsRequests.push(request);
-				return credentialsResponse(request);
-			},
-			startHashTask,
-			startUploadTask: successfulUploader(uploads),
-		});
-
-		await workflow.start();
-
-		expect(hashCalls).toEqual(["alpha.bin", "beta.bin"]);
-		expect(credentialsRequests).toHaveLength(1);
-		expect(credentialsRequests[0]?.files.map(({ path }) => path)).toEqual([
-			"bin/alpha.bin",
-			"assets/beta.bin",
-		]);
-		expect(uploads.map(({ objectKey }) => objectKey)).toEqual([
-			`releases/${HASH_A}/bin/alpha.bin`,
-			`releases/${HASH_B}/assets/beta.bin`,
-		]);
-		expect(completionRequests).toHaveLength(1);
-		expect(
-			completionRequests[0]?.files.map(({ objectEtag, objectKey, path }) => ({
-				objectEtag,
-				objectKey,
-				path,
-			})),
-		).toEqual([
-			{
-				objectEtag: `"etag:releases/${HASH_A}/bin/alpha.bin"`,
-				objectKey: `releases/${HASH_A}/bin/alpha.bin`,
-				path: "bin/alpha.bin",
-			},
-			{
-				objectEtag: `"etag:releases/${HASH_B}/assets/beta.bin"`,
-				objectKey: `releases/${HASH_B}/assets/beta.bin`,
-				path: "assets/beta.bin",
-			},
-		]);
-		expect(workflow.getCompletedFileMetadataIds()).toEqual([
-			"metadata:bin/alpha.bin",
-			"metadata:assets/beta.bin",
-		]);
-		expect(
-			queue.getState().items.every(({ status }) => status === "complete"),
-		).toBe(true);
-		queue.dispose();
-	});
-
-	it("chunks completion HEAD verification while preserving the selected file order", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const fileCount = MAX_COMPLETE_UPLOAD_FILES * 2 + 3;
-		queue.addFiles(
-			Array.from({ length: fileCount }, (_, index) => ({
-				file: releaseFile(`file-${index}.bin`, String(index)),
-				path: `release/file-${index}.bin`,
-			})),
+		addFiles(queue, UPLOAD_HASH_CONCURRENCY + 1);
+		const gates = Array.from({ length: UPLOAD_HASH_CONCURRENCY + 1 }, () =>
+			deferred<string>(),
 		);
-		const completionRequests: CompleteUploadsRequest[] = [];
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => {
-				completionRequests.push(request);
-				return completionResponse(request);
-			},
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: successfulUploader([]),
-		});
-
-		await workflow.start();
-
-		expect(completionRequests.map(({ files }) => files.length)).toEqual([
-			MAX_COMPLETE_UPLOAD_FILES,
-			MAX_COMPLETE_UPLOAD_FILES,
-			3,
-		]);
-		expect(workflow.getCompletedFileMetadataIds()).toEqual(
-			Array.from(
-				{ length: fileCount },
-				(_, index) => `metadata:release/file-${index}.bin`,
-			),
-		);
-		queue.dispose();
-	});
-
-	it("requests a new object target when the same path is reselected with new content", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const credentialRequests: UploadCredentialsRequest[] = [];
-		const uploads: OssMultipartUploadInput[] = [];
+		let started = 0;
+		let inFlight = 0;
+		let maximumInFlight = 0;
 		const workflow = createUploadWorkflow(queue, {
 			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => {
-				credentialRequests.push(request);
-				return credentialsResponse(request);
-			},
-			startHashTask: (input) =>
-				resolvedHashTask(input.itemId, hashForFile(input.file)),
-			startUploadTask: successfulUploader(uploads),
-		});
-		const [first] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/app.bin" },
-		]);
-		if (!first) throw new Error("fixture was not created");
-
-		await workflow.start();
-		await workflow.discard(first.id);
-		queue.addFiles([
-			{ file: releaseFile("beta.bin", "beta"), path: "bin/app.bin" },
-		]);
-		await workflow.start();
-
-		expect(credentialRequests).toHaveLength(2);
-		expect(credentialRequests.map(({ files }) => files[0]?.sha256)).toEqual([
-			HASH_A,
-			HASH_B,
-		]);
-		expect(uploads.map(({ objectKey }) => objectKey)).toEqual([
-			`releases/${HASH_A}/bin/app.bin`,
-			`releases/${HASH_B}/bin/app.bin`,
-		]);
-		queue.dispose();
-	});
-
-	it("retries only the failed hash before continuing the batch", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = addTwoFiles(queue);
-		if (!alpha) throw new Error("fixture was not created");
-		const hashAttempts = new Map<string, number>();
-		const credentialRequests: UploadCredentialsRequest[] = [];
-		const uploads: OssMultipartUploadInput[] = [];
-		const startHashTask: StartUploadWorkflowHashTask = (input) => {
-			const attempt = (hashAttempts.get(input.file.name) ?? 0) + 1;
-			hashAttempts.set(input.file.name, attempt);
-			if (input.file.name === "alpha.bin" && attempt === 1) {
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({ path, status: "reused" })),
+			}),
+			startHashTask: (input) => {
+				const gate = gates[started];
+				if (!gate) throw new Error("Missing hash gate.");
+				started += 1;
+				inFlight += 1;
+				maximumInFlight = Math.max(maximumInFlight, inFlight);
 				return {
 					cancel: vi.fn(),
 					jobId: input.itemId,
-					promise: Promise.reject(new Error("hash worker crashed")),
-				};
-			}
-			return resolvedHashTask(input.itemId, hashForFile(input.file));
-		};
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => {
-				credentialRequests.push(request);
-				return credentialsResponse(request);
-			},
-			startHashTask,
-			startUploadTask: successfulUploader(uploads),
-		});
-
-		await expect(workflow.start()).rejects.toThrow("hash worker crashed");
-		expect(queue.getState().items).toMatchObject([
-			{ failedStage: "hash", status: "failed" },
-			{ status: "ready" },
-		]);
-		expect(credentialRequests).toHaveLength(0);
-
-		await expect(workflow.retry(alpha.id)).resolves.toBe("hash");
-		expect(hashAttempts).toEqual(
-			new Map([
-				["alpha.bin", 2],
-				["beta.bin", 1],
-			]),
-		);
-		expect(credentialRequests).toHaveLength(1);
-		expect(uploads).toHaveLength(2);
-		expect(workflow.getCompletedFileMetadataIds()).toHaveLength(2);
-		queue.dispose();
-	});
-
-	it("queues a failed-file retry while another file in the folder is still running", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = addTwoFiles(queue);
-		if (!alpha) throw new Error("fixture was not created");
-		const betaHash = deferred<string>();
-		let alphaAttempts = 0;
-		const uploads: OssMultipartUploadInput[] = [];
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => {
-				if (input.file.name === "beta.bin") {
-					return {
-						cancel: vi.fn(),
-						jobId: input.itemId,
-						promise: betaHash.promise,
-					};
-				}
-				alphaAttempts += 1;
-				return alphaAttempts === 1
-					? {
-							cancel: vi.fn(),
-							jobId: input.itemId,
-							promise: Promise.reject(new Error("alpha hash failed")),
-						}
-					: resolvedHashTask(input.itemId, HASH_A);
-			},
-			startUploadTask: successfulUploader(uploads),
-		});
-
-		const startPromise = workflow.start();
-		await vi.waitFor(() =>
-			expect(queue.getState().items[0]).toMatchObject({
-				failedStage: "hash",
-				status: "failed",
-			}),
-		);
-		const retryPromise = workflow.retry(alpha.id);
-		let retrySettled = false;
-		void retryPromise.finally(() => {
-			retrySettled = true;
-		});
-		await Promise.resolve();
-		expect(retrySettled).toBe(false);
-		expect(workflow.isRunning()).toBe(true);
-
-		betaHash.resolve(HASH_B);
-		await expect(startPromise).rejects.toThrow("alpha hash failed");
-		await expect(retryPromise).resolves.toBe("hash");
-
-		expect(alphaAttempts).toBe(2);
-		expect(uploads).toHaveLength(2);
-		expect(workflow.getCompletedFileMetadataIds()).toHaveLength(2);
-		expect(workflow.isRunning()).toBe(false);
-		queue.dispose();
-	});
-
-	it("treats a queued retry as cancelled when its row is discarded", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = addTwoFiles(queue);
-		if (!alpha) throw new Error("fixture was not created");
-		const betaHash = deferred<string>();
-		const uploads: OssMultipartUploadInput[] = [];
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) =>
-				input.file.name === "beta.bin"
-					? {
-							cancel: vi.fn(),
-							jobId: input.itemId,
-							promise: betaHash.promise,
-						}
-					: {
-							cancel: vi.fn(),
-							jobId: input.itemId,
-							promise: Promise.reject(new Error("alpha hash failed")),
-						},
-			startUploadTask: successfulUploader(uploads),
-		});
-
-		const startPromise = workflow.start();
-		await vi.waitFor(() =>
-			expect(queue.getState().items[0]).toMatchObject({ status: "failed" }),
-		);
-		const retryPromise = workflow.retry(alpha.id);
-		await workflow.discard(alpha.id);
-		betaHash.resolve(HASH_B);
-
-		await expect(startPromise).rejects.toThrow("alpha hash failed");
-		await expect(retryPromise).resolves.toBeNull();
-		await workflow.start();
-		expect(uploads).toHaveLength(1);
-		expect(queue.getState().items).toHaveLength(1);
-		expect(queue.getState().items[0]?.status).toBe("complete");
-		queue.dispose();
-	});
-
-	it("preserves the multipart checkpoint and retries only the failed upload", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = addTwoFiles(queue);
-		if (!alpha) throw new Error("fixture was not created");
-		const uploadAttempts = new Map<string, number>();
-		const uploadInputs: OssMultipartUploadInput[] = [];
-		const credentialRequests: UploadCredentialsRequest[] = [];
-		let completionCalls = 0;
-		const startUploadTask: StartUploadWorkflowMultipartTask = (input) => {
-			uploadInputs.push(input);
-			const attempt = (uploadAttempts.get(input.objectKey) ?? 0) + 1;
-			uploadAttempts.set(input.objectKey, attempt);
-			if (input.objectKey.includes("alpha.bin") && attempt === 1) {
-				input.onCheckpoint?.(CHECKPOINT);
-				return {
-					cancel: vi.fn(),
-					promise: Promise.reject(new Error("OSS connection reset")),
-				};
-			}
-			return {
-				cancel: vi.fn(),
-				promise: Promise.resolve({
-					objectEtag: `"etag:${input.objectKey}"`,
-					objectKey: input.objectKey,
-				}),
-			};
-		};
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => {
-				if (request.files.some(({ objectEtag }) => objectEtag === undefined)) {
-					throw missingObjectProblem();
-				}
-				completionCalls += 1;
-				return completionResponse(request);
-			},
-			requestCredentials: async (request) => {
-				credentialRequests.push(request);
-				return credentialsResponse(request);
-			},
-			startHashTask: (input) =>
-				resolvedHashTask(input.itemId, hashForFile(input.file)),
-			startUploadTask,
-		});
-
-		await expect(workflow.start()).rejects.toThrow("OSS connection reset");
-		expect(queue.getState().items).toMatchObject([
-			{ checkpoint: CHECKPOINT, failedStage: "upload", status: "failed" },
-			{ status: "uploaded" },
-		]);
-		expect(completionCalls).toBe(0);
-
-		await expect(workflow.retry(alpha.id)).resolves.toBe("upload");
-		expect(credentialRequests).toHaveLength(1);
-		expect(uploadInputs).toHaveLength(3);
-		expect(uploadInputs[2]?.checkpoint).toBe(CHECKPOINT);
-		expect(completionCalls).toBe(1);
-		expect(workflow.getCompletedFileMetadataIds()).toHaveLength(2);
-		queue.dispose();
-	});
-
-	it("refreshes nearly expired STS credentials before retrying the same object target", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!alpha) throw new Error("fixture was not created");
-		let now = 0;
-		let credentialCalls = 0;
-		let hashCalls = 0;
-		const uploadInputs: OssMultipartUploadInput[] = [];
-		const startUploadTask: StartUploadWorkflowMultipartTask = (input) => {
-			uploadInputs.push(input);
-			if (uploadInputs.length === 1) {
-				input.onCheckpoint?.(CHECKPOINT);
-				return {
-					cancel: vi.fn(),
-					promise: Promise.reject(new Error("temporary upload failure")),
-				};
-			}
-			return {
-				cancel: vi.fn(),
-				promise: Promise.resolve({
-					objectEtag: `"etag:${input.objectKey}"`,
-					objectKey: input.objectKey,
-				}),
-			};
-		};
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: completeUploadedOrReportMissing,
-			now: () => now,
-			requestCredentials: async (request) => {
-				credentialCalls += 1;
-				const response = credentialsResponse(request);
-				return {
-					...response,
-					credentials: {
-						...response.credentials,
-						accessKeyId: `temporary-access-key-${credentialCalls}`,
-						expiration: new Date(now + 120_000).toISOString(),
-					},
-				};
-			},
-			startHashTask: (input) => {
-				hashCalls += 1;
-				return resolvedHashTask(input.itemId, HASH_A);
-			},
-			startUploadTask,
-		});
-
-		await expect(workflow.start()).rejects.toThrow("temporary upload failure");
-		expect(credentialCalls).toBe(1);
-		now = 70_000;
-
-		await expect(workflow.retry(alpha.id)).resolves.toBe("upload");
-		expect(credentialCalls).toBe(2);
-		expect(hashCalls).toBe(1);
-		expect(uploadInputs).toHaveLength(2);
-		expect(uploadInputs[1]).toMatchObject({
-			checkpoint: CHECKPOINT,
-			credentials: { accessKeyId: "temporary-access-key-2" },
-			objectKey: uploadInputs[0]?.objectKey,
-		});
-		expect(workflow.getCompletedFileMetadataIds()).toEqual([
-			"metadata:bin/alpha.bin",
-		]);
-		queue.dispose();
-	});
-
-	it("retries one failed completion batch without rehashing or reuploading", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = addTwoFiles(queue);
-		if (!alpha) throw new Error("fixture was not created");
-		const uploads: OssMultipartUploadInput[] = [];
-		const completionRequests: CompleteUploadsRequest[] = [];
-		let hashCalls = 0;
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => {
-				completionRequests.push(request);
-				if (completionRequests.length === 1) {
-					throw new Error("metadata transaction unavailable");
-				}
-				return completionResponse(request);
-			},
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => {
-				hashCalls += 1;
-				return resolvedHashTask(input.itemId, hashForFile(input.file));
-			},
-			startUploadTask: successfulUploader(uploads),
-		});
-
-		await expect(workflow.start()).rejects.toThrow(
-			"metadata transaction unavailable",
-		);
-		const uploadedProofs = queue
-			.getState()
-			.items.map(({ objectEtag, objectKey, sha256 }) => ({
-				objectEtag,
-				objectKey,
-				sha256,
-			}));
-		expect(queue.getState().items).toMatchObject([
-			{ failedStage: "registration", status: "failed" },
-			{ failedStage: "registration", status: "failed" },
-		]);
-
-		await expect(workflow.retry(alpha.id)).resolves.toBe("registration");
-		expect(hashCalls).toBe(2);
-		expect(uploads).toHaveLength(2);
-		expect(completionRequests).toHaveLength(2);
-		expect(
-			queue.getState().items.map(({ objectEtag, objectKey, sha256 }) => ({
-				objectEtag,
-				objectKey,
-				sha256,
-			})),
-		).toEqual(uploadedProofs);
-		const completedIds = workflow.getCompletedFileMetadataIds();
-		expect(completedIds).toEqual([
-			"metadata:bin/alpha.bin",
-			"metadata:assets/beta.bin",
-		]);
-
-		await workflow.start();
-		expect(workflow.getCompletedFileMetadataIds()).toEqual(completedIds);
-		expect(completionRequests).toHaveLength(2);
-		queue.dispose();
-	});
-
-	it("cancels an active per-file upload and resumes that exact stage", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [alpha] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!alpha) throw new Error("fixture was not created");
-		let uploadAttempts = 0;
-		let firstUploadStarted: (() => void) | undefined;
-		const uploadStarted = new Promise<void>((resolve) => {
-			firstUploadStarted = resolve;
-		});
-		let rejectFirstUpload: ((reason?: unknown) => void) | undefined;
-		const uploadInputs: OssMultipartUploadInput[] = [];
-		const startUploadTask: StartUploadWorkflowMultipartTask = (input) => {
-			uploadAttempts += 1;
-			uploadInputs.push(input);
-			if (uploadAttempts === 1) {
-				input.onCheckpoint?.(CHECKPOINT);
-				const promise = new Promise<OssMultipartUploadResult>(
-					(_resolve, reject) => {
-						rejectFirstUpload = reject;
-						firstUploadStarted?.();
-					},
-				);
-				return {
-					cancel: () => rejectFirstUpload?.(new OssUploadCancelledError()),
-					promise,
-				};
-			}
-			return {
-				cancel: vi.fn(),
-				promise: Promise.resolve({
-					objectEtag: `"etag:${input.objectKey}"`,
-					objectKey: input.objectKey,
-				}),
-			};
-		};
-		let hashCalls = 0;
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: completeUploadedOrReportMissing,
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => {
-				hashCalls += 1;
-				return resolvedHashTask(input.itemId, HASH_A);
-			},
-			startUploadTask,
-		});
-
-		const running = workflow.start();
-		await uploadStarted;
-		expect(workflow.isRunning()).toBe(true);
-		expect(workflow.cancel(alpha.id)).toBe("upload");
-		await expect(running).rejects.toBeInstanceOf(OssUploadCancelledError);
-		expect(queue.getState().items[0]).toMatchObject({
-			checkpoint: CHECKPOINT,
-			failedStage: "upload",
-			status: "cancelled",
-		});
-
-		await expect(workflow.retry(alpha.id)).resolves.toBe("upload");
-		expect(hashCalls).toBe(1);
-		expect(uploadAttempts).toBe(2);
-		expect(uploadInputs[1]?.checkpoint).toBeNull();
-		expect(workflow.getCompletedFileMetadataIds()).toEqual([
-			"metadata:bin/alpha.bin",
-		]);
-		queue.dispose();
-	});
-
-	it("aborts a settled multipart checkpoint before removing a failed row", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		const abortCheckpoint = vi.fn(async () => "aborted" as const);
-		const workflow = createUploadWorkflow(queue, {
-			abortCheckpoint,
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: (input) => {
-				input.onCheckpoint?.(CHECKPOINT);
-				return {
-					cancel: vi.fn(),
-					promise: Promise.reject(new Error("multipart connection failed")),
-				};
-			},
-		});
-
-		await expect(workflow.start()).rejects.toThrow(
-			"multipart connection failed",
-		);
-		await workflow.discard(item.id);
-
-		expect(abortCheckpoint).toHaveBeenCalledWith(
-			expect.objectContaining({
-				bucket: "release-bucket",
-				checkpoint: CHECKPOINT,
-				objectKey: `releases/${HASH_A}/bin/alpha.bin`,
-				region: "oss-cn-hangzhou",
-			}),
-		);
-		expect(queue.getState().items).toHaveLength(0);
-		queue.dispose();
-	});
-
-	it("reconciles a cancelled upload that committed before cancellation won the race", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		const uploadStarted = deferred<void>();
-		const uploadResult = deferred<OssMultipartUploadResult>();
-		const uploadInputs: OssMultipartUploadInput[] = [];
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: (input) => {
-				uploadInputs.push(input);
-				uploadStarted.resolve();
-				return {
-					cancel: () => uploadResult.reject(new OssUploadCancelledError()),
-					promise: uploadResult.promise,
-				};
-			},
-		});
-
-		const running = workflow.start();
-		await uploadStarted.promise;
-		expect(workflow.cancel(item.id)).toBe("upload");
-		await expect(running).rejects.toBeInstanceOf(OssUploadCancelledError);
-		await expect(workflow.retry(item.id)).resolves.toBe("upload");
-
-		expect(uploadInputs).toHaveLength(1);
-		expect(queue.getState().items[0]).toMatchObject({
-			attempt: 1,
-			fileMetadataId: "metadata:bin/alpha.bin",
-			status: "complete",
-		});
-		queue.dispose();
-	});
-
-	it("bounds hash workers independently of the selected file count", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const fileCount = UPLOAD_HASH_CONCURRENCY * 3 + 1;
-		queue.addFiles(
-			Array.from({ length: fileCount }, (_, index) => ({
-				file: releaseFile(`file-${index}.bin`, String(index)),
-				path: `files/file-${index}.bin`,
-			})),
-		);
-		const gates = Array.from({ length: fileCount }, () => deferred<void>());
-		const started: string[] = [];
-		let active = 0;
-		let maximumActive = 0;
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => {
-				const index = Number.parseInt(input.file.name.slice(5), 10);
-				const gate = gates[index];
-				if (!gate) throw new Error("missing hash gate");
-				started.push(input.file.name);
-				active += 1;
-				maximumActive = Math.max(maximumActive, active);
-				return {
-					cancel: vi.fn(),
-					jobId: input.itemId,
-					promise: gate.promise
-						.then(() => HASH_A)
-						.finally(() => {
-							active -= 1;
-						}),
-				};
-			},
-			startUploadTask: successfulUploader([]),
-		});
-
-		const running = workflow.start();
-		await vi.waitFor(() => {
-			expect(started).toHaveLength(UPLOAD_HASH_CONCURRENCY);
-		});
-		for (let index = 0; index < fileCount; index += 1) {
-			gates[index]?.resolve();
-			const expectedStarted = Math.min(
-				fileCount,
-				index + UPLOAD_HASH_CONCURRENCY + 1,
-			);
-			await vi.waitFor(() => {
-				expect(started.length).toBeGreaterThanOrEqual(expectedStarted);
-			});
-		}
-		await running;
-
-		expect(maximumActive).toBe(UPLOAD_HASH_CONCURRENCY);
-		expect(started).toEqual(
-			Array.from({ length: fileCount }, (_, index) => `file-${index}.bin`),
-		);
-		queue.dispose();
-	});
-
-	it("bounds concurrent files while retaining per-file multipart behavior", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const fileCount = UPLOAD_FILE_CONCURRENCY * 2 + 1;
-		queue.addFiles(
-			Array.from({ length: fileCount }, (_, index) => ({
-				file: releaseFile(`file-${index}.bin`, String(index)),
-				path: `files/file-${index}.bin`,
-			})),
-		);
-		const gates = Array.from({ length: fileCount }, () =>
-			deferred<OssMultipartUploadResult>(),
-		);
-		const started: string[] = [];
-		let active = 0;
-		let maximumActive = 0;
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: (input) => {
-				const index = Number.parseInt(input.file.name.slice(5), 10);
-				const gate = gates[index];
-				if (!gate) throw new Error("missing upload gate");
-				started.push(input.file.name);
-				active += 1;
-				maximumActive = Math.max(maximumActive, active);
-				return {
-					cancel: vi.fn(),
 					promise: gate.promise.finally(() => {
-						active -= 1;
+						inFlight -= 1;
 					}),
 				};
 			},
+			startUploadTask: successfulUploader([]),
 		});
+		configureDraft(workflow);
 
 		const running = workflow.start();
-		await vi.waitFor(() => {
-			expect(started).toHaveLength(UPLOAD_FILE_CONCURRENCY);
-		});
-		for (let index = 0; index < fileCount; index += 1) {
-			const item = queue.getState().items[index];
-			if (!item?.objectKey) throw new Error("missing upload target");
-			gates[index]?.resolve({
-				objectEtag: `"etag:${item.objectKey}"`,
-				objectKey: item.objectKey,
-			});
-			const expectedStarted = Math.min(
-				fileCount,
-				index + UPLOAD_FILE_CONCURRENCY + 1,
-			);
-			await vi.waitFor(() => {
-				expect(started.length).toBeGreaterThanOrEqual(expectedStarted);
-			});
-		}
+		await vi.waitFor(() => expect(started).toBe(UPLOAD_HASH_CONCURRENCY));
+		expect(maximumInFlight).toBe(UPLOAD_HASH_CONCURRENCY);
+		gates[0]?.resolve(HASH_A);
+		await vi.waitFor(() => expect(started).toBe(UPLOAD_HASH_CONCURRENCY + 1));
+		for (const gate of gates.slice(1)) gate.resolve(HASH_A);
 		await running;
 
-		expect(maximumActive).toBe(UPLOAD_FILE_CONCURRENCY);
-		expect(started).toEqual(
-			Array.from({ length: fileCount }, (_, index) => `file-${index}.bin`),
-		);
+		expect(maximumInFlight).toBe(UPLOAD_HASH_CONCURRENCY);
+		workflow.dispose();
 		queue.dispose();
 	});
 
-	it("ignores late hash callbacks after cancel and immediate removal", async () => {
+	it("publishes completed hash totals before the entire folder finishes", async () => {
 		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		const result = deferred<string>();
-		let reportProgress: ((progress: number) => void) | undefined;
-		let started: (() => void) | undefined;
-		const taskStarted = new Promise<void>((resolve) => {
-			started = resolve;
-		});
+		addFiles(queue, UPLOAD_HASH_RESULT_BATCH_SIZE + 1);
+		const finalHash = deferred<string>();
+		let startedHashes = 0;
 		const workflow = createUploadWorkflow(queue, {
 			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({ path, status: "reused" })),
+			}),
 			startHashTask: (input) => {
-				reportProgress = input.onProgress;
-				started?.();
+				const index = startedHashes;
+				startedHashes += 1;
 				return {
-					cancel: () => result.reject(new Error("hash cancelled")),
+					cancel: vi.fn(),
 					jobId: input.itemId,
-					promise: result.promise,
+					promise:
+						index === UPLOAD_HASH_RESULT_BATCH_SIZE
+							? finalHash.promise
+							: Promise.resolve(HASH_A),
 				};
 			},
 			startUploadTask: successfulUploader([]),
 		});
+		configureDraft(workflow);
 
 		const running = workflow.start();
-		await taskStarted;
-		expect(workflow.cancel(item.id)).toBe("hash");
-		queue.remove(item.id);
-		expect(() => reportProgress?.(0.75)).not.toThrow();
-		expect(() => workflow.dispose()).not.toThrow();
-		await expect(running).resolves.toBeUndefined();
-		expect(queue.getState().items).toHaveLength(0);
+		await vi.waitFor(() =>
+			expect(startedHashes).toBe(UPLOAD_HASH_RESULT_BATCH_SIZE + 1),
+		);
+		expect(
+			queue.getState().items.filter(({ sha256 }) => sha256 !== null),
+		).toHaveLength(UPLOAD_HASH_RESULT_BATCH_SIZE);
+
+		finalHash.resolve(HASH_A);
+		await running;
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
 		queue.dispose();
 	});
 
-	it("skips a queued file removed while it waits for a hash worker", async () => {
+	it("resolves 10,001 reusable files in bounded batches with zero STS and PUT", async () => {
 		const queue = createUploadQueueController({ storage: null });
-		const items = queue.addFiles(
-			Array.from({ length: UPLOAD_HASH_CONCURRENCY + 1 }, (_, index) => ({
-				file: releaseFile(`file-${index}.bin`, String(index)),
-				path: `files/file-${index}.bin`,
-			})),
-		);
-		const waiting = items.at(-1);
-		if (!waiting) throw new Error("fixture was not created");
-		const gates = items.map(() => deferred<string>());
-		let started = 0;
+		addFiles(queue, 10_001);
+		const resolveRequests: ResolveDraftFilesRequest[] = [];
+		let resolving = 0;
+		let maximumResolving = 0;
+		const requestCredentials = vi.fn(async () => credentials());
+		const startUploadTask = vi.fn(successfulUploader([]));
 		const workflow = createUploadWorkflow(queue, {
 			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => {
-				const index = Number.parseInt(input.file.name.slice(5), 10);
-				const gate = gates[index];
-				if (!gate) throw new Error("missing hash gate");
-				started += 1;
+			requestCredentials,
+			resolveFiles: async (request) => {
+				resolveRequests.push(request);
+				resolving += 1;
+				maximumResolving = Math.max(maximumResolving, resolving);
+				await Promise.resolve();
+				resolving -= 1;
 				return {
-					cancel: vi.fn(),
-					jobId: input.itemId,
-					promise: gate.promise,
+					files: request.files.map(({ path }) => ({ path, status: "reused" })),
 				};
 			},
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask,
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(resolveRequests).toHaveLength(
+			Math.ceil(10_001 / MAX_RESOLVE_DRAFT_FILES),
+		);
+		expect(
+			resolveRequests.every(
+				({ files }) => files.length <= MAX_RESOLVE_DRAFT_FILES,
+			),
+		).toBe(true);
+		expect(maximumResolving).toBe(UPLOAD_RESOLUTION_CONCURRENCY);
+		expect(requestCredentials).not.toHaveBeenCalled();
+		expect(startUploadTask).not.toHaveBeenCalled();
+		expect(
+			queue
+				.getState()
+				.items.every(
+					({ resolutionStatus, status }) =>
+						resolutionStatus === "reused" && status === "complete",
+				),
+		).toBe(true);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("retries transient reuse-check gateway responses before failing the batch", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 3);
+		let resolveCalls = 0;
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => {
+				resolveCalls += 1;
+				if (resolveCalls === 1) throw transientCompletionError(502);
+				if (resolveCalls === 2) throw transientCompletionError(504);
+				return {
+					files: request.files.map(({ path }) => ({ path, status: "reused" })),
+				};
+			},
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: successfulUploader([]),
+			waitForRetry: async () => undefined,
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(resolveCalls).toBe(3);
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("retries every failed reuse-check item from any one retry control", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 3);
+		let failResolution = true;
+		let resolveCalls = 0;
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => {
+				resolveCalls += 1;
+				if (failResolution) throw new Error("reuse check failed");
+				return {
+					files: request.files.map(({ path }) => ({ path, status: "reused" })),
+				};
+			},
+			startHashTask: (input) => hashTask(input.itemId),
 			startUploadTask: successfulUploader([]),
 		});
+		configureDraft(workflow);
 
-		const running = workflow.start();
-		await vi.waitFor(() => {
-			expect(started).toBe(UPLOAD_HASH_CONCURRENCY);
-		});
-		expect(workflow.cancel(waiting.id)).toBe("hash");
-		queue.remove(waiting.id);
-		for (const gate of gates.slice(0, UPLOAD_HASH_CONCURRENCY)) {
-			gate.resolve(HASH_A);
-		}
+		await expect(workflow.start()).rejects.toThrow("reuse check failed");
+		expect(
+			queue
+				.getState()
+				.items.every(
+					({ failedStage, status }) =>
+						failedStage === "resolution" && status === "failed",
+				),
+		).toBe(true);
+		failResolution = false;
+		const firstItem = queue.getState().items[0];
+		if (!firstItem) throw new Error("Missing retry fixture.");
 
-		await expect(running).resolves.toBeUndefined();
-		expect(started).toBe(UPLOAD_HASH_CONCURRENCY);
-		expect(queue.getState().items).toHaveLength(UPLOAD_HASH_CONCURRENCY);
+		await workflow.retry(firstItem.id);
+
+		expect(resolveCalls).toBe(2);
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
 		queue.dispose();
 	});
 
-	it("ignores late upload progress, checkpoint, and result after removal", async () => {
+	it("retries every failed upload from any one retry control", async () => {
 		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		const result = deferred<OssMultipartUploadResult>();
-		let uploadInput: OssMultipartUploadInput | undefined;
-		let started: (() => void) | undefined;
-		const taskStarted = new Promise<void>((resolve) => {
-			started = resolve;
-		});
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => completionResponse(request),
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: (input) => {
-				uploadInput = input;
-				started?.();
-				return { cancel: vi.fn(), promise: result.promise };
-			},
-		});
-
-		const running = workflow.start();
-		await taskStarted;
-		expect(workflow.cancel(item.id)).toBe("upload");
-		queue.remove(item.id);
-		expect(() => uploadInput?.onProgress?.(0.8)).not.toThrow();
-		expect(() => uploadInput?.onCheckpoint?.(CHECKPOINT)).not.toThrow();
-		expect(() => workflow.dispose()).not.toThrow();
-		if (!uploadInput) throw new Error("upload did not start");
-		result.resolve({
-			objectEtag: "late-etag",
-			objectKey: uploadInput.objectKey,
-		});
-		await expect(running).resolves.toBeUndefined();
-		expect(queue.getState().items).toHaveLength(0);
-		queue.dispose();
-	});
-
-	it("reconciles a committed multipart upload after its browser response is lost", async () => {
-		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		const completionRequests: CompleteUploadsRequest[] = [];
-		const uploadInputs: OssMultipartUploadInput[] = [];
+		addFiles(queue, 3);
+		const attempts = new Map<string, number>();
 		const workflow = createUploadWorkflow(queue, {
 			completeUploads: async (request) => {
-				completionRequests.push(request);
-				return completionResponse(request);
-			},
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
-			startUploadTask: (input) => {
-				uploadInputs.push(input);
-				return {
-					cancel: vi.fn(),
-					promise: Promise.reject(
-						new Error("OSS committed but the response was lost"),
-					),
-				};
-			},
-		});
-
-		await expect(workflow.start()).rejects.toThrow("response was lost");
-		await expect(workflow.retry(item.id)).resolves.toBe("upload");
-
-		expect(uploadInputs).toHaveLength(1);
-		expect(completionRequests).toHaveLength(1);
-		expect(completionRequests[0]?.files[0]).not.toHaveProperty("objectEtag");
-		expect(queue.getState().items[0]).toMatchObject({
-			attempt: 1,
-			fileMetadataId: "metadata:bin/alpha.bin",
-			objectEtag: `etag:${uploadInputs[0]?.objectKey}`,
-			status: "complete",
-		});
-		expect(workflow.getCompletedFileMetadataIds()).toEqual([
-			"metadata:bin/alpha.bin",
-		]);
-		queue.dispose();
-	});
-
-	it.each([
-		{
-			label: "size conflict",
-			problem: () =>
-				apiProblem("UPLOAD_METADATA_CONFLICT", 409, [
-					{ code: "CONFLICT", path: "files.0.size" },
-				]),
-		},
-		{
-			label: "ETag conflict",
-			problem: () =>
-				apiProblem("UPLOAD_METADATA_CONFLICT", 409, [
-					{ code: "CONFLICT", path: "files.0.objectEtag" },
-				]),
-		},
-		{
-			label: "object-key metadata conflict",
-			problem: () =>
-				apiProblem("UPLOAD_METADATA_CONFLICT", 409, [
-					{ code: "CONFLICT", path: "files.0.objectKey" },
-				]),
-		},
-		{
-			label: "verification outage",
-			problem: () => apiProblem("UPLOAD_VERIFICATION_UNAVAILABLE", 503),
-		},
-	])("does not re-upload after a reconciliation $label and remains retryable", async ({
-		problem,
-	}) => {
-		const queue = createUploadQueueController({ storage: null });
-		const [item] = queue.addFiles([
-			{ file: releaseFile("alpha.bin", "alpha"), path: "bin/alpha.bin" },
-		]);
-		if (!item) throw new Error("fixture was not created");
-		let reconciliation: "error" | "missing" = "error";
-		const uploadInputs: OssMultipartUploadInput[] = [];
-		const workflow = createUploadWorkflow(queue, {
-			completeUploads: async (request) => {
-				if (request.files[0]?.objectEtag === undefined) {
-					if (reconciliation === "error") throw problem();
-					throw missingObjectProblem();
+				if (request.files.some(({ verifyObject }) => verifyObject)) {
+					throw new ApiProblemError({
+						code: UPLOAD_OBJECT_NOT_FOUND_PROBLEM_CODE,
+						fieldErrors: [
+							{
+								code: UPLOAD_OBJECT_NOT_FOUND_FIELD_CODE,
+								path: "files.0.objectKey",
+							},
+						],
+						requestId: "req-missing-object",
+						status: 409,
+						title: "Object not found",
+						type: "about:blank",
+					});
 				}
 				return completionResponse(request);
 			},
-			requestCredentials: async (request) => credentialsResponse(request),
-			startHashTask: (input) => resolvedHashTask(input.itemId, HASH_A),
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
 			startUploadTask: (input) => {
-				uploadInputs.push(input);
+				const attempt = (attempts.get(input.objectKey) ?? 0) + 1;
+				attempts.set(input.objectKey, attempt);
 				return {
 					cancel: vi.fn(),
 					promise:
-						uploadInputs.length === 1
-							? Promise.reject(new Error("ambiguous upload failure"))
+						attempt === 1
+							? Promise.reject(new Error("upload failed"))
 							: Promise.resolve({
-									objectEtag: `"etag:${input.objectKey}"`,
 									objectKey: input.objectKey,
 								}),
 				};
 			},
 		});
+		configureDraft(workflow);
 
-		await expect(workflow.start()).rejects.toThrow("ambiguous upload failure");
-		await expect(workflow.retry(item.id)).rejects.toBeInstanceOf(
-			ApiProblemError,
+		await expect(workflow.start()).rejects.toThrow("upload failed");
+		expect(
+			queue
+				.getState()
+				.items.every(
+					({ failedStage, status }) =>
+						failedStage === "upload" && status === "failed",
+				),
+		).toBe(true);
+		const firstItem = queue.getState().items[0];
+		if (!firstItem) throw new Error("Missing retry fixture.");
+
+		await workflow.retry(firstItem.id);
+
+		expect([...attempts.values()]).toEqual([2, 2, 2]);
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("uploads 1,001 new files with one valid-window STS request", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 1_001);
+		const credentialRequests: object[] = [];
+		const completionRequests: CompleteUploadsRequest[] = [];
+		const uploads: OssMultipartUploadInput[] = [];
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => {
+				completionRequests.push(request);
+				return completionResponse(request);
+			},
+			requestCredentials: async (request) => {
+				credentialRequests.push(request);
+				return credentials();
+			},
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: successfulUploader(uploads),
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(credentialRequests).toEqual([{}]);
+		expect(uploads).toHaveLength(1_001);
+		expect(completionRequests).toHaveLength(
+			Math.ceil(1_001 / MAX_COMPLETE_UPLOAD_FILES),
 		);
-		expect(uploadInputs).toHaveLength(1);
+		expect(
+			completionRequests.every(
+				({ files }) => files.length <= MAX_COMPLETE_UPLOAD_FILES,
+			),
+		).toBe(true);
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("bounds completion request size/concurrency and retries transient gateway failures", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(
+			queue,
+			MAX_COMPLETE_UPLOAD_FILES * UPLOAD_REGISTRATION_CONCURRENCY + 1,
+		);
+		let completionCalls = 0;
+		let inFlight = 0;
+		let maximumInFlight = 0;
+		const completionSizes: number[] = [];
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => {
+				completionCalls += 1;
+				const callNumber = completionCalls;
+				completionSizes.push(request.files.length);
+				inFlight += 1;
+				maximumInFlight = Math.max(maximumInFlight, inFlight);
+				await Promise.resolve();
+				inFlight -= 1;
+				if (callNumber === 1) throw transientCompletionError(504);
+				if (callNumber === 2) throw transientCompletionError(503);
+				return completionResponse(request);
+			},
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: successfulUploader([]),
+			waitForRetry: async () => undefined,
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(completionCalls).toBe(UPLOAD_REGISTRATION_CONCURRENCY + 3);
+		expect(maximumInFlight).toBe(UPLOAD_REGISTRATION_CONCURRENCY);
+		expect(
+			completionSizes.every((size) => size <= MAX_COMPLETE_UPLOAD_FILES),
+		).toBe(true);
+		expect(
+			queue.getState().items.every(({ status }) => status === "complete"),
+		).toBe(true);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("HEAD-reconciles only an already-existing OSS object", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 1);
+		const completionRequests: CompleteUploadsRequest[] = [];
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => {
+				completionRequests.push(request);
+				return completionResponse(request);
+			},
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: () => ({
+				cancel: vi.fn(),
+				promise: Promise.reject(new OssUploadAlreadyExistsError()),
+			}),
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(completionRequests).toHaveLength(1);
+		expect(completionRequests[0]?.files[0]).toMatchObject({
+			verifyObject: true,
+		});
 		expect(queue.getState().items[0]).toMatchObject({
+			error: null,
+			failedStage: null,
+			status: "complete",
+		});
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("reuses unchanged A, uploads changed B and new C, and omits removed D", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		queue.addFiles(
+			["a.bin", "b.bin", "c.bin"].map((name, index) => ({
+				file: releaseFile(index),
+				path: `release/${name}`,
+			})),
+		);
+		const uploads: OssMultipartUploadInput[] = [];
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			requestCredentials: async () => credentials(),
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: path.endsWith("a.bin") ? "reused" : "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: successfulUploader(uploads),
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(uploads.map(({ objectKey }) => objectKey)).toEqual([
+			`releases/${HASH_A}/release/b.bin`,
+			`releases/${HASH_A}/release/c.bin`,
+		]);
+		expect(uploads.some(({ objectKey }) => objectKey.endsWith("d.bin"))).toBe(
+			false,
+		);
+		expect(queue.getState().items[0]).toMatchObject({
+			resolutionStatus: "reused",
+			status: "complete",
+		});
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("recovers after reselect by skipping an already-associated file", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 2);
+		const credentialRequests: object[] = [];
+		const uploads: OssMultipartUploadInput[] = [];
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			requestCredentials: async (request) => {
+				credentialRequests.push(request);
+				return credentials();
+			},
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }, index) => ({
+					path,
+					status: index === 0 ? "alreadyAssociated" : "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: successfulUploader(uploads),
+		});
+		configureDraft(workflow);
+
+		await workflow.start();
+
+		expect(credentialRequests).toEqual([{}]);
+		expect(uploads).toHaveLength(1);
+		expect(queue.getState().items).toMatchObject([
+			{ resolutionStatus: "alreadyAssociated", status: "complete" },
+			{ resolutionStatus: "uploadRequired", status: "complete" },
+		]);
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("coalesces concurrent ali-oss refresh callbacks across active files", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, UPLOAD_FILE_CONCURRENCY);
+		let now = 0;
+		let credentialCalls = 0;
+		const uploadInputs: OssMultipartUploadInput[] = [];
+		const uploadGates = Array.from({ length: UPLOAD_FILE_CONCURRENCY }, () =>
+			deferred<OssMultipartUploadResult>(),
+		);
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			now: () => now,
+			requestCredentials: async () => {
+				credentialCalls += 1;
+				return credentials(`temporary-key-${credentialCalls}`, now + 120_000);
+			},
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: (input) => {
+				const index = uploadInputs.length;
+				uploadInputs.push(input);
+				const gate = uploadGates[index];
+				if (!gate) throw new Error("Missing upload gate.");
+				return { cancel: vi.fn(), promise: gate.promise };
+			},
+		});
+		configureDraft(workflow);
+		const running = workflow.start();
+		await vi.waitFor(() =>
+			expect(uploadInputs).toHaveLength(UPLOAD_FILE_CONCURRENCY),
+		);
+		now = 60_000;
+
+		const refreshed = await Promise.all(
+			uploadInputs.map((input) => {
+				if (!input.refreshCredentials) {
+					throw new Error("Refresh callback was not configured.");
+				}
+				return input.refreshCredentials();
+			}),
+		);
+
+		expect(credentialCalls).toBe(2);
+		expect(
+			refreshed.every(({ accessKeyId }) => accessKeyId === "temporary-key-2"),
+		).toBe(true);
+		for (let index = 0; index < uploadGates.length; index += 1) {
+			const input = uploadInputs[index];
+			const gate = uploadGates[index];
+			if (!input || !gate) throw new Error("Missing upload fixture.");
+			gate.resolve({
+				objectKey: input.objectKey,
+			});
+		}
+		await running;
+		workflow.dispose();
+		queue.dispose();
+	});
+
+	it("retains the checkpoint and leaves the draft incomplete when refresh fails", async () => {
+		const queue = createUploadQueueController({ storage: null });
+		addFiles(queue, 1);
+		let now = 0;
+		let credentialCalls = 0;
+		const workflow = createUploadWorkflow(queue, {
+			completeUploads: async (request) => completionResponse(request),
+			now: () => now,
+			requestCredentials: async () => {
+				credentialCalls += 1;
+				if (credentialCalls > 1) throw new Error("STS unavailable");
+				return credentials("temporary-key-1", 120_000);
+			},
+			resolveFiles: async (request) => ({
+				files: request.files.map(({ path }) => ({
+					path,
+					status: "uploadRequired",
+				})),
+			}),
+			startHashTask: (input) => hashTask(input.itemId),
+			startUploadTask: (input) => {
+				now = 60_000;
+				input.onCheckpoint?.(CHECKPOINT);
+				return {
+					cancel: vi.fn(),
+					promise: Promise.resolve()
+						.then(() => input.refreshCredentials?.())
+						.then(() => {
+							throw new Error("Expected refresh to fail.");
+						}),
+				};
+			},
+		});
+		configureDraft(workflow);
+
+		await expect(workflow.start()).rejects.toThrow("STS unavailable");
+		expect(queue.getState().items[0]).toMatchObject({
+			checkpoint: CHECKPOINT,
 			failedStage: "upload",
 			status: "failed",
 		});
-
-		reconciliation = "missing";
-		await expect(workflow.retry(item.id)).resolves.toBe("upload");
-		expect(uploadInputs).toHaveLength(2);
-		expect(queue.getState().items[0]?.status).toBe("complete");
+		expect(queue.getState().items[0]?.status).not.toBe("complete");
+		workflow.dispose();
 		queue.dispose();
 	});
 });

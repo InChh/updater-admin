@@ -1,20 +1,14 @@
 import { FolderOpen } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 
-import {
-	MAX_UPLOAD_FILES,
-	MAX_UPLOAD_SIZE_BYTES,
-} from "../../shared/api/uploads";
+import { MAX_UPLOAD_SIZE_BYTES } from "../../shared/api/uploads";
 import {
 	normalizeUploadPaths,
 	UploadPathValidationError,
 } from "../../shared/uploads/path";
 import type { UploadFileSelection } from "./upload-store";
 
-export type FolderSelectionErrorCode =
-	| "INVALID_PATH"
-	| "TOO_MANY_FILES"
-	| "FILE_TOO_LARGE";
+export type FolderSelectionErrorCode = "INVALID_PATH" | "FILE_TOO_LARGE";
 
 export class FolderSelectionError extends Error {
 	readonly code: FolderSelectionErrorCode;
@@ -50,7 +44,6 @@ const DEFAULT_LABELS: FolderPickerLabels = {
 	errors: {
 		FILE_TOO_LARGE: "文件超过约 39.1 GiB 的浏览器上传上限。",
 		INVALID_PATH: "文件夹中包含不支持的相对路径。",
-		TOO_MANY_FILES: `一次最多选择 ${MAX_UPLOAD_FILES} 个文件。`,
 	},
 	selected: (count) => `已选择 ${count} 个文件`,
 };
@@ -59,13 +52,32 @@ function rawRelativePath(file: File): string {
 	return file.webkitRelativePath || file.name;
 }
 
+function pathsRelativeToSelectedRoot(
+	files: readonly File[],
+): readonly string[] {
+	const normalized = normalizeUploadPaths(files.map(rawRelativePath));
+	const directoryPaths = files.map((file) => file.webkitRelativePath);
+	if (directoryPaths.some((path) => !path)) return normalized;
+
+	const firstSeparator = normalized[0]?.indexOf("/") ?? -1;
+	if (firstSeparator < 1) {
+		throw new FolderSelectionError("INVALID_PATH", normalized[0]);
+	}
+	const selectedRoot = normalized[0]?.slice(0, firstSeparator);
+	if (
+		!selectedRoot ||
+		normalized.some((path) => !path.startsWith(`${selectedRoot}/`))
+	) {
+		throw new FolderSelectionError("INVALID_PATH", normalized[0]);
+	}
+	return normalizeUploadPaths(
+		normalized.map((path) => path.slice(selectedRoot.length + 1)),
+	);
+}
+
 export function createFolderSelections(
 	files: readonly File[],
 ): readonly UploadFileSelection[] {
-	if (files.length > MAX_UPLOAD_FILES) {
-		throw new FolderSelectionError("TOO_MANY_FILES");
-	}
-
 	for (const file of files) {
 		if (BigInt(file.size) > MAX_UPLOAD_SIZE_BYTES) {
 			throw new FolderSelectionError("FILE_TOO_LARGE", rawRelativePath(file));
@@ -73,7 +85,7 @@ export function createFolderSelections(
 	}
 
 	try {
-		const paths = normalizeUploadPaths(files.map(rawRelativePath));
+		const paths = pathsRelativeToSelectedRoot(files);
 		return files
 			.map((file, index) => ({
 				file,

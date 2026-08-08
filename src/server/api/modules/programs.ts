@@ -18,6 +18,7 @@ import {
 	ProgramsValidationError,
 } from "../../domain/programs.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { readUpdaterIfMatch } from "../preconditions";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 import { weakEntityTagSchema } from "../schemas/common";
@@ -282,7 +283,7 @@ export function createProgramsModule({
 				const result = await execute(() =>
 					getProgramsService().update(
 						params.programId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						body,
 						audit,
 					),
@@ -303,7 +304,7 @@ export function createProgramsModule({
 				await execute(() =>
 					getProgramsService().delete(
 						params.programId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						audit,
 					),
 				);

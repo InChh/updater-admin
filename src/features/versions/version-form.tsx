@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
+import type { WeakEntityTag } from "../../shared/api/common";
 import { FolderPicker, type FolderPickerLabels } from "./folder-picker";
 import { UploadQueue, type UploadQueueLabels } from "./upload-queue";
 import type {
@@ -13,39 +14,43 @@ import type {
 	UploadQueueController,
 	UploadQueueStatus,
 } from "./upload-store";
-import type { UploadWorkflow } from "./upload-workflow.client";
+import type {
+	UploadDraftContext,
+	UploadWorkflow,
+} from "./upload-workflow.client";
 
 const CANONICAL_VERSION_NUMBER_PATTERN =
 	/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
-export type VersionFormMode = "create" | "edit";
+export type VersionFormMode = "create" | "edit" | "resume";
 
 export interface VersionFormValue {
 	readonly description: string;
-	/** Omitted preserves existing relations; [] explicitly removes every relation. */
-	readonly fileIds?: readonly string[];
 	readonly versionNumber: string;
 }
 
 export type VersionFormField = keyof VersionFormValue;
 
+export interface VersionFormDraft extends UploadDraftContext {
+	readonly etag: WeakEntityTag;
+	readonly expectedFileCount: number;
+}
+
 export interface VersionFormLabels {
 	readonly cancel: string;
 	readonly clearFolder: string;
-	readonly confirm: string;
 	readonly description: string;
 	readonly descriptionTooLong: string;
+	readonly draftReady: string;
+	readonly filesExpected: string;
 	readonly filesRequired: string;
+	readonly finalizedFilesImmutable: string;
 	readonly folder: string;
 	readonly folderPicker: FolderPickerLabels;
 	readonly pending: string;
-	readonly preserveFiles: string;
-	readonly removeAllFiles: string;
-	readonly removeAllFilesConfirm: string;
-	readonly replaceFiles: string;
 	readonly retry: string;
-	readonly submit: string;
 	readonly startUpload: string;
+	readonly submit: string;
 	readonly uploadFailed: string;
 	readonly uploadIncomplete: string;
 	readonly uploadQueue: UploadQueueLabels;
@@ -54,6 +59,7 @@ export interface VersionFormLabels {
 }
 
 export interface VersionFormProps {
+	readonly initialDraft?: VersionFormDraft;
 	readonly initialRevision?: string;
 	readonly initialValue?: Pick<
 		VersionFormValue,
@@ -63,14 +69,19 @@ export interface VersionFormProps {
 	readonly mode: VersionFormMode;
 	readonly onCancel: () => void;
 	readonly onFieldInput?: (field: VersionFormField) => void;
-	readonly onSubmit: (value: VersionFormValue) => Promise<void>;
+	readonly onPrepareDraft?: (
+		value: VersionFormValue,
+		expectedFileCount: number,
+	) => Promise<VersionFormDraft>;
+	readonly onSubmit: (
+		value: VersionFormValue,
+		draft?: VersionFormDraft,
+	) => Promise<void>;
 	readonly queue: UploadQueueController;
 	readonly serverErrors?: Partial<Record<VersionFormField, string>>;
 	readonly submitError?: string;
 	readonly workflow: UploadWorkflow;
 }
-
-type FileReplacementMode = "empty" | "folder" | "preserve";
 
 function firstError(errors: readonly unknown[]): string | undefined {
 	return errors.find((error): error is string => typeof error === "string");
@@ -82,28 +93,30 @@ function codePointLength(value: string): number {
 
 function defaultValue(
 	value?: VersionFormProps["initialValue"],
-): Pick<VersionFormValue, "description" | "versionNumber"> {
+): VersionFormValue {
 	return value ?? { description: "", versionNumber: "" };
 }
 
 function isQueueBusy(status: UploadQueueStatus): boolean {
 	return (
-		status === "hashing" || status === "uploading" || status === "registering"
+		status === "hashing" ||
+		status === "resolving" ||
+		status === "uploading" ||
+		status === "registering"
 	);
 }
 
 export function VersionForm(props: VersionFormProps) {
 	const queueState = useSelector(props.queue.store, (state) => state);
 	const initialFields = defaultValue(props.initialValue);
+	const [draft, setDraft] = createSignal<VersionFormDraft | undefined>(
+		props.initialDraft,
+	);
 	const [submitting, setSubmitting] = createSignal(false);
+	const [preparing, setPreparing] = createSignal(false);
 	const [uploadError, setUploadError] = createSignal("");
 	const [versionNumberError, setVersionNumberError] = createSignal<string>();
 	const [descriptionError, setDescriptionError] = createSignal<string>();
-	const [removeAllConfirmation, setRemoveAllConfirmation] = createSignal(false);
-	const [replacementMode, setReplacementMode] =
-		createSignal<FileReplacementMode>(
-			props.mode === "create" ? "folder" : "preserve",
-		);
 	const [pickerRevision, setPickerRevision] = createSignal(1);
 	const [versionNumberValue, setVersionNumberValue] = createSignal(
 		initialFields.versionNumber,
@@ -111,7 +124,12 @@ export function VersionForm(props: VersionFormProps) {
 	const [descriptionValue, setDescriptionValue] = createSignal(
 		initialFields.description,
 	);
-	let removeAllConfirmButton: HTMLButtonElement | undefined;
+	const uploadMode = () => props.mode !== "edit";
+
+	if (props.initialDraft) {
+		props.workflow.setDraft(props.initialDraft);
+	}
+
 	const validateVersionNumber = (value: string) => {
 		const error = CANONICAL_VERSION_NUMBER_PATTERN.test(value.trim())
 			? undefined
@@ -127,31 +145,39 @@ export function VersionForm(props: VersionFormProps) {
 		setDescriptionError(error);
 		return error;
 	};
+	const currentValue = (): VersionFormValue => ({
+		description: descriptionValue().trim(),
+		versionNumber: versionNumberValue().trim(),
+	});
+	const formFieldsValid = () =>
+		CANONICAL_VERSION_NUMBER_PATTERN.test(versionNumberValue().trim()) &&
+		codePointLength(descriptionValue().trim()) <= 1024;
 
 	const form = createForm(() => ({
 		defaultValues: defaultValue(props.initialValue),
 		onSubmit: async ({ value }) => {
-			const fileIds =
-				replacementMode() === "empty"
-					? []
-					: replacementMode() === "folder" || props.mode === "create"
-						? props.workflow.getCompletedFileMetadataIds()
-						: undefined;
-			if (
-				(props.mode === "create" || replacementMode() === "folder") &&
-				(!fileIds || fileIds.length === 0)
-			) {
-				setUploadError(props.labels.filesRequired);
-				return;
+			if (uploadMode()) {
+				const currentDraft = draft();
+				const items = queueState().items;
+				if (!currentDraft || items.length === 0) {
+					setUploadError(props.labels.filesRequired);
+					return;
+				}
+				if (!items.every(({ status }) => status === "complete")) {
+					setUploadError(props.labels.uploadIncomplete);
+					return;
+				}
 			}
 
 			setSubmitting(true);
 			try {
-				await props.onSubmit({
-					description: value.description.trim(),
-					...(fileIds == null ? {} : { fileIds: [...fileIds] }),
-					versionNumber: value.versionNumber.trim(),
-				});
+				await props.onSubmit(
+					{
+						description: value.description.trim(),
+						versionNumber: value.versionNumber.trim(),
+					},
+					draft(),
+				);
 			} finally {
 				setSubmitting(false);
 			}
@@ -163,27 +189,24 @@ export function VersionForm(props: VersionFormProps) {
 	const queueComplete = () => {
 		const items = queueState().items;
 		return (
-			items.length > 0 &&
-			items.every(
-				(item) => item.status === "complete" && Boolean(item.fileMetadataId),
-			)
+			items.length > 0 && items.every(({ status }) => status === "complete")
 		);
 	};
 	const queueFailed = () =>
 		queueState().items.some(
 			(item) => item.status === "failed" || item.status === "cancelled",
 		);
-	const filesReady = () => {
-		if (props.mode === "create") return queueComplete();
-		if (replacementMode() === "folder") return queueComplete();
-		return true;
-	};
-	const formFieldsValid = () =>
-		CANONICAL_VERSION_NUMBER_PATTERN.test(versionNumberValue().trim()) &&
-		codePointLength(descriptionValue().trim()) <= 1024;
+	const selectionLocked = () =>
+		Boolean(
+			draft() &&
+				queueState().items.some(
+					({ resolutionStatus }) => resolutionStatus !== null,
+				),
+		);
 	const canStartUpload = () => {
 		const items = queueState().items;
 		return (
+			uploadMode() &&
 			items.length > 0 &&
 			items.some(({ status }) => status !== "complete") &&
 			items.every(
@@ -195,12 +218,17 @@ export function VersionForm(props: VersionFormProps) {
 			) &&
 			formFieldsValid() &&
 			!submitting() &&
+			!preparing() &&
 			!queueBusy() &&
 			!props.workflow.isRunning()
 		);
 	};
 	const canSubmit = () =>
-		!submitting() && filesReady() && !queueBusy() && formFieldsValid();
+		!submitting() &&
+		!preparing() &&
+		!queueBusy() &&
+		formFieldsValid() &&
+		(!uploadMode() || queueComplete());
 
 	const clearQueue = () => {
 		for (const item of props.queue.getState().items) {
@@ -208,50 +236,63 @@ export function VersionForm(props: VersionFormProps) {
 		}
 	};
 	const clearSelectedFolder = () => {
-		if (queueBusy() || submitting()) return;
+		if (queueBusy() || submitting() || selectionLocked()) return;
 		clearQueue();
 		setUploadError("");
-		setReplacementMode(props.mode === "edit" ? "preserve" : "folder");
 		setPickerRevision((revision) => revision + 1);
-		props.onFieldInput?.("fileIds");
 	};
 	const runUploadWorkflow = async () => {
 		setUploadError("");
+		if (validateVersionNumber(versionNumberValue())) return;
+		if (validateDescription(descriptionValue())) return;
+		const items = queueState().items;
+		if (items.length === 0) {
+			setUploadError(props.labels.filesRequired);
+			return;
+		}
+
+		let currentDraft = draft();
+		if (currentDraft && currentDraft.expectedFileCount !== items.length) {
+			setUploadError(props.labels.filesExpected);
+			return;
+		}
 		try {
+			if (!currentDraft) {
+				if (!props.onPrepareDraft) {
+					throw new Error("Draft creation is unavailable.");
+				}
+				setPreparing(true);
+				try {
+					currentDraft = await props.onPrepareDraft(
+						currentValue(),
+						items.length,
+					);
+					setDraft(currentDraft);
+					props.workflow.setDraft(currentDraft);
+				} finally {
+					setPreparing(false);
+				}
+			}
 			await props.workflow.start();
 		} catch {
 			setUploadError(props.labels.uploadFailed);
 		}
 	};
 	const selectFiles = (files: readonly UploadFileSelection[]) => {
-		if (queueBusy() || submitting()) return;
+		if (queueBusy() || submitting() || selectionLocked()) return;
 		clearQueue();
+		if (draft() && draft()?.expectedFileCount !== files.length) {
+			setPickerRevision((revision) => revision + 1);
+			setUploadError(props.labels.filesExpected);
+			return;
+		}
 		props.queue.addFiles(files);
-		setReplacementMode("folder");
-		setRemoveAllConfirmation(false);
 		setUploadError("");
-		props.onFieldInput?.("fileIds");
 	};
 	const rejectFiles = () => {
-		if (queueBusy() || submitting()) return;
+		if (queueBusy() || submitting() || selectionLocked()) return;
 		clearQueue();
-		setReplacementMode(props.mode === "edit" ? "preserve" : "folder");
-		setRemoveAllConfirmation(false);
 		setUploadError("");
-		props.onFieldInput?.("fileIds");
-	};
-	const confirmRemoveAll = () => {
-		clearQueue();
-		setReplacementMode("empty");
-		setRemoveAllConfirmation(false);
-		setUploadError("");
-		props.onFieldInput?.("fileIds");
-	};
-	const preserveExistingFiles = () => {
-		setReplacementMode("preserve");
-		setRemoveAllConfirmation(false);
-		setUploadError("");
-		props.onFieldInput?.("fileIds");
 	};
 
 	createEffect(
@@ -260,8 +301,8 @@ export function VersionForm(props: VersionFormProps) {
 			() => {
 				form.reset(defaultValue(props.initialValue));
 				clearQueue();
-				setReplacementMode(props.mode === "create" ? "folder" : "preserve");
-				setRemoveAllConfirmation(false);
+				setDraft(props.initialDraft);
+				if (props.initialDraft) props.workflow.setDraft(props.initialDraft);
 				setUploadError("");
 				setVersionNumberError(undefined);
 				setDescriptionError(undefined);
@@ -276,12 +317,12 @@ export function VersionForm(props: VersionFormProps) {
 
 	return (
 		<form
-			aria-busy={submitting() || queueBusy()}
+			aria-busy={submitting() || preparing() || queueBusy()}
 			class="grid gap-4"
 			onSubmit={(event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				if (!filesReady()) {
+				if (uploadMode() && !queueComplete()) {
 					setUploadError(
 						queueState().items.length === 0
 							? props.labels.filesRequired
@@ -294,9 +335,7 @@ export function VersionForm(props: VersionFormProps) {
 		>
 			<form.Field
 				name="versionNumber"
-				validators={{
-					onSubmit: ({ value }) => validateVersionNumber(value),
-				}}
+				validators={{ onSubmit: ({ value }) => validateVersionNumber(value) }}
 				children={(field) => (
 					<Field
 						error={
@@ -312,7 +351,7 @@ export function VersionForm(props: VersionFormProps) {
 							<Input
 								{...controlProps}
 								autocomplete="off"
-								disabled={submitting()}
+								disabled={submitting() || preparing() || Boolean(draft())}
 								inputmode="numeric"
 								maxlength={20}
 								onBlur={(event) => {
@@ -337,9 +376,7 @@ export function VersionForm(props: VersionFormProps) {
 
 			<form.Field
 				name="description"
-				validators={{
-					onSubmit: ({ value }) => validateDescription(value),
-				}}
+				validators={{ onSubmit: ({ value }) => validateDescription(value) }}
 				children={(field) => (
 					<Field
 						error={
@@ -353,7 +390,7 @@ export function VersionForm(props: VersionFormProps) {
 						{(controlProps) => (
 							<Textarea
 								{...controlProps}
-								disabled={submitting()}
+								disabled={submitting() || preparing() || Boolean(draft())}
 								onBlur={(event) => {
 									field().handleBlur();
 									validateDescription(event.currentTarget.value);
@@ -375,164 +412,100 @@ export function VersionForm(props: VersionFormProps) {
 				)}
 			/>
 
-			<fieldset class="grid gap-3 rounded-lg border border-border p-3.5">
-				<legend class="px-1 text-sm font-medium text-ink">
-					{props.labels.folder}
-				</legend>
-				<Show when={props.mode === "edit" && replacementMode() === "preserve"}>
-					<div class="flex flex-col gap-3 rounded-md bg-mist px-3 py-2.5 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-						<span>{props.labels.preserveFiles}</span>
-						<Button
-							disabled={submitting()}
-							onClick={() => {
-								setRemoveAllConfirmation(true);
-								queueMicrotask(() => removeAllConfirmButton?.focus());
-							}}
-							size="sm"
-							type="button"
-							variant="danger"
-						>
-							{props.labels.removeAllFiles}
-						</Button>
-					</div>
-				</Show>
-				<Show when={props.mode === "edit" && replacementMode() === "empty"}>
-					<div class="flex flex-col gap-3 rounded-md border border-danger/20 bg-danger/6 px-3 py-2.5 text-sm text-danger sm:flex-row sm:items-center sm:justify-between">
-						<span>{props.labels.removeAllFilesConfirm}</span>
-						<Button
-							disabled={submitting()}
-							onClick={preserveExistingFiles}
-							size="sm"
-							type="button"
-							variant="secondary"
-						>
-							{props.labels.preserveFiles}
-						</Button>
-					</div>
-				</Show>
-				<Show when={removeAllConfirmation()}>
-					<div
-						aria-describedby="remove-all-files-description"
-						aria-labelledby="remove-all-files-title"
-						class="rounded-md border border-danger/25 bg-danger/6 p-3"
-						role="alertdialog"
-					>
-						<p
-							class="m-0 text-sm font-semibold text-danger"
-							id="remove-all-files-title"
-						>
-							{props.labels.removeAllFiles}
+			<Show
+				when={uploadMode()}
+				fallback={
+					<p class="m-0 rounded-md bg-mist px-3 py-2.5 text-sm text-muted">
+						{props.labels.finalizedFilesImmutable}
+					</p>
+				}
+			>
+				<fieldset class="grid gap-3 rounded-lg border border-border p-3.5">
+					<legend class="px-1 text-sm font-medium text-ink">
+						{props.labels.folder}
+					</legend>
+					<Show when={draft()}>
+						<p class="m-0 rounded-md bg-primary-soft px-3 py-2 text-xs text-primary-deep">
+							{props.labels.draftReady}
 						</p>
-						<p
-							class="mb-0 mt-1 text-sm text-danger"
-							id="remove-all-files-description"
-						>
-							{props.labels.removeAllFilesConfirm}
-						</p>
-						<div class="mt-3 flex justify-end gap-2">
+					</Show>
+					<Show keyed when={pickerRevision()}>
+						{(revision) => (
+							<FolderPicker
+								disabled={submitting() || queueBusy() || selectionLocked()}
+								id={`version-release-folder-${revision}`}
+								labels={props.labels.folderPicker}
+								onError={rejectFiles}
+								onFiles={selectFiles}
+							/>
+						)}
+					</Show>
+					<Show when={queueState().items.length > 0}>
+						<div class="flex justify-end">
 							<Button
-								onClick={() => setRemoveAllConfirmation(false)}
+								disabled={submitting() || queueBusy() || selectionLocked()}
+								onClick={clearSelectedFolder}
 								size="sm"
 								type="button"
-								variant="secondary"
+								variant="ghost"
 							>
-								{props.labels.cancel}
-							</Button>
-							<Button
-								onClick={confirmRemoveAll}
-								ref={removeAllConfirmButton}
-								size="sm"
-								type="button"
-								variant="danger"
-							>
-								{props.labels.confirm}
+								{props.labels.clearFolder}
 							</Button>
 						</div>
-					</div>
-				</Show>
-
-				<Show keyed when={`picker-${pickerRevision()}`}>
-					{(_revision) => (
-						<FolderPicker
-							disabled={submitting() || queueBusy()}
-							id="version-release-folder"
-							labels={props.labels.folderPicker}
-							onError={rejectFiles}
-							onFiles={selectFiles}
+						<UploadQueue
+							controller={props.queue}
+							labels={props.labels.uploadQueue}
+							onCancel={(item) => props.workflow.cancel(item.id)}
+							onRemove={(item) => void props.workflow.discard(item.id)}
+							onRetry={(item) => {
+								setUploadError("");
+								void props.workflow.retry(item.id).catch(() => {
+									setUploadError(props.labels.uploadFailed);
+								});
+							}}
 						/>
-					)}
-				</Show>
-				<Show when={queueState().items.length > 0}>
-					<div class="flex items-center justify-between gap-3">
-						<span class="text-xs text-muted">
-							{replacementMode() === "folder"
-								? props.labels.replaceFiles
-								: props.labels.preserveFiles}
-						</span>
-						<Button
-							disabled={submitting() || queueBusy()}
-							onClick={clearSelectedFolder}
-							size="sm"
-							type="button"
-							variant="ghost"
-						>
-							{props.labels.clearFolder}
-						</Button>
-					</div>
-					<UploadQueue
-						controller={props.queue}
-						labels={props.labels.uploadQueue}
-						onCancel={(item) => props.workflow.cancel(item.id)}
-						onRemove={(item) => void props.workflow.discard(item.id)}
-						onRetry={(item) => {
-							setUploadError("");
-							void props.workflow.retry(item.id).catch(() => {
-								setUploadError(props.labels.uploadFailed);
-							});
-						}}
-					/>
-					<div class="flex justify-end">
-						<Button
-							disabled={!canStartUpload()}
-							onClick={() => void runUploadWorkflow()}
-							type="button"
-						>
-							{props.labels.startUpload}
-						</Button>
-					</div>
-				</Show>
-				<Show when={queueState().items.length > 0 && !queueComplete()}>
-					<p class="m-0 text-xs text-muted" aria-live="polite">
-						{queueFailed()
-							? props.labels.uploadFailed
-							: props.labels.uploadIncomplete}
-					</p>
-				</Show>
-				<Show when={props.serverErrors?.fileIds || uploadError()}>
-					<div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/20 bg-danger/6 px-3 py-2.5">
-						<p class="m-0 text-sm text-danger" role="alert">
-							{props.serverErrors?.fileIds || uploadError()}
-						</p>
-						<Show
-							when={
-								uploadError() &&
-								queueState().items.length > 0 &&
-								!queueBusy() &&
-								!queueFailed()
-							}
-						>
+						<div class="flex justify-end">
 							<Button
+								disabled={!canStartUpload()}
 								onClick={() => void runUploadWorkflow()}
-								size="sm"
 								type="button"
-								variant="secondary"
 							>
-								{props.labels.retry}
+								{preparing() ? props.labels.pending : props.labels.startUpload}
 							</Button>
-						</Show>
-					</div>
-				</Show>
-			</fieldset>
+						</div>
+					</Show>
+					<Show when={queueState().items.length > 0 && !queueComplete()}>
+						<p class="m-0 text-xs text-muted" aria-live="polite">
+							{queueFailed()
+								? props.labels.uploadFailed
+								: props.labels.uploadIncomplete}
+						</p>
+					</Show>
+					<Show when={uploadError()}>
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/20 bg-danger/6 px-3 py-2.5">
+							<p class="m-0 text-sm text-danger" role="alert">
+								{uploadError()}
+							</p>
+							<Show
+								when={
+									queueState().items.length > 0 &&
+									!queueBusy() &&
+									!queueFailed()
+								}
+							>
+								<Button
+									onClick={() => void runUploadWorkflow()}
+									size="sm"
+									type="button"
+									variant="secondary"
+								>
+									{props.labels.retry}
+								</Button>
+							</Show>
+						</div>
+					</Show>
+				</fieldset>
+			</Show>
 
 			<Show when={props.submitError}>
 				<p
@@ -544,7 +517,7 @@ export function VersionForm(props: VersionFormProps) {
 			</Show>
 			<div class="mt-1 flex justify-end gap-2">
 				<Button
-					disabled={submitting()}
+					disabled={submitting() || preparing()}
 					onClick={props.onCancel}
 					type="button"
 					variant="secondary"

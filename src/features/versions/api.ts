@@ -4,14 +4,19 @@ import type { EntityResult, WeakEntityTag } from "../../shared/api/common";
 import type {
 	CompleteUploadsRequest,
 	CompleteUploadsResponse,
+	ResolveDraftFilesRequest,
+	ResolveDraftFilesResponse,
 	UploadCredentialsRequest,
 	UploadCredentialsResponse,
 } from "../../shared/api/uploads";
 import type {
 	CreateVersionInput,
+	FinalizeDraftVersionResponse,
 	SetVersionActivationInput,
 	UpdateVersionInput,
 	VersionDetailDto,
+	VersionFileCursorPage,
+	VersionFileCursorSearch,
 	VersionListSearch,
 	VersionPage,
 } from "../../shared/api/versions";
@@ -69,14 +74,17 @@ export function createVersion(
 	programId: string,
 	input: CreateVersionInput,
 ): Promise<EntityResult<VersionDetailDto>> {
-	return apiClient.entity<VersionDetailDto>(programVersionsPath(programId), {
-		body: {
-			description: canonicalVersionDescription(input.description),
-			fileIds: [...input.fileIds],
-			versionNumber: input.versionNumber.trim(),
+	return apiClient.entity<VersionDetailDto>(
+		`${programVersionsPath(programId)}/drafts`,
+		{
+			body: {
+				description: canonicalVersionDescription(input.description),
+				expectedFileCount: input.expectedFileCount,
+				versionNumber: input.versionNumber.trim(),
+			},
+			method: "POST",
 		},
-		method: "POST",
-	});
+	);
 }
 
 export function updateVersion(
@@ -90,7 +98,6 @@ export function updateVersion(
 			...(input.description === undefined
 				? {}
 				: { description: canonicalVersionDescription(input.description) }),
-			...(input.fileIds === undefined ? {} : { fileIds: [...input.fileIds] }),
 			...(input.versionNumber === undefined
 				? {}
 				: { versionNumber: input.versionNumber.trim() }),
@@ -98,6 +105,40 @@ export function updateVersion(
 		ifMatch: etag,
 		method: "PATCH",
 	});
+}
+
+export function finalizeDraftVersion(
+	programId: string,
+	versionId: string,
+	etag: WeakEntityTag,
+): Promise<EntityResult<FinalizeDraftVersionResponse>> {
+	return apiClient.entity<FinalizeDraftVersionResponse>(
+		`${versionPath(programId, versionId)}/finalize`,
+		{
+			body: {},
+			ifMatch: etag,
+			method: "POST",
+		},
+	);
+}
+
+export function listVersionFiles(
+	programId: string,
+	versionId: string,
+	search: VersionFileCursorSearch = {},
+	signal?: AbortSignal,
+): Promise<VersionFileCursorPage> {
+	const parameters = new URLSearchParams();
+	if (search.cursor !== undefined) parameters.set("cursor", search.cursor);
+	if (search.pageSize !== undefined) {
+		parameters.set("pageSize", String(search.pageSize));
+	}
+	const serializedParameters = parameters.toString();
+	const query = serializedParameters ? `?${serializedParameters}` : "";
+	return apiClient.json<VersionFileCursorPage>(
+		`${versionPath(programId, versionId)}/files${query}`,
+		{ signal },
+	);
 }
 
 export function deleteVersion(
@@ -134,6 +175,22 @@ export function requestUploadCredentials(
 	return apiClient.json<UploadCredentialsResponse>(
 		"/api/v1/uploads/credentials",
 		{
+			body: { ...input },
+			method: "POST",
+			signal,
+		},
+	);
+}
+
+export function resolveDraftFiles(
+	programId: string,
+	versionId: string,
+	input: ResolveDraftFilesRequest,
+	signal?: AbortSignal,
+): Promise<ResolveDraftFilesResponse> {
+	return apiClient.json<ResolveDraftFilesResponse>(
+		`${versionPath(programId, versionId)}/files/resolve`,
+		{
 			body: { files: [...input.files] },
 			method: "POST",
 			signal,
@@ -141,13 +198,18 @@ export function requestUploadCredentials(
 	);
 }
 
-export function completeUploads(
+export function completeDraftFiles(
+	programId: string,
+	versionId: string,
 	input: CompleteUploadsRequest,
 	signal?: AbortSignal,
 ): Promise<CompleteUploadsResponse> {
-	return apiClient.json<CompleteUploadsResponse>("/api/v1/uploads/complete", {
-		body: { files: [...input.files] },
-		method: "POST",
-		signal,
-	});
+	return apiClient.json<CompleteUploadsResponse>(
+		`${versionPath(programId, versionId)}/files/complete`,
+		{
+			body: { files: [...input.files] },
+			method: "POST",
+			signal,
+		},
+	);
 }

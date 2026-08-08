@@ -199,7 +199,7 @@ describe("programs Elysia module", () => {
 		);
 	});
 
-	it("returns detail and mutation ETags and forwards exact If-Match", async () => {
+	it("returns detail and mutation ETags and forwards exact X-Updater-If-Match", async () => {
 		const getById = vi.fn(async () => entity);
 		const update = vi.fn(async () => ({ ...entity, etag: 'W/"4"' as const }));
 		const { app } = testApp(service({ getById, update }));
@@ -216,7 +216,7 @@ describe("programs Elysia module", () => {
 				body: JSON.stringify({ name: "Desktop Next" }),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 				},
 				method: "PATCH",
 			}),
@@ -231,12 +231,34 @@ describe("programs Elysia module", () => {
 		);
 	});
 
-	it("deletes with exact If-Match and an empty 204 body", async () => {
+	it("ignores standard If-Match and rejects the mutation before service work", async () => {
+		const update = vi.fn(async () => ({ ...entity, etag: 'W/"4"' as const }));
+		const { app } = testApp(service({ update }));
+		const response = await app.handle(
+			new Request(`http://localhost/programs/${PROGRAM_ID}`, {
+				body: JSON.stringify({ name: "Desktop Next" }),
+				headers: {
+					"content-type": "application/json",
+					"if-match": 'W/"3"',
+				},
+				method: "PATCH",
+			}),
+		);
+
+		expect(response.status).toBe(428);
+		expect(await readProblem(response)).toMatchObject({
+			code: "PRECONDITION_REQUIRED",
+			status: 428,
+		});
+		expect(update).not.toHaveBeenCalled();
+	});
+
+	it("deletes with exact X-Updater-If-Match and an empty 204 body", async () => {
 		const remove = vi.fn(async () => ({ affectedVersionCount: 3 }));
 		const { app } = testApp(service({ delete: remove }));
 		const response = await app.handle(
 			new Request(`http://localhost/programs/${PROGRAM_ID}`, {
-				headers: { "if-match": 'W/"3"' },
+				headers: { "x-updater-if-match": 'W/"3"' },
 				method: "DELETE",
 			}),
 		);

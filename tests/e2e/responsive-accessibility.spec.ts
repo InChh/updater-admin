@@ -33,9 +33,13 @@ test("keeps the login surface labelled, keyboard reachable, and viewport safe", 
 
 	await email.focus();
 	await page.keyboard.type("keyboard@example.com");
+	await expect(email).toBeFocused();
+	await expect(email).toHaveValue("keyboard@example.com");
 	await page.keyboard.press("Tab");
 	await expect(password).toBeFocused();
 	await page.keyboard.type("keyboard-only-password");
+	await expect(password).toBeFocused();
+	await expect(password).toHaveValue("keyboard-only-password");
 	await page.keyboard.press("Tab");
 	await expect(submit).toBeFocused();
 

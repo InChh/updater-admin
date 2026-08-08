@@ -34,7 +34,6 @@ export interface FileMetadataDto {
 	readonly createdAt: string;
 	readonly id: string;
 	readonly mimeType: string;
-	readonly objectEtag: null | string;
 	readonly path: string;
 	readonly sha256: string;
 	/** Non-negative byte count encoded in decimal to avoid JSON precision loss. */

@@ -24,10 +24,12 @@ import type {
 	VersionDetailDto,
 } from "../../shared/api/versions";
 import {
-	completeUploads,
+	completeDraftFiles,
 	createVersion,
 	deleteVersion,
+	finalizeDraftVersion,
 	requestUploadCredentials,
+	resolveDraftFiles,
 	updateVersion,
 } from "./api";
 import { invalidateVersionDetails } from "./cache";
@@ -41,6 +43,7 @@ import {
 } from "./upload-workflow.client";
 import {
 	VersionForm,
+	type VersionFormDraft,
 	type VersionFormField,
 	type VersionFormLabels,
 	type VersionFormValue,
@@ -67,45 +70,87 @@ export interface VersionDialogsProps {
 
 type VersionFieldErrors = Partial<Record<VersionFormField, string>>;
 
+function formDraft(
+	version: EntityResult<VersionDetailDto>,
+): VersionFormDraft | undefined {
+	if (
+		version.data.lifecycleStatus !== "draft" ||
+		version.data.expectedFileCount === null
+	) {
+		return undefined;
+	}
+	return {
+		etag: version.etag,
+		expectedFileCount: version.data.expectedFileCount,
+		programId: version.data.programId,
+		versionId: version.data.id,
+	};
+}
+
 export function createDefaultVersionUploadSession(): VersionUploadSession {
 	const queue = createUploadQueueController();
 	return {
 		queue,
 		workflow: createUploadWorkflow(queue, {
-			completeUploads,
+			completeUploads: (input, signal, draft) => {
+				if (!draft)
+					throw new Error("Draft context is required for completion.");
+				return completeDraftFiles(
+					draft.programId,
+					draft.versionId,
+					input,
+					signal,
+				);
+			},
 			requestCredentials: requestUploadCredentials,
+			resolveFiles: (input, signal, draft) => {
+				if (!draft)
+					throw new Error("Draft context is required for resolution.");
+				return resolveDraftFiles(
+					draft.programId,
+					draft.versionId,
+					input,
+					signal,
+				);
+			},
 		}),
 	};
 }
 
 function VersionFormSession(props: {
 	readonly factory: VersionUploadSessionFactory;
+	readonly initialDraft?: VersionFormDraft;
 	readonly initialRevision?: string;
 	readonly initialValue?: Pick<
 		VersionFormValue,
 		"description" | "versionNumber"
 	>;
 	readonly labels: VersionFormLabels;
-	readonly mode: "create" | "edit";
+	readonly mode: "create" | "edit" | "resume";
 	readonly onCancel: () => void;
 	readonly onFieldInput: (field: VersionFormField) => void;
-	readonly onSubmit: (value: VersionFormValue) => Promise<void>;
+	readonly onPrepareDraft?: (
+		value: VersionFormValue,
+		expectedFileCount: number,
+	) => Promise<VersionFormDraft>;
+	readonly onSubmit: (
+		value: VersionFormValue,
+		draft?: VersionFormDraft,
+	) => Promise<void>;
 	readonly serverErrors: VersionFieldErrors;
 	readonly submitError: string;
 }) {
 	const session = props.factory();
-	onCleanup(() => {
-		session.workflow.dispose();
-		session.queue.dispose();
-	});
 	return (
 		<VersionForm
+			initialDraft={props.initialDraft}
 			initialRevision={props.initialRevision}
 			initialValue={props.initialValue}
 			labels={props.labels}
 			mode={props.mode}
 			onCancel={props.onCancel}
 			onFieldInput={props.onFieldInput}
+			onPrepareDraft={props.onPrepareDraft}
 			onSubmit={props.onSubmit}
 			queue={session.queue}
 			serverErrors={props.serverErrors}
@@ -120,6 +165,54 @@ export function VersionDialogs(props: VersionDialogsProps) {
 	const queryClient = useQueryClient();
 	const [fieldErrors, setFieldErrors] = createSignal<VersionFieldErrors>({});
 	const [submitError, setSubmitError] = createSignal("");
+	const uploadSessions = new Map<string, VersionUploadSession>();
+	const createSession = () =>
+		(props.uploadSessionFactory ?? createDefaultVersionUploadSession)();
+	const versionSessionKey = (versionId: string) => `version:${versionId}`;
+	const currentSessionKey = () =>
+		props.dialog === "create"
+			? "create"
+			: props.versionId
+				? versionSessionKey(props.versionId)
+				: "create";
+	const getUploadSession = (key: string) => {
+		const existing = uploadSessions.get(key);
+		if (existing) return existing;
+		const created = createSession();
+		uploadSessions.set(key, created);
+		return created;
+	};
+	const currentSessionFactory = (): VersionUploadSessionFactory => {
+		const key = currentSessionKey();
+		return () => getUploadSession(key);
+	};
+	const disposeSession = (key: string) => {
+		const session = uploadSessions.get(key);
+		if (!session) return;
+		uploadSessions.delete(key);
+		if ([...uploadSessions.values()].includes(session)) return;
+		session.workflow.dispose();
+		session.queue.dispose();
+	};
+	const promoteCreateSession = (versionId: string) => {
+		const session = uploadSessions.get("create");
+		if (!session) return;
+		uploadSessions.delete("create");
+		const key = versionSessionKey(versionId);
+		const replaced = uploadSessions.get(key);
+		if (replaced && replaced !== session) {
+			replaced.workflow.dispose();
+			replaced.queue.dispose();
+		}
+		uploadSessions.set(key, session);
+	};
+	onCleanup(() => {
+		for (const session of new Set(uploadSessions.values())) {
+			session.workflow.dispose();
+			session.queue.dispose();
+		}
+		uploadSessions.clear();
+	});
 	const detailQuery = createQuery(() => ({
 		...versionDetailQueryOptions(
 			props.programId,
@@ -130,18 +223,20 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		),
 	}));
 	const createMutationResult = createMutation(() => ({
-		mutationFn: (value: VersionFormValue) => {
-			if (!value.fileIds || value.fileIds.length === 0) {
-				throw new TypeError(
-					"Create version requires uploaded file metadata IDs.",
-				);
-			}
+		mutationFn: (input: {
+			readonly expectedFileCount: number;
+			readonly value: VersionFormValue;
+		}) => {
 			return createVersion(props.programId, {
-				description: value.description,
-				fileIds: value.fileIds,
-				versionNumber: value.versionNumber,
+				description: input.value.description,
+				expectedFileCount: input.expectedFileCount,
+				versionNumber: input.value.versionNumber,
 			});
 		},
+	}));
+	const finalizeMutationResult = createMutation(() => ({
+		mutationFn: (draft: VersionFormDraft) =>
+			finalizeDraftVersion(draft.programId, draft.versionId, draft.etag),
 	}));
 	const updateMutationResult = createMutation(() => ({
 		mutationFn: (input: {
@@ -150,9 +245,6 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		}) => {
 			const update: UpdateVersionInput = {
 				description: input.value.description,
-				...(input.value.fileIds === undefined
-					? {}
-					: { fileIds: input.value.fileIds }),
 				...(input.value.versionNumber === input.current.data.versionNumber
 					? {}
 					: { versionNumber: input.value.versionNumber }),
@@ -169,11 +261,23 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		mutationFn: (version: EntityResult<VersionDetailDto>) =>
 			deleteVersion(props.programId, version.data.id, version.etag),
 	}));
-	const createPending = () => createMutationResult.isPending;
+	const createPending = () =>
+		createMutationResult.isPending || finalizeMutationResult.isPending;
 	const detailPending = () =>
-		updateMutationResult.isPending || deleteMutationResult.isPending;
-	const sessionFactory = () =>
-		props.uploadSessionFactory ?? createDefaultVersionUploadSession;
+		updateMutationResult.isPending ||
+		finalizeMutationResult.isPending ||
+		deleteMutationResult.isPending;
+	const closeCreateDialog = () => {
+		const session = uploadSessions.get("create");
+		if (session && !session.workflow.getDraft()) disposeSession("create");
+		props.onClose();
+	};
+	const closeDetailDialog = () => {
+		if (props.versionId && detailQuery.data?.data.lifecycleStatus !== "draft") {
+			disposeSession(versionSessionKey(props.versionId));
+		}
+		props.onClose();
+	};
 	const restoreFocus = (event: Event) => {
 		if (!props.onRestoreFocus) return;
 		event.preventDefault();
@@ -190,10 +294,12 @@ export function VersionDialogs(props: VersionDialogsProps) {
 	const formLabels = (): VersionFormLabels => ({
 		cancel: i18n.t("common.cancel"),
 		clearFolder: i18n.t("versions.form.clearFolder"),
-		confirm: i18n.t("common.confirm"),
 		description: i18n.t("versions.form.description"),
 		descriptionTooLong: i18n.t("versions.errors.descriptionTooLong"),
+		draftReady: i18n.t("versions.upload.draftReady"),
+		filesExpected: i18n.t("versions.errors.filesExpected"),
 		filesRequired: i18n.t("versions.errors.filesRequired"),
+		finalizedFilesImmutable: i18n.t("versions.form.finalizedFilesImmutable"),
 		folder: i18n.t("versions.form.folder"),
 		folderPicker: {
 			choose: i18n.t("versions.upload.choose"),
@@ -201,7 +307,6 @@ export function VersionDialogs(props: VersionDialogsProps) {
 			errors: {
 				FILE_TOO_LARGE: i18n.t("versions.upload.error.fileTooLarge"),
 				INVALID_PATH: i18n.t("versions.upload.error.invalidPath"),
-				TOO_MANY_FILES: i18n.t("versions.upload.error.tooManyFiles"),
 			},
 			selected: (count) =>
 				i18n.t("versions.upload.selected", {
@@ -209,16 +314,16 @@ export function VersionDialogs(props: VersionDialogsProps) {
 				}),
 		},
 		pending: i18n.t("common.saving"),
-		preserveFiles: i18n.t("versions.form.preserveFiles"),
-		removeAllFiles: i18n.t("versions.form.removeAllFiles"),
-		removeAllFilesConfirm: i18n.t("versions.form.removeAllFilesConfirm"),
-		replaceFiles: i18n.t("versions.form.replaceFiles"),
 		retry: i18n.t("common.retry"),
 		submit: i18n.t("common.save"),
 		startUpload: i18n.t("versions.upload.start"),
 		uploadFailed: i18n.t("versions.errors.uploadFailed"),
 		uploadIncomplete: i18n.t("versions.errors.uploadIncomplete"),
 		uploadQueue: {
+			associatedCount: (count) =>
+				i18n.t("versions.upload.count.associated", {
+					count: i18n.formatNumber(count),
+				}),
 			aggregateProgress: i18n.t("versions.upload.progress"),
 			cancel: i18n.t("versions.upload.cancel"),
 			clearCompleted: i18n.t("versions.upload.clearCompleted"),
@@ -228,7 +333,17 @@ export function VersionDialogs(props: VersionDialogsProps) {
 					count: i18n.formatNumber(count),
 				}),
 			hideCompleted: i18n.t("versions.upload.hideCompleted"),
+			hashedCount: (count) =>
+				i18n.t("versions.upload.count.hashed", {
+					count: i18n.formatNumber(count),
+				}),
+			nextFiles: i18n.t("versions.upload.window.next"),
+			previousFiles: i18n.t("versions.upload.window.previous"),
 			remove: i18n.t("versions.upload.remove"),
+			reusedCount: (count) =>
+				i18n.t("versions.upload.count.reused", {
+					count: i18n.formatNumber(count),
+				}),
 			retry: i18n.t("versions.upload.retry"),
 			showCompleted: i18n.t("versions.upload.showCompleted"),
 			status: {
@@ -239,12 +354,31 @@ export function VersionDialogs(props: VersionDialogsProps) {
 				queued: i18n.t("versions.upload.status.queued"),
 				ready: i18n.t("versions.upload.status.ready"),
 				registering: i18n.t("versions.upload.status.registering"),
+				resolving: i18n.t("versions.upload.status.resolving"),
 				uploaded: i18n.t("versions.upload.status.uploaded"),
 				uploading: i18n.t("versions.upload.status.uploading"),
 			},
 			totalSize: (bytes) =>
 				i18n.t("versions.upload.totalSize", {
 					size: formatUploadBytes(bytes),
+				}),
+			uploadRequiredCount: (count) =>
+				i18n.t("versions.upload.count.uploadRequired", {
+					count: i18n.formatNumber(count),
+				}),
+			uploadedCount: (count) =>
+				i18n.t("versions.upload.count.uploaded", {
+					count: i18n.formatNumber(count),
+				}),
+			failedCount: (count) =>
+				i18n.t("versions.upload.count.failed", {
+					count: i18n.formatNumber(count),
+				}),
+			visibleRange: (from, to, total) =>
+				i18n.t("versions.upload.window.summary", {
+					from: i18n.formatNumber(from),
+					to: i18n.formatNumber(to),
+					total: i18n.formatNumber(total),
 				}),
 		},
 		versionNumber: i18n.t("versions.form.versionNumber"),
@@ -260,10 +394,15 @@ export function VersionDialogs(props: VersionDialogsProps) {
 			queryKey: versionQueryKeys.lists(props.programId),
 		});
 	const invalidateProgramVersionCount = () =>
-		queryClient.invalidateQueries({
-			exact: true,
-			queryKey: programQueryKeys.detail(props.programId),
-		});
+		Promise.all([
+			queryClient.invalidateQueries({
+				exact: true,
+				queryKey: programQueryKeys.detail(props.programId),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: programQueryKeys.lists(),
+			}),
+		]);
 	const storeVersion = (version: EntityResult<VersionDetailDto>) => {
 		queryClient.setQueryData(
 			versionQueryKeys.detail(props.programId, version.data.id),
@@ -302,12 +441,6 @@ export function VersionDialogs(props: VersionDialogsProps) {
 							? i18n.t("versions.errors.descriptionTooLong")
 							: i18n.t("errors.field.invalid");
 				}
-				if (
-					fieldError.path === "fileIds" ||
-					fieldError.path.startsWith("fileIds.")
-				) {
-					nextFieldErrors.fileIds = i18n.t("versions.errors.filesRequired");
-				}
 			}
 			if (error.code === "VERSION_NUMBER_CONFLICT") {
 				nextFieldErrors.versionNumber = i18n.t(
@@ -319,6 +452,13 @@ export function VersionDialogs(props: VersionDialogsProps) {
 					"versions.errors.versionNotGreater",
 				);
 			}
+			if (
+				error.code === "DRAFT_INCOMPLETE" ||
+				error.code === "DRAFT_FILE_COUNT_CONFLICT"
+			) {
+				setSubmitError(i18n.t("versions.errors.uploadIncomplete"));
+				return;
+			}
 		}
 		setFieldErrors(nextFieldErrors);
 		setSubmitError(
@@ -326,20 +466,60 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		);
 	};
 
-	const submitCreate = async (value: VersionFormValue) => {
+	const prepareDraft = async (
+		value: VersionFormValue,
+		expectedFileCount: number,
+	): Promise<VersionFormDraft> => {
 		setFieldErrors({});
 		setSubmitError("");
 		try {
-			const created = await createMutationResult.mutateAsync(value);
+			const created = await createMutationResult.mutateAsync({
+				expectedFileCount,
+				value,
+			});
+			promoteCreateSession(created.data.id);
 			storeVersion(created);
-			await Promise.all([
-				invalidateVersionLists(),
-				invalidateProgramVersionCount(),
-			]);
-			notify(i18n.t("versions.notifications.created"));
-			if (props.dialog === "create") props.onClose();
+			// Updating the parent program detail while the browser owns File and
+			// Worker state remounts the nested versions route and disposes the live
+			// upload session. Defer the parent count refresh until finalization; a
+			// durable draft is still discoverable from the invalidated version list.
+			await invalidateVersionLists();
+			return {
+				etag: created.etag,
+				expectedFileCount,
+				programId: created.data.programId,
+				versionId: created.data.id,
+			};
 		} catch (error) {
 			await setMutationError(error);
+			throw error;
+		}
+	};
+	const submitFinalize = async (
+		_value: VersionFormValue,
+		draft?: VersionFormDraft,
+	) => {
+		if (!draft) throw new TypeError("Draft finalization requires a draft.");
+		setFieldErrors({});
+		setSubmitError("");
+		try {
+			const finalized = await finalizeMutationResult.mutateAsync(draft);
+			disposeSession(versionSessionKey(draft.versionId));
+			storeVersion(finalized);
+			await Promise.all([
+				invalidateVersionLists(),
+				invalidateVersionDetails(queryClient, props.programId),
+				invalidateProgramVersionCount(),
+			]);
+			notify(i18n.t("versions.notifications.finalized"));
+			if (
+				props.dialog === "create" ||
+				(props.dialog === "edit" && props.versionId === draft.versionId)
+			) {
+				props.onClose();
+			}
+		} catch (error) {
+			await setMutationError(error, draft.versionId);
 		}
 	};
 	const submitEdit = async (
@@ -353,6 +533,7 @@ export function VersionDialogs(props: VersionDialogsProps) {
 				current: version,
 				value,
 			});
+			disposeSession(versionSessionKey(version.data.id));
 			storeVersion(updated);
 			await Promise.all([
 				invalidateVersionLists(),
@@ -370,6 +551,7 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		setSubmitError("");
 		try {
 			await deleteMutationResult.mutateAsync(version);
+			disposeSession(versionSessionKey(version.data.id));
 			queryClient.removeQueries({
 				exact: true,
 				queryKey: versionQueryKeys.detail(props.programId, version.data.id),
@@ -392,7 +574,7 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		<>
 			<DialogRoot
 				onOpenChange={(open) => {
-					if (!open && !createPending()) props.onClose();
+					if (!open && !createPending()) closeCreateDialog();
 				}}
 				open={props.dialog === "create"}
 			>
@@ -411,12 +593,16 @@ export function VersionDialogs(props: VersionDialogsProps) {
 					</DialogHeader>
 					<Show when={props.dialog === "create"}>
 						<VersionFormSession
-							factory={sessionFactory()}
-							labels={{ ...formLabels(), submit: i18n.t("common.create") }}
+							factory={currentSessionFactory()}
+							labels={{
+								...formLabels(),
+								submit: i18n.t("versions.actions.finalize"),
+							}}
 							mode="create"
-							onCancel={props.onClose}
+							onCancel={closeCreateDialog}
 							onFieldInput={clearFieldError}
-							onSubmit={submitCreate}
+							onPrepareDraft={prepareDraft}
+							onSubmit={submitFinalize}
 							serverErrors={fieldErrors()}
 							submitError={submitError()}
 						/>
@@ -426,7 +612,7 @@ export function VersionDialogs(props: VersionDialogsProps) {
 
 			<DialogRoot
 				onOpenChange={(open) => {
-					if (!open && !detailPending()) props.onClose();
+					if (!open && !detailPending()) closeDetailDialog();
 				}}
 				open={props.dialog === "edit" || props.dialog === "delete"}
 			>
@@ -439,7 +625,9 @@ export function VersionDialogs(props: VersionDialogsProps) {
 						<DialogTitle class="text-base font-semibold text-ink">
 							{props.dialog === "delete"
 								? i18n.t("versions.dialog.deleteTitle")
-								: i18n.t("versions.dialog.editTitle")}
+								: detailQuery.data?.data.lifecycleStatus === "draft"
+									? i18n.t("versions.dialog.resumeTitle")
+									: i18n.t("versions.dialog.editTitle")}
 						</DialogTitle>
 						<DialogDescription class="text-sm leading-6 text-muted">
 							{props.dialog === "delete" && detailQuery.data
@@ -447,7 +635,11 @@ export function VersionDialogs(props: VersionDialogsProps) {
 										version: detailQuery.data.data.versionNumber,
 									})
 								: props.dialog === "edit"
-									? i18n.t("versions.dialog.editDescription")
+									? i18n.t(
+											detailQuery.data?.data.lifecycleStatus === "draft"
+												? "versions.dialog.resumeDescription"
+												: "versions.dialog.editDescription",
+										)
 									: i18n.t("versions.dialog.loadDescription")}
 						</DialogDescription>
 					</DialogHeader>
@@ -490,7 +682,7 @@ export function VersionDialogs(props: VersionDialogsProps) {
 									fallback={
 										<DeleteVersionConfirmation
 											error={submitError()}
-											onCancel={props.onClose}
+											onCancel={closeDetailDialog}
 											onConfirm={() => void confirmDelete(version())}
 											pending={deleteMutationResult.isPending}
 										/>
@@ -499,17 +691,32 @@ export function VersionDialogs(props: VersionDialogsProps) {
 									<Show keyed when={`${version().data.id}:${version().etag}`}>
 										{(_versionKey) => (
 											<VersionFormSession
-												factory={sessionFactory()}
+												factory={currentSessionFactory()}
+												initialDraft={formDraft(version())}
 												initialRevision={version().etag}
 												initialValue={{
 													description: version().data.description,
 													versionNumber: version().data.versionNumber,
 												}}
-												labels={formLabels()}
-												mode="edit"
-												onCancel={props.onClose}
+												labels={{
+													...formLabels(),
+													submit:
+														version().data.lifecycleStatus === "draft"
+															? i18n.t("versions.actions.finalize")
+															: i18n.t("common.save"),
+												}}
+												mode={
+													version().data.lifecycleStatus === "draft"
+														? "resume"
+														: "edit"
+												}
+												onCancel={closeDetailDialog}
 												onFieldInput={clearFieldError}
-												onSubmit={(value) => submitEdit(version(), value)}
+												onSubmit={(value, draft) =>
+													version().data.lifecycleStatus === "draft"
+														? submitFinalize(value, draft)
+														: submitEdit(version(), value)
+												}
 												serverErrors={fieldErrors()}
 												submitError={submitError()}
 											/>

@@ -20,7 +20,6 @@ const detail: FileDetailDto = {
 	createdAt: "2026-07-14T01:00:00.000Z",
 	id: FILE_ID,
 	mimeType: "application/octet-stream",
-	objectEtag: '"object-etag"',
 	path: "release/app.bin",
 	sha256: "a".repeat(64),
 	size: "9223372036854775807",

@@ -1,17 +1,18 @@
 import { createQuery } from "@tanstack/solid-query";
-import {
-	createFileRoute,
-	useNavigate,
-	useRouterState,
-} from "@tanstack/solid-router";
+import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { createEffect, Show } from "solid-js";
 
 import { Button } from "../../components/ui/button";
 import { programDetailQueryOptions } from "../../features/programs/queries";
-import { applySystemDefaultPageSize } from "../../features/settings/system-defaults";
-import { systemSettingsQueryOptions } from "../../features/settings/system-queries";
-import { shellUiController } from "../../features/shell/ui-store";
-import { versionListQueryOptions } from "../../features/versions/queries";
+import {
+	applySystemDefaultPageSize,
+	resolveSystemDefaultPageSize,
+} from "../../features/settings/system-defaults";
+import { programVersionsTabKey } from "../../features/shell/route-registry";
+import {
+	shellUiController,
+	useShellUiSelector,
+} from "../../features/shell/ui-store";
 import {
 	parseProgramVersionsParams,
 	validateVersionRouteSearch,
@@ -26,20 +27,12 @@ export const Route = createFileRoute(
 	params: { parse: parseProgramVersionsParams },
 	validateSearch: validateVersionRouteSearch,
 	loaderDeps: ({ search }) => versionListLoaderDeps(search),
-	loader: async ({ context, deps, params }) => {
+	loader: ({ context, deps, params }) => {
 		const programOptions = programDetailQueryOptions(params.programId);
-		const settingsOptions = systemSettingsQueryOptions();
-		await Promise.all([
-			context.queryClient.prefetchQuery(programOptions),
-			context.queryClient.prefetchQuery(settingsOptions),
-		]);
-		const settings = context.queryClient.getQueryData(settingsOptions.queryKey);
+		void context.queryClient.prefetchQuery(programOptions);
 		const listSearch = applySystemDefaultPageSize(
 			deps,
-			settings?.data.defaultPageSize ?? 20,
-		);
-		await context.queryClient.prefetchQuery(
-			versionListQueryOptions(params.programId, listSearch),
+			resolveSystemDefaultPageSize(context.queryClient),
 		);
 		return { pageSize: listSearch.pageSize };
 	},
@@ -50,29 +43,23 @@ export const Route = createFileRoute(
 function ProgramVersionsRoute() {
 	const i18n = useI18n();
 	const data = Route.useLoaderData();
-	const href = useRouterState({ select: (state) => state.location.href });
 	const navigate = useNavigate({ from: Route.fullPath });
 	const params = Route.useParams();
 	const search = Route.useSearch();
 	const programQuery = createQuery(() =>
 		programDetailQueryOptions(params().programId),
 	);
+	const currentTab = useShellUiSelector((state) =>
+		state.openedTabs.find(
+			({ key }) => key === programVersionsTabKey(params().programId),
+		),
+	);
 
 	createEffect(() => {
 		const program = programQuery.data;
-		if (!program) return;
-		const currentHref = href();
-		const title = program.data.name;
-		// AppShell first records the concrete href. Retitle in a microtask so its
-		// generic ID-prefix fallback cannot win a same-tick search navigation.
-		queueMicrotask(() => {
-			if (href() !== currentHref) return;
-			shellUiController.openOrActivateTab({
-				href: currentHref,
-				routeId: "programVersions",
-				title,
-			});
-		});
+		const tab = currentTab();
+		if (!program || !tab || tab.title === program.data.name) return;
+		shellUiController.retitleTab(tab.key, program.data.name);
 	});
 
 	return (

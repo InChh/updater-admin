@@ -169,3 +169,23 @@ This section appends the completion-candidate state without rewriting the histor
 - The rationale for the same-origin TanStack Start/raw Request/Elysia boundary is recorded in `docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md`; this baseline remains the current-state owner map.
 
 Status: local implementation and verification complete; disposable database, authenticated visual/E2E, live OSS, live Sentry, and authorized Netlify Preview evidence remain external. Method Pack records are advisory and do not grant deployment authority.
+
+### 10.4 External-evidence Superseding Update - 2026-07-20
+
+The 10.3 gate list above is the 2026-07-15 completion-candidate state and is superseded for current status by the following authorized evidence:
+
+- The user-authorized database reset/migration/bootstrap, guarded database suite, nonproduction Netlify Preview, authenticated administration flows, and actual Codex in-app-browser acceptance have passed as recorded in the checkpoint and external evidence bundle.
+- After explicit source-disclosure approval, complete Sentry artifact bundle `4d712dfc-e2e0-54a6-a122-d8564eedba27` was uploaded. Deployed browser event `3359719d22b9454690cdb85dd7199ac5` has no processing errors and resolves to `src/lib/api/client.ts` lines 399 and 383. Hidden maps are removed after all Vite phases and are not public deployment assets.
+- Latest nonproduction Netlify deploy `6a5d7460187ccd05113f28e7` is ready only on alias `codex-e2e-332273d`; production was never published.
+- Current external gates are limited to live OSS upload/lifecycle proof and a human forced-password final submit if end-to-end credential-rotation evidence is required.
+
+Status: nonproduction Preview, actual browser, database, and Sentry source-map gates passed; OSS live upload/lifecycle and the human credential-changing submit remain advisory gates. This evidence does not grant production-deployment authority.
+
+### 10.5 Approved Public Release Contract - 2026-07-20
+
+- The user approved an unauthenticated read-only public API without restoring UpdaterServer compatibility.
+- Elysia remains the single business-contract owner. `/api/v1` remains administrator-session-only; `/api/public/v1` is a separate release-discovery namespace in the same TanStack Start/Netlify deployment.
+- Public consumers can request the highest active numeric version or a specified active canonical version. The manifest exposes only public release/file metadata and 300-second individual OSS signed GET URLs.
+- Raw object-key fields, OSS ETags, credentials, download STS, inactive/history rows, global file enumeration, upload operations, and all mutations remain private.
+- Browser CORS is an exact no-credentials origin allowlist; native/server requests may omit Origin. Public GET/HEAD requests have a separate IP-based Neon fixed-window limit.
+- Production publication requires a formal Netlify Site/domain, canonical `BETTER_AUTH_URL`, `PUBLIC_API_ALLOWED_ORIGINS`, fresh production-context build, and real public/admin negative-path verification.

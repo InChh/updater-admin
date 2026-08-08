@@ -14,7 +14,6 @@ const file = {
 	createdBy: ACTOR_ID,
 	id: FILE_ID,
 	mimeType: "application/octet-stream",
-	objectEtag: "oss-etag",
 	path: "Desktop_%/app.bin",
 	rowVersion: 1n,
 	sha256: "a".repeat(64),

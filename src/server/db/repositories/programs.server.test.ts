@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { describe, expect, it, vi } from "vitest";
 
 import { auditEvents } from "../schema";
@@ -61,6 +62,8 @@ function createDatabaseHarness(options: HarnessOptions = {}) {
 				return resolved;
 			}),
 			from: vi.fn(() => builder),
+			groupBy: vi.fn(() => builder),
+			leftJoin: vi.fn(() => builder),
 			limit: vi.fn(() => builder),
 			offset: vi.fn(() => resolved),
 			orderBy: vi.fn((...values: unknown[]) => {
@@ -130,15 +133,31 @@ describe("programs repository", () => {
 	});
 
 	it("maps only the exact live-name PostgreSQL constraint", () => {
+		const conflict = Object.assign(new Error("duplicate program name"), {
+			code: "23505",
+			constraint: "applications_live_name_unique",
+		});
+		expect(isLiveProgramNameUniqueViolation(conflict)).toBe(true);
 		expect(
-			isLiveProgramNameUniqueViolation({
-				code: "23505",
-				constraint: "applications_live_name_unique",
-			}),
+			isLiveProgramNameUniqueViolation(
+				new DrizzleQueryError("insert into applications", [], conflict),
+			),
 		).toBe(true);
+
+		const cyclic: Record<string, unknown> = {};
+		cyclic.cause = cyclic;
 		for (const error of [
 			{ code: "23505", constraint: "another_constraint" },
 			{ code: "23503", constraint: "applications_live_name_unique" },
+			new DrizzleQueryError(
+				"insert into applications",
+				[],
+				Object.assign(new Error("unrelated unique violation"), {
+					code: "23505",
+					constraint: "another_constraint",
+				}),
+			),
+			cyclic,
 			new Error("applications_live_name_unique"),
 		]) {
 			expect(isLiveProgramNameUniqueViolation(error)).toBe(false);
@@ -208,19 +227,31 @@ describe("programs repository", () => {
 	});
 
 	it("maps the exact create constraint and preserves unrelated database errors", async () => {
-		const conflict = {
+		const conflict = Object.assign(new Error("duplicate program name"), {
 			code: "23505",
 			constraint: "applications_live_name_unique",
-		};
+		});
 		const repository = createProgramsRepository(
-			createDatabaseHarness({ applicationInsertError: conflict })
-				.database as never,
+			createDatabaseHarness({
+				applicationInsertError: new DrizzleQueryError(
+					"insert into applications",
+					[],
+					conflict,
+				),
+			}).database as never,
 		);
 		await expect(
 			repository.create({ audit, description: null, name: "Desktop" }),
 		).rejects.toBeInstanceOf(ProgramNameConflictRepositoryError);
 
-		const unrelated = { code: "23505", constraint: "other" };
+		const unrelated = new DrizzleQueryError(
+			"insert into applications",
+			[],
+			Object.assign(new Error("unrelated unique violation"), {
+				code: "23505",
+				constraint: "other",
+			}),
+		);
 		const unrelatedRepository = createProgramsRepository(
 			createDatabaseHarness({ applicationInsertError: unrelated })
 				.database as never,

@@ -14,8 +14,10 @@ import {
 import type { SafeSessionView } from "../auth/session.server";
 import type { AppendAuditEventInput } from "../db/repositories/audit.server";
 import type { AuditService } from "../domain/audit.server";
+import type { DraftVersionFilesService } from "../domain/draft-version-files.server";
 import type { MonitoringService } from "../domain/monitoring.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type { PublicReleasesV2Service } from "../domain/public-releases.server";
 import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
 import {
@@ -97,11 +99,11 @@ function versionsService(
 		throw new Error("Unexpected versions service call.");
 	};
 	return {
-		create: notImplemented,
+		createDraft: notImplemented,
 		delete: notImplemented,
+		finalize: notImplemented,
 		getById: notImplemented,
 		list: notImplemented,
-		listFiles: notImplemented,
 		setActivation: notImplemented,
 		update: notImplemented,
 		...overrides,
@@ -126,8 +128,36 @@ function uploadsService(
 		throw new Error("Unexpected uploads service call.");
 	};
 	return {
-		complete: notImplemented,
 		issueCredentials: notImplemented,
+		...overrides,
+	};
+}
+
+function draftVersionFilesService(
+	overrides: Partial<DraftVersionFilesService> = {},
+): DraftVersionFilesService {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected draft version files service call.");
+	};
+	return {
+		complete: notImplemented,
+		listFiles: notImplemented,
+		resolve: notImplemented,
+		...overrides,
+	};
+}
+
+function publicReleasesV2Service(
+	overrides: Partial<PublicReleasesV2Service> = {},
+): PublicReleasesV2Service {
+	const notImplemented = async (): Promise<never> => {
+		throw new Error("Unexpected public v2 service call.");
+	};
+	return {
+		getDownloadUrls: notImplemented,
+		getFilePage: notImplemented,
+		getHeaderByVersionNumber: notImplemented,
+		getLatestHeader: notImplemented,
 		...overrides,
 	};
 }
@@ -183,8 +213,10 @@ describe("Elysia API foundation", () => {
 			consumeRateLimit: forbiddenDependency,
 			generateRequestId: () => "req_test",
 			getCanonicalOrigin: forbiddenDependency,
+			getDraftVersionFilesService: forbiddenDependency,
 			getPasswordAuthApi: forbiddenDependency,
 			getProgramsService: forbiddenDependency,
+			getPublicReleasesV2Service: forbiddenDependency,
 			getSession: forbiddenDependency,
 			getUploadsService: forbiddenDependency,
 		});
@@ -335,13 +367,17 @@ describe("Elysia API foundation", () => {
 		const listVersions = vi.fn(async () => ({
 			items: [
 				{
+					associatedFileCount: 1,
 					createdAt: "2026-07-14T00:00:00.000Z",
 					description: "Initial release",
 					etag: 'W/"1"' as const,
+					expectedFileCount: null,
 					fileCount: 1,
+					finalizedAt: "2026-07-14T00:00:00.000Z",
 					id: VERSION_ID,
 					isActive: true,
 					isLatest: true,
+					lifecycleStatus: "finalized" as const,
 					programId: PROGRAM_ID,
 					updatedAt: "2026-07-14T00:00:00.000Z",
 					versionNumber: "1.0.0",
@@ -358,7 +394,6 @@ describe("Elysia API foundation", () => {
 					createdAt: "2026-07-14T00:00:00.000Z",
 					id: FILE_ID,
 					mimeType: "application/octet-stream",
-					objectEtag: '"object-etag"',
 					path: "desktop/installer.zip",
 					sha256: "a".repeat(64),
 					size: "1024",
@@ -423,8 +458,237 @@ describe("Elysia API foundation", () => {
 		});
 	});
 
+	it("mounts authenticated draft routes with no-store while rejecting anonymous access", async () => {
+		const draft = {
+			associatedFileCount: 0,
+			createdAt: "2026-08-06T01:00:00.000Z",
+			description: "Next release",
+			expectedFileCount: 1,
+			fileCount: 0,
+			finalizedAt: null,
+			id: VERSION_ID,
+			isActive: false,
+			isLatest: false,
+			lifecycleStatus: "draft" as const,
+			programId: PROGRAM_ID,
+			updatedAt: "2026-08-06T01:00:00.000Z",
+			versionNumber: "2.0.0",
+		};
+		const createDraft = vi.fn(async () => ({
+			data: draft,
+			etag: 'W/"1"' as const,
+		}));
+		const resolve = vi.fn(async () => ({
+			files: [{ path: "desktop/app.bin", status: "uploadRequired" as const }],
+		}));
+		const getDraftVersionFilesService = vi.fn(() =>
+			draftVersionFilesService({ resolve }),
+		);
+		const app = createApiApp(
+			testDependencies({
+				getDraftVersionFilesService,
+				getVersionsService: () => versionsService({ createDraft }),
+			}),
+		);
+
+		const created = await app.handle(
+			new Request(
+				`http://localhost/api/v1/programs/${PROGRAM_ID}/versions/drafts`,
+				{
+					body: JSON.stringify({
+						description: "Next release",
+						expectedFileCount: 1,
+						versionNumber: "2.0.0",
+					}),
+					headers: {
+						"content-type": "application/json",
+						origin: "http://localhost",
+					},
+					method: "POST",
+				},
+			),
+		);
+		const resolved = await app.handle(
+			new Request(
+				`http://localhost/api/v1/programs/${PROGRAM_ID}/versions/${VERSION_ID}/files/resolve`,
+				{
+					body: JSON.stringify({
+						files: [
+							{
+								mimeType: "application/octet-stream",
+								path: "desktop/app.bin",
+								sha256: "a".repeat(64),
+								size: "42",
+							},
+						],
+					}),
+					headers: {
+						"content-type": "application/json",
+						origin: "http://localhost",
+					},
+					method: "POST",
+				},
+			),
+		);
+
+		expect(created.status).toBe(201);
+		expect(created.headers.get("cache-control")).toBe("no-store");
+		expect(created.headers.get("etag")).toBe('W/"1"');
+		expect(await created.json()).toMatchObject({
+			id: VERSION_ID,
+			lifecycleStatus: "draft",
+		});
+		expect(createDraft).toHaveBeenCalledWith(
+			PROGRAM_ID,
+			expect.objectContaining({ expectedFileCount: 1 }),
+			expect.objectContaining({ actorId: USER_ID, requestId: "req_test" }),
+		);
+		expect(resolved.status).toBe(200);
+		expect(resolved.headers.get("cache-control")).toBe("no-store");
+		expect(await resolved.json()).toEqual({
+			files: [{ path: "desktop/app.bin", status: "uploadRequired" }],
+		});
+		expect(getDraftVersionFilesService).toHaveBeenCalledOnce();
+		expect(resolve).toHaveBeenCalledWith(
+			PROGRAM_ID,
+			VERSION_ID,
+			expect.objectContaining({
+				files: [expect.objectContaining({ path: "desktop/app.bin" })],
+			}),
+			expect.objectContaining({ actorId: USER_ID, requestId: "req_test" }),
+		);
+
+		const anonymousResolve = vi.fn(async () => ({ files: [] }));
+		const anonymous = createApiApp(
+			testDependencies({
+				getDraftVersionFilesService: () =>
+					draftVersionFilesService({ resolve: anonymousResolve }),
+				getSession: async () => null,
+			}),
+		);
+		const rejected = await anonymous.handle(
+			new Request(
+				`http://localhost/api/v1/programs/${PROGRAM_ID}/versions/${VERSION_ID}/files/resolve`,
+				{
+					body: JSON.stringify({
+						files: [
+							{
+								mimeType: "application/octet-stream",
+								path: "desktop/app.bin",
+								sha256: "a".repeat(64),
+								size: "42",
+							},
+						],
+					}),
+					headers: {
+						"content-type": "application/json",
+						origin: "http://localhost",
+					},
+					method: "POST",
+				},
+			),
+		);
+
+		expect(rejected.status).toBe(401);
+		expect(rejected.headers.get("cache-control")).toBe("no-store");
+		expect(await readProblem(rejected)).toMatchObject({
+			code: "UNAUTHENTICATED",
+			status: 401,
+		});
+		expect(anonymousResolve).not.toHaveBeenCalled();
+	});
+
+	it("serves allowed-origin public v2 anonymously with no-store and IP rate limiting", async () => {
+		const getLatestHeader = vi.fn(async () => ({
+			description: "Current release",
+			fileCount: 10_001,
+			programName: "Desktop",
+			publishedAt: "2026-08-06T01:00:00.000Z",
+			versionNumber: "2.0.0",
+		}));
+		const getPublicReleasesV2Service = vi.fn(() =>
+			publicReleasesV2Service({ getLatestHeader }),
+		);
+		const getSession = vi.fn(async () => null);
+		const consumeRateLimit = vi.fn(async () => ({
+			...allowedRateLimitDecision(),
+			limit: 120,
+			remaining: 119,
+			resetAt: new Date("2026-08-06T01:01:00.000Z"),
+		}));
+		const app = createApiApp({
+			consumeRateLimit,
+			generateRequestId: () => "req_public-v2",
+			getPublicApiAllowedOrigins: () => ["https://consumer.example"],
+			getPublicReleasesV2Service,
+			getSession,
+			now: () => new Date("2026-08-06T01:00:00.000Z"),
+		});
+
+		const response = await app.handle(
+			new Request(
+				`http://localhost/api/public/v2/programs/${PROGRAM_ID}/releases/latest`,
+				{
+					headers: {
+						origin: "https://consumer.example",
+						"x-nf-client-connection-ip": "203.0.113.8",
+					},
+				},
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("access-control-allow-origin")).toBe(
+			"https://consumer.example",
+		);
+		expect(await response.json()).toMatchObject({
+			fileCount: 10_001,
+			versionNumber: "2.0.0",
+		});
+		expect(getLatestHeader).toHaveBeenCalledWith(PROGRAM_ID);
+		expect(getPublicReleasesV2Service).toHaveBeenCalledOnce();
+		expect(getSession).not.toHaveBeenCalled();
+		expect(consumeRateLimit).toHaveBeenCalledWith({
+			endpoint: "public-releases.read",
+			limit: 120,
+			now: new Date("2026-08-06T01:00:00.000Z"),
+			subjectKey: "203.0.113.8",
+			windowSeconds: 60,
+		});
+	});
+
+	it("rejects a disallowed public v2 origin before quota and service work", async () => {
+		const getLatestHeader = vi.fn(async () => {
+			throw new Error("Public v2 service must not run.");
+		});
+		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
+		const app = createApiApp({
+			consumeRateLimit,
+			generateRequestId: () => "req_public-v2",
+			getPublicApiAllowedOrigins: () => ["https://consumer.example"],
+			getPublicReleasesV2Service: () =>
+				publicReleasesV2Service({ getLatestHeader }),
+		});
+
+		const response = await app.handle(
+			new Request(
+				`http://localhost/api/public/v2/programs/${PROGRAM_ID}/releases/latest`,
+				{ headers: { origin: "https://attacker.example" } },
+			),
+		);
+
+		expect(response.status).toBe(403);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(await readProblem(response)).toMatchObject({
+			code: "FORBIDDEN",
+			status: 403,
+		});
+		expect(consumeRateLimit).not.toHaveBeenCalled();
+		expect(getLatestHeader).not.toHaveBeenCalled();
+	});
+
 	it("mounts rate-limited upload credentials while keeping OSS and database work lazy for health", async () => {
-		const sha256 = "a".repeat(64);
 		const issueCredentials = vi.fn(async () => ({
 			bucket: "updater-artifacts",
 			credentials: {
@@ -433,13 +697,8 @@ describe("Elysia API foundation", () => {
 				expiration: "2026-07-14T01:15:00.000Z",
 				securityToken: "temporary-token",
 			},
-			objects: [
-				{
-					objectKey: `releases/${sha256}/desktop/app.bin`,
-					path: "desktop/app.bin",
-				},
-			],
 			region: "oss-cn-hangzhou",
+			uploadPrefix: "releases/",
 		}));
 		const getUploadsService = vi.fn(() => uploadsService({ issueCredentials }));
 		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
@@ -454,16 +713,7 @@ describe("Elysia API foundation", () => {
 
 		const response = await app.handle(
 			new Request("http://localhost/api/v1/uploads/credentials", {
-				body: JSON.stringify({
-					files: [
-						{
-							mimeType: "application/octet-stream",
-							path: "desktop/app.bin",
-							sha256,
-							size: "42",
-						},
-					],
-				}),
+				body: JSON.stringify({}),
 				headers: {
 					"content-type": "application/json",
 					origin: "http://localhost",
@@ -476,11 +726,11 @@ describe("Elysia API foundation", () => {
 		expect(response.headers.get("cache-control")).toBe("no-store");
 		expect(await response.json()).toMatchObject({
 			bucket: "updater-artifacts",
-			objects: [{ path: "desktop/app.bin" }],
+			uploadPrefix: "releases/",
 		});
 		expect(getUploadsService).toHaveBeenCalledOnce();
 		expect(issueCredentials).toHaveBeenCalledWith(
-			expect.objectContaining({ files: [expect.objectContaining({ sha256 })] }),
+			{},
 			expect.objectContaining({
 				actorId: USER_ID,
 				requestId: "req_test",
@@ -492,65 +742,6 @@ describe("Elysia API foundation", () => {
 			now: new Date("2026-07-14T01:00:00.000Z"),
 			subjectKey: USER_ID,
 			windowSeconds: 5 * 60,
-		});
-	});
-
-	it("wires the shared per-file completion budget before upload service work", async () => {
-		const sha256 = "a".repeat(64);
-		const complete = vi.fn(async () => ({
-			files: [
-				{
-					checksumAlgorithm: "sha256" as const,
-					createdAt: "2026-07-14T01:00:00.000Z",
-					id: FILE_ID,
-					mimeType: "application/octet-stream",
-					objectEtag: "etag-1",
-					path: "desktop/app.bin",
-					sha256,
-					size: "42",
-					updatedAt: "2026-07-14T01:00:00.000Z",
-				},
-			],
-		}));
-		const consumeRateLimit = vi.fn(async () => allowedRateLimitDecision());
-		const app = createApiApp(
-			testDependencies({
-				consumeRateLimit,
-				getUploadsService: () => uploadsService({ complete }),
-			}),
-		);
-
-		const response = await app.handle(
-			new Request("http://localhost/api/v1/uploads/complete", {
-				body: JSON.stringify({
-					files: [
-						{
-							mimeType: "application/octet-stream",
-							objectEtag: "etag-1",
-							objectKey: `releases/${sha256}/desktop/app.bin`,
-							path: "desktop/app.bin",
-							sha256,
-							size: "42",
-						},
-					],
-				}),
-				headers: {
-					"content-type": "application/json",
-					origin: "http://localhost",
-				},
-				method: "POST",
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(complete).toHaveBeenCalledOnce();
-		expect(consumeRateLimit).toHaveBeenCalledWith({
-			cost: 1,
-			endpoint: "uploads.complete.files",
-			limit: 2_000,
-			now: new Date("2026-07-14T01:00:00.000Z"),
-			subjectKey: USER_ID,
-			windowSeconds: 15 * 60,
 		});
 	});
 
@@ -871,7 +1062,7 @@ describe("Elysia API foundation", () => {
 		);
 	});
 
-	it("audits upload credential and completion failures with canonical actions and no metadata values", async () => {
+	it("audits upload credential failures without request metadata values", async () => {
 		const appendFailureAudit = vi.fn(
 			async (_input: AppendAuditEventInput) => {},
 		);
@@ -889,19 +1080,6 @@ describe("Elysia API foundation", () => {
 				"credentials",
 				{
 					files: [{ ...base, body: "must-not-cross-netlify" }],
-				},
-			],
-			[
-				"complete",
-				{
-					files: [
-						{
-							...base,
-							objectEtag: "secret-etag",
-							objectKey: "secret-object-key",
-							secret: "must-not-be-audited",
-						},
-					],
 				},
 			],
 		] as const) {
@@ -930,24 +1108,11 @@ describe("Elysia API foundation", () => {
 				result: "failure",
 				userAgent: null,
 			},
-			{
-				action: "upload.completed",
-				actorId: USER_ID,
-				after: { code: "VALIDATION_FAILED", method: "POST" },
-				ip: null,
-				requestId: "req_test",
-				resourceId: "unassigned",
-				resourceType: "upload",
-				result: "failure",
-				userAgent: null,
-			},
 		]);
 		const serializedAudit = JSON.stringify(appendFailureAudit.mock.calls);
 		for (const forbidden of [
 			"private/must-not-be-audited.bin",
 			"must-not-cross-netlify",
-			"secret-etag",
-			"secret-object-key",
 		]) {
 			expect(serializedAudit).not.toContain(forbidden);
 		}
@@ -1171,12 +1336,12 @@ describe("Elysia API foundation", () => {
 		});
 	});
 
-	it("enforces missing and exact weak If-Match values", async () => {
+	it("enforces missing and exact weak entity precondition values", async () => {
 		const app = createApiApp(testDependencies()).patch(
 			"/api/v1/entity",
 			({ request }) => {
 				requireExactIfMatch(
-					request.headers.get("if-match"),
+					request.headers.get("x-updater-if-match"),
 					formatWeakEntityTag(3n),
 				);
 				return { updated: true };
@@ -1186,7 +1351,7 @@ describe("Elysia API foundation", () => {
 			new Request("http://localhost/api/v1/entity", {
 				headers: {
 					origin: "http://localhost",
-					...(ifMatch ? { "if-match": ifMatch } : {}),
+					...(ifMatch ? { "x-updater-if-match": ifMatch } : {}),
 				},
 				method: "PATCH",
 			});

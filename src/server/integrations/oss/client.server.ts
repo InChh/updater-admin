@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import AliOssClientModule from "ali-oss";
 
 import { type EnvironmentSource, readOssEnvironment } from "../../env.server";
 
@@ -46,11 +46,38 @@ export interface AliOssClientOptions {
 	readonly accessKeySecret: string;
 	readonly bucket: string;
 	readonly region: string;
+	readonly retryMax?: number;
 	readonly secure: true;
+	readonly timeout?: number;
 }
+
+/**
+ * Netlify terminates synchronous functions after 60 seconds. ali-oss also
+ * defaults each metadata request to 60 seconds, which lets a stalled OSS HEAD
+ * race the platform deadline and surface as an opaque 502/504 response. Keep
+ * each attempt comfortably inside that boundary and let the SDK retry transient
+ * connection/response timeouts before the API returns a typed 503.
+ */
+export const OSS_METADATA_TIMEOUT_MS = 8_000;
+export const OSS_METADATA_RETRY_MAX = 2;
 
 interface AliOssConstructor {
 	new (options: AliOssClientOptions): AliOssMetadataClient;
+}
+
+export function resolveAliOssClientConstructor(
+	moduleValue: unknown,
+): AliOssConstructor {
+	const candidate =
+		typeof moduleValue === "object" &&
+		moduleValue !== null &&
+		"default" in moduleValue
+			? moduleValue.default
+			: moduleValue;
+	if (typeof candidate !== "function") {
+		throw new OssMetadataError("HEAD_FAILED");
+	}
+	return candidate as AliOssConstructor;
 }
 
 export interface OssMetadataClientDependencies {
@@ -62,16 +89,8 @@ export interface OssMetadataClientDependencies {
 }
 
 function loadAliOssClient(options: AliOssClientOptions): AliOssMetadataClient {
-	const require = createRequire(import.meta.url);
-	const loaded = require("ali-oss") as unknown;
-	const candidate =
-		typeof loaded === "object" && loaded !== null && "default" in loaded
-			? loaded.default
-			: loaded;
-	if (typeof candidate !== "function") {
-		throw new OssMetadataError("HEAD_FAILED");
-	}
-	return new (candidate as AliOssConstructor)(options);
+	const AliOssClient = resolveAliOssClientConstructor(AliOssClientModule);
+	return new AliOssClient(options);
 }
 
 function getHeader(
@@ -132,7 +151,9 @@ export function createOssMetadataClient(
 				accessKeySecret: environment.accessKeySecret,
 				bucket: environment.bucket,
 				region: environment.region,
+				retryMax: OSS_METADATA_RETRY_MAX,
 				secure: true,
+				timeout: OSS_METADATA_TIMEOUT_MS,
 			});
 		}
 		return client;

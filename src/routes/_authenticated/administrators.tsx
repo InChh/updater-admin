@@ -1,27 +1,22 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 
 import { AdministratorsPage } from "../../features/administrators/administrators-page";
-import { administratorListQueryOptions } from "../../features/administrators/queries";
 import {
 	administratorListLoaderDeps,
 	validateAdministratorRouteSearch,
 } from "../../features/administrators/search";
-import { applySystemDefaultPageSize } from "../../features/settings/system-defaults";
-import { systemSettingsQueryOptions } from "../../features/settings/system-queries";
+import {
+	applySystemDefaultPageSize,
+	resolveSystemDefaultPageSize,
+} from "../../features/settings/system-defaults";
 
 export const Route = createFileRoute("/_authenticated/administrators")({
 	validateSearch: validateAdministratorRouteSearch,
 	loaderDeps: ({ search }) => administratorListLoaderDeps(search),
-	loader: async ({ context, deps }) => {
-		const settingsOptions = systemSettingsQueryOptions();
-		await context.queryClient.prefetchQuery(settingsOptions);
-		const settings = context.queryClient.getQueryData(settingsOptions.queryKey);
+	loader: ({ context, deps }) => {
 		const listSearch = applySystemDefaultPageSize(
 			deps,
-			settings?.data.defaultPageSize ?? 20,
-		);
-		await context.queryClient.prefetchQuery(
-			administratorListQueryOptions(listSearch),
+			resolveSystemDefaultPageSize(context.queryClient),
 		);
 		return { pageSize: listSearch.pageSize };
 	},

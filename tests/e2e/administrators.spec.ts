@@ -67,7 +67,9 @@ function revokeAdministratorSessions(page: Page, administratorId: string) {
 function disableAdministrator(page: Page, administrator: AdministratorDto) {
 	return page.request.patch(`/api/v1/administrators/${administrator.id}`, {
 		data: { enabled: false },
-		headers: mutationHeaders(page, { "if-match": administrator.etag }),
+		headers: mutationHeaders(page, {
+			"x-updater-if-match": administrator.etag,
+		}),
 	});
 }
 

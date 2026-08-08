@@ -50,7 +50,9 @@ describe("SystemSettingsPage", () => {
 
 		await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
 		const [, updateInit] = fetcher.mock.calls[1] ?? [];
-		expect(new Headers(updateInit?.headers).get("if-match")).toBe('W/"2"');
+		expect(new Headers(updateInit?.headers).get("x-updater-if-match")).toBe(
+			'W/"2"',
+		);
 		await waitFor(() =>
 			expect(
 				queryClient.getQueryData(systemSettingsQueryKeys.detail()),

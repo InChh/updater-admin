@@ -349,6 +349,9 @@ export function VersionsPage(props: VersionsPageProps) {
 							</div>
 						</Show>
 						<VersionTable
+							isActivationDisabled={(version) =>
+								version.lifecycleStatus === "draft"
+							}
 							isActivationPending={(version) =>
 								pendingActivationIds().has(version.id)
 							}

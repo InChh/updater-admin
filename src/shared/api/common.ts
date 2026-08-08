@@ -4,6 +4,7 @@ export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 export type SortDirection = "asc" | "desc";
 export type WeakEntityTag = `W/"${bigint}"`;
 
+export const UPDATER_IF_MATCH_HEADER = "X-Updater-If-Match";
 export const ROW_VERSION_MAX = 9_223_372_036_854_775_807n;
 const WEAK_ENTITY_TAG_PATTERN = /^W\/"([1-9][0-9]{0,18})"$/;
 

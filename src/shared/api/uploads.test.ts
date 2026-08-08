@@ -5,12 +5,15 @@ import {
 	type CompleteUploadsRequest,
 	type CompleteUploadsResponse,
 	DECIMAL_BYTE_SIZE_PATTERN,
+	DRAFT_FILE_RESOLVE_STATUSES,
 	MAX_COMPLETE_UPLOAD_FILES,
-	MAX_UPLOAD_FILES,
+	MAX_RESOLVE_DRAFT_FILES,
 	MAX_UPLOAD_MIME_TYPE_CODE_POINTS,
 	MAX_UPLOAD_OBJECT_KEY_BYTES,
 	MAX_UPLOAD_PATH_CODE_POINTS,
 	MAX_UPLOAD_SIZE_BYTES,
+	type ResolveDraftFilesRequest,
+	type ResolveDraftFilesResponse,
 	SHA256_PATTERN,
 	type TemporaryOssCredentials,
 	UPLOAD_MIME_TYPE_PATTERN,
@@ -21,8 +24,8 @@ import {
 } from "./uploads";
 
 describe("upload API contract", () => {
-	it("publishes the approved browser-safe request limits", () => {
-		expect(MAX_UPLOAD_FILES).toBe(1_000);
+	it("publishes only bounded per-request upload limits", () => {
+		expect(MAX_RESOLVE_DRAFT_FILES).toBe(100);
 		expect(MAX_COMPLETE_UPLOAD_FILES).toBe(25);
 		expect(MAX_UPLOAD_SIZE_BYTES).toBe(41_943_040_000n);
 		expect(MAX_UPLOAD_PATH_CODE_POINTS).toBe(1_024);
@@ -62,8 +65,8 @@ describe("upload API contract", () => {
 		expect(DECIMAL_BYTE_SIZE_PATTERN.test("-1")).toBe(false);
 	});
 
-	it("keeps metadata requests separate from file bodies", () => {
-		const request: UploadCredentialsRequest = {
+	it("keeps bounded draft metadata requests separate from file bodies", () => {
+		const request: ResolveDraftFilesRequest = {
 			files: [
 				{
 					mimeType: "application/octet-stream",
@@ -84,6 +87,33 @@ describe("upload API contract", () => {
 		expect(request.files[0]).not.toHaveProperty("file");
 	});
 
+	it("defines ordered draft reuse results", () => {
+		const response: ResolveDraftFilesResponse = {
+			files: [
+				{ path: "reused.bin", status: "reused" },
+				{
+					canonicalMimeType: "application/octet-stream",
+					path: "existing.bin",
+					status: "alreadyAssociated",
+				},
+				{ path: "new.bin", status: "uploadRequired" },
+			],
+		};
+
+		expect(DRAFT_FILE_RESOLVE_STATUSES).toEqual([
+			"alreadyAssociated",
+			"reused",
+			"uploadRequired",
+		]);
+		expect(
+			response.files.map(({ path, status }) => ({ path, status })),
+		).toEqual([
+			{ path: "reused.bin", status: "reused" },
+			{ path: "existing.bin", status: "alreadyAssociated" },
+			{ path: "new.bin", status: "uploadRequired" },
+		]);
+	});
+
 	it("allows completion reconciliation without a browser ETag proof", () => {
 		const request: CompleteUploadsRequest = {
 			files: [
@@ -100,7 +130,8 @@ describe("upload API contract", () => {
 		expect(request.files[0]).not.toHaveProperty("objectEtag");
 	});
 
-	it("exposes only temporary credentials alongside deterministic targets", () => {
+	it("issues one file-agnostic, prefix-scoped temporary credential set", () => {
+		const request: UploadCredentialsRequest = {};
 		const credentials: TemporaryOssCredentials = {
 			accessKeyId: "STS.temporary-id",
 			accessKeySecret: "temporary-secret",
@@ -110,16 +141,14 @@ describe("upload API contract", () => {
 		const response: UploadCredentialsResponse = {
 			bucket: "release-bucket",
 			credentials,
-			objects: [
-				{
-					objectKey: `updater-admin/${"a".repeat(64)}/release/app.bin`,
-					path: "release/app.bin",
-				},
-			],
 			region: "oss-cn-hangzhou",
+			uploadPrefix: "updater-admin/",
 		};
 
+		expect(request).toEqual({});
 		expect(response.credentials).toBe(credentials);
+		expect(response.uploadPrefix).toBe("updater-admin/");
+		expect(response).not.toHaveProperty("objects");
 		expect(response).not.toHaveProperty("permanentAccessKeyId");
 		expect(response).not.toHaveProperty("permanentAccessKeySecret");
 	});
@@ -130,7 +159,6 @@ describe("upload API contract", () => {
 			createdAt: "2026-07-15T00:00:00.000Z",
 			id: "file-1",
 			mimeType: "application/octet-stream",
-			objectEtag: "etag-1",
 			path: "release/app.bin",
 			sha256: "a".repeat(64),
 			size: "4096",

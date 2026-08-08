@@ -30,6 +30,8 @@ export function SystemSettingsPage() {
 	const i18n = useI18n();
 	const queryClient = useQueryClient();
 	const settingsQuery = createQuery(systemSettingsQueryOptions);
+	const settingsData = () =>
+		settingsQuery.isPending ? undefined : settingsQuery.data;
 	const [serverErrors, setServerErrors] = createSignal<ServerErrors>({});
 	const [submitError, setSubmitError] = createSignal("");
 	const mutation = createMutation(() => ({
@@ -105,7 +107,7 @@ export function SystemSettingsPage() {
 					</h1>
 				</header>
 				<Show
-					when={!settingsQuery.isError || settingsQuery.data}
+					when={!settingsQuery.isError || settingsData()}
 					fallback={
 						<div class="grid min-h-64 place-items-center p-8 text-center">
 							<div>
@@ -126,7 +128,7 @@ export function SystemSettingsPage() {
 				>
 					<Show
 						keyed
-						when={settingsQuery.data}
+						when={settingsData()}
 						fallback={
 							<div class="grid min-h-64 place-items-center text-sm text-muted">
 								{i18n.t("common.loading")}

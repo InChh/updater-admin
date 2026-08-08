@@ -65,7 +65,7 @@ describe("system settings API", () => {
 
 		const [, init] = fetcher.mock.calls[0] ?? [];
 		expect(init?.method).toBe("PATCH");
-		expect(new Headers(init?.headers).get("if-match")).toBe('W/"3"');
+		expect(new Headers(init?.headers).get("x-updater-if-match")).toBe('W/"3"');
 		expect(JSON.parse(String(init?.body))).toEqual({
 			defaultLocale: "en",
 			defaultPageSize: 50,

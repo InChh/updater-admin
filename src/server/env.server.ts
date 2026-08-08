@@ -181,6 +181,63 @@ export function readAuthEnvironment(source: EnvironmentSource = process.env) {
 	};
 }
 
+function canonicalPublicApiOrigin(
+	value: string,
+	production: boolean,
+): string | null {
+	try {
+		const url = new URL(value);
+		if (
+			!url.hostname ||
+			url.username ||
+			url.password ||
+			(url.pathname !== "/" && url.pathname !== "") ||
+			url.search ||
+			url.hash
+		) {
+			return null;
+		}
+		if (url.protocol === "https:") return url.origin;
+		if (
+			!production &&
+			url.protocol === "http:" &&
+			localDevelopmentHostnames.has(url.hostname.toLowerCase())
+		) {
+			return url.origin;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Parses the browser CORS allowlist into canonical origins. An absent or blank
+ * list is valid for native/server consumers, while any malformed entry rejects
+ * the complete configuration instead of silently broadening it.
+ */
+export function readPublicApiEnvironment(
+	source: EnvironmentSource = process.env,
+) {
+	const raw = source.PUBLIC_API_ALLOWED_ORIGINS ?? "";
+	if (!raw.trim()) return { allowedOrigins: [] as readonly string[] };
+
+	const production = isProductionEnvironment(source);
+	const allowedOrigins: string[] = [];
+	const seen = new Set<string>();
+	for (const entry of raw.split(",")) {
+		const canonical = canonicalPublicApiOrigin(entry.trim(), production);
+		if (!canonical) {
+			throw new EnvironmentValidationError(["PUBLIC_API_ALLOWED_ORIGINS"]);
+		}
+		if (!seen.has(canonical)) {
+			seen.add(canonical);
+			allowedOrigins.push(canonical);
+		}
+	}
+	return { allowedOrigins };
+}
+
 export function readBootstrapAdminEnvironment(
 	source: EnvironmentSource = process.env,
 ) {

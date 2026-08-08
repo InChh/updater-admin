@@ -1,25 +1,46 @@
-import { Switch as KobalteSwitch } from "@kobalte/core/switch";
 import { type ComponentProps, type JSX, splitProps } from "solid-js";
 
 import { cn } from "../../lib/utils";
 
 export interface SwitchProps
-	extends Omit<ComponentProps<typeof KobalteSwitch>, "children"> {
+	extends Omit<
+		ComponentProps<"button">,
+		"aria-checked" | "children" | "onChange" | "onClick" | "role" | "type"
+	> {
+	readonly checked?: boolean;
 	readonly children?: JSX.Element;
+	readonly onChange?: (checked: boolean) => void;
 }
 
 export function Switch(props: SwitchProps) {
-	const [local, rest] = splitProps(props, ["class", "children"]);
+	const [local, rest] = splitProps(props, [
+		"checked",
+		"children",
+		"class",
+		"disabled",
+		"onChange",
+	]);
+	const checked = () => Boolean(local.checked);
 	return (
-		<KobalteSwitch
+		<button
 			{...rest}
-			class={cn("inline-flex items-center gap-2", local.class)}
+			aria-checked={checked()}
+			class={cn(
+				"relative inline-flex h-5 w-9 shrink-0 rounded-full bg-border-strong p-0.5 outline-none transition-colors duration-150 data-[checked]:bg-primary focus-visible:ring-2 focus-visible:ring-primary-deep focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+				local.class,
+			)}
+			data-checked={checked() ? "" : undefined}
+			disabled={local.disabled}
+			onClick={() => local.onChange?.(!checked())}
+			role="switch"
+			type="button"
 		>
-			<KobalteSwitch.Input class="peer" />
-			<KobalteSwitch.Control class="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-border-strong p-0.5 outline-none transition-colors duration-150 data-[checked]:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary-deep peer-focus-visible:ring-offset-2">
-				<KobalteSwitch.Thumb class="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 data-[checked]:translate-x-4" />
-			</KobalteSwitch.Control>
+			<span
+				aria-hidden="true"
+				class="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 data-[checked]:translate-x-4"
+				data-checked={checked() ? "" : undefined}
+			/>
 			{local.children}
-		</KobalteSwitch>
+		</button>
 	);
 }

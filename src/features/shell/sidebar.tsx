@@ -59,26 +59,54 @@ export interface SidebarProps {
 	readonly collapsed: boolean;
 	readonly mobileOpen: boolean;
 	readonly onMobileOpenChange: (open: boolean) => void;
+	readonly onNavigate: (target: string) => void;
 	readonly systemName: string;
 }
 
 interface SidebarBodyProps {
 	readonly collapsed: boolean;
-	readonly onNavigate?: () => void;
+	readonly onAfterNavigate?: () => void;
+	readonly onNavigate: (target: string) => void;
 	readonly systemName: string;
+}
+
+export function isCurrentSidebarDestination(
+	pathname: string,
+	destination: SidebarNavItem["to"],
+): boolean {
+	return pathname === destination;
 }
 
 function SidebarBody(props: SidebarBodyProps) {
 	const i18n = useI18n();
 	const item = (navItem: SidebarNavItem) => (
 		<Link
+			activeOptions={{ exact: true, includeSearch: false }}
 			activeProps={{
 				class:
 					"bg-primary-soft text-primary-deep before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[3px] before:rounded-r before:bg-primary",
 			}}
 			aria-label={props.collapsed ? i18n.t(navItem.labelKey) : undefined}
 			class="relative flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted no-underline transition-colors hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-deep focus-visible:ring-inset"
-			onClick={props.onNavigate}
+			onClick={(event) => {
+				const plainNavigation =
+					event.button === 0 &&
+					!event.altKey &&
+					!event.ctrlKey &&
+					!event.metaKey &&
+					!event.shiftKey;
+				if (
+					plainNavigation &&
+					isCurrentSidebarDestination(window.location.pathname, navItem.to)
+				) {
+					event.preventDefault();
+				} else if (plainNavigation) {
+					event.preventDefault();
+					props.onNavigate(navItem.to);
+				}
+				props.onAfterNavigate?.();
+			}}
+			preload="render"
 			title={props.collapsed ? i18n.t(navItem.labelKey) : undefined}
 			to={navItem.to}
 		>
@@ -130,6 +158,7 @@ export function Sidebar(props: SidebarProps) {
 			>
 				<SidebarBody
 					collapsed={props.collapsed}
+					onNavigate={props.onNavigate}
 					systemName={props.systemName}
 				/>
 			</aside>
@@ -148,7 +177,8 @@ export function Sidebar(props: SidebarProps) {
 						</Dialog.CloseButton>
 						<SidebarBody
 							collapsed={false}
-							onNavigate={() => props.onMobileOpenChange(false)}
+							onAfterNavigate={() => props.onMobileOpenChange(false)}
+							onNavigate={props.onNavigate}
 							systemName={props.systemName}
 						/>
 					</Dialog.Content>

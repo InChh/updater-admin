@@ -202,13 +202,6 @@ function failureAuditIntent(request: Request): FailureAuditIntent | null {
 			resourceType: "upload",
 		};
 	}
-	if (request.method === "POST" && pathname === "/api/v1/uploads/complete") {
-		return {
-			action: "upload.completed",
-			resourceId: "unassigned",
-			resourceType: "upload",
-		};
-	}
 	if (
 		request.method === "POST" &&
 		pathname === "/api/v1/profile/change-password"

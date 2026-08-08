@@ -1,6 +1,14 @@
 import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { useRouter, useRouterState } from "@tanstack/solid-router";
-import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
+import {
+	createEffect,
+	createSignal,
+	type JSX,
+	onCleanup,
+	onMount,
+	Show,
+	Suspense,
+} from "solid-js";
 
 import { authClient } from "../../lib/auth-client";
 import { useI18n } from "../../lib/i18n/i18n";
@@ -8,6 +16,12 @@ import { setBrowserSentryActor } from "../../lib/sentry";
 import { sessionQueryKey } from "../../lib/session-query";
 import type { SafeSessionView } from "../../server/auth/session.server";
 import { systemSettingsQueryOptions } from "../settings/system-queries";
+import {
+	beginPathNavigation,
+	completePathNavigation,
+	NavigationPendingPage,
+	pathnameFromHref,
+} from "./navigation-pending";
 import { resolveProtectedRoute } from "./route-registry";
 import { Sidebar } from "./sidebar";
 import { OPENED_TAB_PANEL_ID, OpenedTabs, openedTabDomId } from "./tabs";
@@ -24,12 +38,15 @@ export function AppShell(props: AppShellProps) {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const href = useRouterState({ select: (state) => state.location.href });
+	const [pendingHref, setPendingHref] = createSignal<string | null>(null);
 	const settingsQuery = createQuery(systemSettingsQueryOptions);
 	const activeTabKey = useShellUiSelector((state) => state.activeTabKey);
 	const collapsed = useShellUiSelector((state) => state.sidebarCollapsed);
 	const mobileOpen = useShellUiSelector((state) => state.mobileNavigationOpen);
 	const tabs = useShellUiSelector((state) => state.openedTabs);
-
+	let scheduledNavigationFrame: number | undefined;
+	const systemSettings = () =>
+		settingsQuery.isPending ? undefined : settingsQuery.data?.data;
 	const currentTabInput = () => {
 		const match = resolveProtectedRoute(href());
 		if (!match) return null;
@@ -41,6 +58,29 @@ export function AppShell(props: AppShellProps) {
 	};
 
 	onMount(() => {
+		const unsubscribeBeforeNavigate = router.subscribe(
+			"onBeforeNavigate",
+			(event) => {
+				setPendingHref((currentHref) =>
+					beginPathNavigation(currentHref, {
+						pathChanged: event.pathChanged,
+						toHref: event.toLocation.href,
+					}),
+				);
+			},
+		);
+		const unsubscribeRendered = router.subscribe("onRendered", (event) => {
+			setPendingHref((currentHref) =>
+				completePathNavigation(currentHref, event.toLocation.href),
+			);
+		});
+		onCleanup(() => {
+			unsubscribeBeforeNavigate();
+			unsubscribeRendered();
+			if (scheduledNavigationFrame !== undefined) {
+				cancelAnimationFrame(scheduledNavigationFrame);
+			}
+		});
 		setBrowserSentryActor(props.session.user.id);
 		onCleanup(() => setBrowserSentryActor(null));
 		shellUiController.hydrateForAccount({
@@ -54,8 +94,24 @@ export function AppShell(props: AppShellProps) {
 		});
 	});
 
+	const startPathNavigation = (target: string) => {
+		setPendingHref((currentHref) =>
+			beginPathNavigation(currentHref, {
+				pathChanged: pathnameFromHref(href()) !== pathnameFromHref(target),
+				toHref: target,
+			}),
+		);
+	};
 	const navigateTo = (target: string) => {
-		void router.navigate({ href: target });
+		if (href() === target) return;
+		startPathNavigation(target);
+		if (scheduledNavigationFrame !== undefined) {
+			cancelAnimationFrame(scheduledNavigationFrame);
+		}
+		scheduledNavigationFrame = requestAnimationFrame(() => {
+			scheduledNavigationFrame = undefined;
+			void router.navigate({ href: target });
+		});
 	};
 	const signOut = async () => {
 		const result = await authClient.signOut();
@@ -73,9 +129,8 @@ export function AppShell(props: AppShellProps) {
 				collapsed={collapsed()}
 				mobileOpen={mobileOpen()}
 				onMobileOpenChange={shellUiController.setMobileNavigationOpen}
-				systemName={
-					settingsQuery.data?.data.systemName ?? i18n.t("common.appName")
-				}
+				onNavigate={navigateTo}
+				systemName={systemSettings()?.systemName ?? i18n.t("common.appName")}
 			/>
 			<div class="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
 				<Topbar
@@ -86,7 +141,7 @@ export function AppShell(props: AppShellProps) {
 					}
 					onSignOut={signOut}
 					onToggleSidebar={shellUiController.toggleSidebar}
-					repositoryUrl={settingsQuery.data?.data.repositoryUrl ?? null}
+					repositoryUrl={systemSettings()?.repositoryUrl ?? null}
 					user={props.session.user}
 				/>
 				<OpenedTabs
@@ -100,11 +155,20 @@ export function AppShell(props: AppShellProps) {
 				/>
 				<main
 					aria-labelledby={openedTabDomId(activeTabKey())}
-					class="min-h-0 flex-1 overflow-y-auto bg-white"
+					class="relative min-h-0 flex-1 overflow-y-auto bg-white"
 					id={OPENED_TAB_PANEL_ID}
 					role="tabpanel"
 				>
-					{props.children}
+					<Suspense fallback={<NavigationPendingPage href={href()} />}>
+						{props.children}
+					</Suspense>
+					<Show when={pendingHref()}>
+						{(targetHref) => (
+							<div class="absolute inset-0 z-10 overflow-y-auto bg-white">
+								<NavigationPendingPage href={targetHref()} />
+							</div>
+						)}
+					</Show>
 				</main>
 				<span class="sr-only" aria-live="polite">
 					{i18n.t("routes.programs.tabTitle")}

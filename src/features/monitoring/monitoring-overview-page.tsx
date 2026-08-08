@@ -63,6 +63,10 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 	const seriesQuery = createQuery(() =>
 		releaseSeriesQueryOptions(props.search().days),
 	);
+	const statusData = () =>
+		statusQuery.isPending ? undefined : statusQuery.data;
+	const seriesData = () =>
+		seriesQuery.isPending ? undefined : seriesQuery.data;
 	const refreshing = () => statusQuery.isFetching || seriesQuery.isFetching;
 	const refresh = async () => {
 		await Promise.all([
@@ -76,7 +80,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 			}),
 		]);
 	};
-	const metrics = createMemo(() => statusQuery.data?.metrics);
+	const metrics = createMemo(() => statusData()?.metrics);
 	const metricCards = createMemo(() => [
 		{
 			icon: Box,
@@ -124,7 +128,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 							>
 								{i18n.t("pages.monitoringOverview.title")}
 							</h1>
-							<Show when={statusQuery.data}>
+							<Show when={statusData()}>
 								{(status) => (
 									<p class="m-0 mt-0.5 text-xs text-muted">
 										{i18n.t("monitoring.checkedAt", {
@@ -136,7 +140,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 						</div>
 					</div>
 					<div class="flex items-center gap-2">
-						<Show when={statusQuery.data}>
+						<Show when={statusData()}>
 							{(status) => <StatusBadge status={status().status} />}
 						</Show>
 						<Button
@@ -158,7 +162,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 				</header>
 
 				<Show
-					when={!statusQuery.isError || statusQuery.data}
+					when={!statusQuery.isError || statusData()}
 					fallback={
 						<div class="m-5 rounded-lg border border-danger/20 bg-danger/5 px-4 py-5 text-sm text-danger">
 							<p class="m-0">{i18n.formatApiError(statusQuery.error)}</p>
@@ -175,7 +179,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 					}
 				>
 					<Show
-						when={statusQuery.data}
+						when={statusData()}
 						fallback={
 							<div class="grid gap-4 p-5 md:grid-cols-2" aria-busy="true">
 								<For each={[0, 1, 2, 3]}>
@@ -384,7 +388,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 						</fieldset>
 					</div>
 					<Show
-						when={!seriesQuery.isError || seriesQuery.data}
+						when={!seriesQuery.isError || seriesData()}
 						fallback={
 							<div class="rounded-lg border border-danger/20 bg-danger/5 px-4 py-5 text-sm text-danger">
 								<p class="m-0">{i18n.formatApiError(seriesQuery.error)}</p>
@@ -401,7 +405,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 						}
 					>
 						<Show
-							when={seriesQuery.data}
+							when={seriesData()}
 							fallback={
 								<div
 									class="h-72 animate-pulse rounded-lg bg-mist"
@@ -414,7 +418,7 @@ export function MonitoringOverviewPage(props: MonitoringOverviewPageProps) {
 					</Show>
 				</section>
 
-				<Show when={statusQuery.data}>
+				<Show when={statusData()}>
 					{(status) => (
 						<section
 							aria-labelledby="recent-operations-title"

@@ -201,6 +201,8 @@ export function ProfileForm() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const profileQuery = createQuery(profileQueryOptions);
+	const profileData = () =>
+		profileQuery.isPending ? undefined : profileQuery.data;
 	const passwordLabels = (): ChangePasswordFormLabels => ({
 		confirmPassword: i18n.t("auth.changePassword.confirmPassword"),
 		currentPassword: i18n.t("auth.changePassword.currentPassword"),
@@ -255,7 +257,7 @@ export function ProfileForm() {
 					</h1>
 				</header>
 				<Show
-					when={!profileQuery.isError || profileQuery.data}
+					when={!profileQuery.isError || profileData()}
 					fallback={
 						<div class="grid min-h-64 place-items-center p-8 text-center">
 							<div>
@@ -276,7 +278,7 @@ export function ProfileForm() {
 				>
 					<Show
 						keyed
-						when={profileQuery.data}
+						when={profileData()}
 						fallback={
 							<div class="grid min-h-64 place-items-center text-sm text-muted">
 								{i18n.t("common.loading")}

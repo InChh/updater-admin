@@ -1,12 +1,34 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { describe, expect, it, vi } from "vitest";
 
-import { UploadQueue } from "./upload-queue";
+import { UPLOAD_QUEUE_RENDER_WINDOW_SIZE, UploadQueue } from "./upload-queue";
 import { createUploadQueueController } from "./upload-store";
 
 const SHA256 = "a".repeat(64);
 
 describe("UploadQueue", () => {
+	it("renders a bounded navigable window while retaining the full queue", () => {
+		const controller = createUploadQueueController({ storage: null });
+		const total = UPLOAD_QUEUE_RENDER_WINDOW_SIZE * 2 + 50;
+		controller.addFiles(
+			Array.from({ length: total }, (_, index) => ({
+				file: new File([String(index)], `file-${index}.bin`),
+				path: `release/file-${index}.bin`,
+			})),
+		);
+		render(() => <UploadQueue controller={controller} />);
+
+		expect(controller.getState().items).toHaveLength(total);
+		expect(screen.getAllByRole("listitem")).toHaveLength(
+			UPLOAD_QUEUE_RENDER_WINDOW_SIZE,
+		);
+		expect(screen.getByText(`显示第 1–100 个，共 ${total} 个`)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "下一批文件" }));
+		expect(screen.queryByText("release/file-0.bin")).toBeNull();
+		expect(screen.getByText("release/file-100.bin")).toBeTruthy();
+		controller.dispose();
+	});
+
 	it("announces aggregate progress and exposes per-file cancel and retry", () => {
 		const controller = createUploadQueueController({ storage: null });
 		const [created] = controller.addFiles([
@@ -74,9 +96,11 @@ describe("UploadQueue", () => {
 		if (!completed || !queued) throw new Error("fixtures were not created");
 		controller.startHash(completed.id);
 		controller.markHashSucceeded(completed.id, SHA256);
+		controller.startResolution(completed.id);
+		controller.markResolutionSucceeded(completed.id, "uploadRequired");
 		controller.setObjectTarget(completed.id, "releases/done.bin");
 		controller.startUpload(completed.id);
-		controller.markUploadSucceeded(completed.id, "etag");
+		controller.markUploadSucceeded(completed.id);
 		controller.startRegistration(completed.id);
 		controller.markRegistrationSucceeded(completed.id, "metadata-id");
 		render(() => <UploadQueue controller={controller} />);

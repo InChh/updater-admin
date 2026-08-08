@@ -1,13 +1,9 @@
 import type { FileMetadataDto } from "./files";
 
-/** One folder selection or credentials request may describe this many files. */
-export const MAX_UPLOAD_FILES = 1_000;
+/** Resolve only this many draft paths in one bounded request. */
+export const MAX_RESOLVE_DRAFT_FILES = 100;
 
-/**
- * Completion performs one canonical OSS HEAD per file inside a Netlify
- * function. Keep each request small enough to stay inside the function latency
- * envelope; the browser splits larger selections into ordered batches.
- */
+/** Keep metadata writes bounded; the browser splits larger selections. */
 export const MAX_COMPLETE_UPLOAD_FILES = 25;
 
 /** Stable reconciliation problem identifiers consumed by the browser retry path. */
@@ -47,15 +43,8 @@ export interface UploadFileMetadataInput {
 	readonly size: string;
 }
 
-export interface UploadCredentialsRequest {
-	readonly files: readonly UploadFileMetadataInput[];
-}
-
-/** Deterministic destination for one normalized relative path. */
-export interface UploadObjectTarget {
-	readonly objectKey: string;
-	readonly path: string;
-}
+/** Credential issuance is file-agnostic and accepts no request fields. */
+export type UploadCredentialsRequest = Readonly<Record<string, never>>;
 
 /**
  * Short-lived AssumeRole credentials. This shape is deliberately separate
@@ -71,19 +60,39 @@ export interface TemporaryOssCredentials {
 export interface UploadCredentialsResponse {
 	readonly bucket: string;
 	readonly credentials: TemporaryOssCredentials;
-	readonly objects: readonly UploadObjectTarget[];
 	readonly region: string;
+	readonly uploadPrefix: string;
 }
 
-/**
- * Metadata proof returned by OSS after a direct browser upload. Omitting the
- * ETag asks the server to reconcile a potentially successful OSS commit whose
- * browser response was lost; the server still HEAD-verifies the object before
- * registering metadata.
- */
+export const DRAFT_FILE_RESOLVE_STATUSES = [
+	"alreadyAssociated",
+	"reused",
+	"uploadRequired",
+] as const;
+
+export type DraftFileResolveStatus =
+	(typeof DRAFT_FILE_RESOLVE_STATUSES)[number];
+
+export interface ResolveDraftFilesRequest {
+	readonly files: readonly UploadFileMetadataInput[];
+}
+
+export interface ResolveDraftFileResult {
+	readonly canonicalMimeType?: string;
+	readonly path: string;
+	readonly status: DraftFileResolveStatus;
+}
+
+export interface ResolveDraftFilesResponse {
+	/** Results preserve the request order. */
+	readonly files: readonly ResolveDraftFileResult[];
+}
+
+/** Metadata committed after a direct browser upload. */
 export interface CompleteUploadItemInput extends UploadFileMetadataInput {
-	readonly objectEtag?: string;
 	readonly objectKey: string;
+	/** HEAD only when the browser cannot know whether OSS committed the upload. */
+	readonly verifyObject?: true;
 }
 
 export interface CompleteUploadsRequest {

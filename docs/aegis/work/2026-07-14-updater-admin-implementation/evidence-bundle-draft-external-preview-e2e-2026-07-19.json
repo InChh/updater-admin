@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "external-preview-e2e-2026-07-19",
+  "type": "external-verification",
+  "source": "Authorized Neon reset/migration/bootstrap, Netlify nonproduction branch deploy, direct public HTTP/API probes, and Codex in-app-browser verification on 2026-07-19, amended by authorized Sentry source-map association plus forced-password and live OSS/version browser proof on 2026-07-20",
+  "summary": "The application database was reset, migrated, and bootstrapped after the user expressly authorized destructive repair. The guarded database harness was remediated with bounded 30-second test/hook timeouts for remote-Neon transaction and cleanup latency; the version file then passed three consecutive 6/6 runs, the full suite passed 6/6 files and 25/25 tests, and all 13 approved tables were empty afterward. Literal pnpm test under standard Node 22 and the direct-Bun fallback both pass 101/101 files and 589/589 tests. The user approved Sentry source disclosure; complete artifact bundle 4d712dfc-e2e0-54a6-a122-d8564eedba27 was uploaded, browser event 3359719d22b9454690cdb85dd7199ac5 was symbolicated without processing errors, and public maps remained absent. The real Codex in-app browser completed forced-password, live OSS upload recovery, version creation, and activation on final nonproduction deploy 6a5d95ea2c8afd55c56dc095 with zero warning/error logs. The completed object is preserved and the temporary administrator is disabled with zero remaining sessions. Production was never published. Only provider-owned OSS configuration remains: expose ETag through CORS and have an operator identity verify incomplete-multipart lifecycle.",
+  "provenEvidence": [
+    {
+      "key": "application-database-readiness",
+      "status": "passed",
+      "evidence": "The user expressly authorized destructive database repair; reset, migration, and administrator bootstrap completed successfully.",
+      "boundary": "Database preparation is distinct from the guarded destructive suite, whose initial partial and final passing reruns are recorded separately."
+    },
+    {
+      "key": "guarded-database-suite",
+      "status": "failed-partial",
+      "evidence": "The authorized live rerun passed 5 of 6 files and 23 of 25 tests. Both failures were 5-second timeouts in versions.server.db.test.ts against remote Neon; cleanup then hit FK RESTRICT because timed-out child version rows remained.",
+      "boundary": "Historical first rerun only; superseded by the later stable passing reruns after bounded harness timeout remediation."
+    },
+    {
+      "key": "guarded-database-suite-remediated",
+      "status": "passed",
+      "evidence": "vitest.db.config.ts now uses bounded 30-second test and hook timeouts to accommodate remote-Neon transaction and cleanup latency without allowing unbounded hangs. versions.server.db.test.ts passed 6/6 tests three consecutive times in 35.20s, 28.22s, and 27.47s. The complete guarded suite then passed 6/6 files and 25/25 tests in 61.56s.",
+      "boundary": "Post-suite verification counted exactly zero rows in each of all 13 approved tables. The unit suite is recorded separately and is all-green under the direct-Bun fallback."
+    },
+    {
+      "key": "post-database-suite-recovery",
+      "status": "passed",
+      "evidence": "Migrations were applied after destructive-suite cleanup and a one-time high-entropy nonproduction bootstrap administrator was created without persisting or disclosing its password. Final public Preview smoke returned /health 200 application/json and anonymous /api/v1/programs 401 application/problem+json UNAUTHENTICATED.",
+      "boundary": "No credential value is stored in this evidence record."
+    },
+    {
+      "key": "netlify-nonproduction-deploy",
+      "status": "passed",
+      "evidence": "Site updater-admin-e2e-019f5bdd32ab7261 (Project ID f8a4c65a-eebc-4519-8eb8-57964c6f695f), latest ready deploy 6a5d95ea2c8afd55c56dc095 titled native-version-switch, URL https://codex-e2e-332273d--updater-admin-e2e-019f5bdd32ab7261.netlify.app",
+      "boundary": "Nonproduction alias codex-e2e-332273d only; production was never published. The deployed JavaScript retains its Sentry debug ID while the corresponding public .map URL returns 404."
+    },
+    {
+      "key": "latest-preview-redeploy-smoke",
+      "status": "passed",
+      "evidence": "After the Sentry and OSS packaging repairs were rebundled, the Codex in-app browser completed the forced-password, direct upload, server reconciliation, version-create, and native-switch activation journeys with zero warning/error logs. Public health and anonymous Problem Details contracts remained valid.",
+      "boundary": "The final branch deploy is nonproduction only. The earlier authenticated CRUD, ETag, dynamic-tab, monitoring, locale, settings, and administrator browser flows remain part of the full acceptance evidence."
+    },
+    {
+      "key": "public-http-contracts",
+      "status": "passed",
+      "evidence": "/health returned 200 with Permissions-Policy, Referrer-Policy, X-Content-Type-Options, X-Frame-Options, and Strict-Transport-Security; / returned 307 to the programs route; anonymous /api/v1/programs returned 401 application/problem+json with UNAUTHENTICATED.",
+      "boundary": "Observed on the nonproduction branch alias."
+    },
+    {
+      "key": "netlify-optimistic-concurrency",
+      "status": "passed",
+      "evidence": "Netlify strips the standard If-Match request header before the Function. The application now sends X-Updater-If-Match while responses retain standard ETag. Direct authenticated sign-in, GET, and PATCH passed with an ETag advance; standard If-Match alone returned 428. Real browser program edit/delete and administrator mutation also passed.",
+      "boundary": "No standard-header fallback or double-read compatibility path was added."
+    },
+    {
+      "key": "in-app-browser-core-flows",
+      "status": "passed",
+      "evidence": "Login/session; program create, filter, reset, edit, and delete; nested version routing and dynamic-tab persistence; monitoring and audit detail; Chinese/English locale persistence; system-name update and revert; and administrator disable all passed in the Codex in-app browser.",
+      "boundary": "The forced-password journey later passed in the real browser; after final evidence capture, the temporary administrator was disabled and all of its sessions were revoked."
+    },
+    {
+      "key": "dynamic-tab-regression",
+      "status": "passed-after-remediation",
+      "evidence": "An intermittent 'Tab href must match its registered protected route' console error was traced to a second navigation owner in the nested version page. The route now retitles an existing tab by stable key while AppShell remains the sole open/activate owner. On the final deploy, a fresh browser tab created a program, opened its nested route, changed pageSize from 20 to 50, preserved the exact URL query and program-name tab across hard reload, and emitted zero console errors. The test program was deleted and all browser tabs were finalized.",
+      "boundary": "Verified against final ready deploy 6a5ccba51967b64766b10fce."
+    },
+    {
+      "key": "local-verification-current",
+      "status": "passed",
+      "evidence": "Focused tests, TypeScript, Biome, and the production build passed. src/server/auth/zod-runtime.test.ts now imports the Zod module namespace directly while retaining the same Zod 4 coerce/metadata assertion. vitest.config.ts inlines @tanstack/solid-start so its Solid Router JSX dependency stays in the transform pipeline. With standard Node 22.23.1 first in PATH, literal pnpm test passed 101 of 101 files and 589 of 589 tests in 29.66s. The final direct-Bun suite independently passed 101/101 files and 589/589 tests in 48.82s.",
+      "boundary": "The app-bundled Team-ID-signed Node still cannot dlopen Rolldown's ad-hoc native binding before collection on this Mac; standard standalone Node 22 is the proven literal-command runtime and matches netlify.toml's configured major version."
+    },
+    {
+      "key": "sentry-runtime-and-source-map-association",
+      "status": "passed",
+      "evidence": "After explicit user approval, the repaired multi-stage build uploaded complete artifact bundle 4d712dfc-e2e0-54a6-a122-d8564eedba27. Browser and server debug IDs each have paired JavaScript and map files. Read-only browser event 3359719d22b9454690cdb85dd7199ac5 on release updater-admin-e2e-332273d has no processing errors and resolves to src/lib/api/client.ts lines 399 and 383.",
+      "boundary": "Hidden maps are uploaded to Sentry only after all Vite environments complete, then removed by the top-level build cleanup. dist contains zero maps and the deployed client .map URL returns 404."
+    },
+    {
+      "key": "live-oss-version-browser-flow",
+      "status": "passed-with-provider-configuration-followup",
+      "evidence": "Permanent credentials successfully assumed the prefix-scoped upload role; multipart initiation, one-part upload, and AbortMultipartUpload passed. The real browser received credentials and Aliyun OSS returned HTTP 200. Server HEAD recovery completed metadata registration, version 1.0.0 creation returned 201, activation returned 200, and Neon ties the active version to the preserved 303-byte object with a nonempty ETag.",
+      "boundary": "The bucket CORS rule permits upload but does not expose ETag, so the first-pass client completion uses server-HEAD recovery. The least-privileged application principal correctly receives AccessDenied for bucket CORS/lifecycle reads; an operator identity must verify those settings without widening runtime roles. No completed object was deleted."
+    }
+  ],
+  "externalGates": [
+    {
+      "gate": "oss-bucket-cors-and-incomplete-multipart-lifecycle",
+      "status": "operator-configuration-followup",
+      "required": "Add ETag to the existing CORS exposed headers and verify the bucket lifecycle rule for incomplete multipart uploads using an operator identity. Keep the permanent application and temporary upload roles least-privileged and preserve the completed E2E object as evidence.",
+      "evidence": "The application upload/version/activation flow is proven live. Runtime read-only lifecycle/CORS probes return AccessDenied by design, so provider-console configuration cannot be certified by the application identity."
+    }
+  ],
+  "remainingExternalActions": [
+    "Add ETag to the existing OSS CORS exposed headers and verify incomplete-multipart lifecycle with an operator identity; do not widen runtime-role permissions or delete the preserved evidence object."
+  ],
+  "verifier": "root agent direct probes and Codex in-app browser, 2026-07-19 and 2026-07-20"
+}

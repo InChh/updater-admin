@@ -1,7 +1,6 @@
-// ali-oss 6.x publishes browser declarations internally but does not expose a
-// package entry declaration. This narrow adapter keeps the untyped SDK surface
-// at one boundary and makes upload behavior injectable in tests.
-// @ts-expect-error -- upstream package has no resolvable root declaration.
+// ali-oss 6.x does not expose a package entry declaration. The local ambient
+// declaration plus this narrow adapter keeps the untyped SDK surface at one
+// boundary and makes upload behavior injectable in tests.
 import AliOss from "ali-oss";
 
 /**
@@ -10,9 +9,16 @@ import AliOss from "ali-oss";
  */
 export const OSS_MULTIPART_PARALLELISM = 2;
 export const DEFAULT_OSS_UPLOAD_TIMEOUT_MS = 120_000;
+export const OSS_STS_REFRESH_INTERVAL_MS = 60_000;
 export const MIN_OSS_MULTIPART_PART_SIZE = 100 * 1024;
 export const DEFAULT_OSS_MULTIPART_PART_SIZE = 4 * 1024 * 1024;
 export const MAX_OSS_MULTIPART_PART_COUNT = 10_000;
+/**
+ * ali-oss buffers a simple browser PUT in memory and cannot report its upload
+ * progress. Keep simple uploads within the same raw 8 MiB per-file payload
+ * budget as two multipart parts; larger files retain checkpointed progress.
+ */
+export const MAX_OSS_SIMPLE_UPLOAD_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 /**
  * ali-oss retains up to `parallel` sliced part payloads per file. This bounds
  * those payload bytes; the browser and SDK may require additional overhead.
@@ -46,12 +52,12 @@ export interface OssMultipartUploadInput {
 	readonly onProgress?: (progress: number) => void;
 	readonly partSize?: number;
 	readonly region: string;
+	readonly refreshCredentials?: () => Promise<OssTemporaryCredentials>;
 	readonly signal?: AbortSignal;
 	readonly timeoutMs?: number;
 }
 
 export interface OssMultipartUploadResult {
-	readonly objectEtag: string;
 	readonly objectKey: string;
 }
 
@@ -103,6 +109,12 @@ export interface AliOssMultipartOptions {
 	readonly timeout: number;
 }
 
+export interface AliOssPutOptions {
+	readonly headers: Readonly<{ "x-oss-forbid-overwrite": "true" }>;
+	readonly mime?: string;
+	readonly timeout: number;
+}
+
 export interface AliOssClientLike {
 	abortMultipartUpload?(
 		objectKey: string,
@@ -116,6 +128,11 @@ export interface AliOssClientLike {
 		file: File,
 		options: AliOssMultipartOptions,
 	): Promise<AliOssMultipartResult>;
+	put?(
+		objectKey: string,
+		file: File,
+		options: AliOssPutOptions,
+	): Promise<AliOssMultipartResult>;
 }
 
 export interface AliOssClientConfiguration {
@@ -123,6 +140,12 @@ export interface AliOssClientConfiguration {
 	readonly accessKeySecret: string;
 	readonly bucket: string;
 	readonly region: string;
+	readonly refreshSTSToken?: () => Promise<{
+		readonly accessKeyId: string;
+		readonly accessKeySecret: string;
+		readonly stsToken: string;
+	}>;
+	readonly refreshSTSTokenInterval?: number;
 	readonly secure: true;
 	readonly stsToken: string;
 }
@@ -139,6 +162,27 @@ export class OssUploadCancelledError extends Error {
 	constructor() {
 		super("File upload was cancelled.");
 		this.name = "OssUploadCancelledError";
+	}
+}
+
+/**
+ * The deterministic content-addressed object was committed by an earlier
+ * attempt, but its metadata transaction did not finish. Treat this provider
+ * conflict as an ambiguous successful upload and let the server HEAD-verify it.
+ */
+export class OssUploadAlreadyExistsError extends Error {
+	constructor() {
+		super("OSS object already exists and requires server reconciliation.");
+		this.name = "OssUploadAlreadyExistsError";
+	}
+}
+
+export class OssMultipartEtagCorsError extends Error {
+	constructor() {
+		super(
+			"OSS bucket CORS must expose the ETag response header for multipart uploads.",
+		);
+		this.name = "OssMultipartEtagCorsError";
 	}
 }
 
@@ -164,17 +208,32 @@ function isCancelledError(error: unknown): boolean {
 	return "name" in error && error.name === "cancel";
 }
 
-function resultEtag(result: AliOssMultipartResult): string {
-	const direct = typeof result.etag === "string" ? result.etag.trim() : "";
-	if (direct) return direct;
+function isAlreadyExistsError(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const candidate = error as {
+		readonly code?: unknown;
+		readonly message?: unknown;
+		readonly status?: unknown;
+		readonly statusCode?: unknown;
+	};
+	if (candidate.code === "FileAlreadyExists") return true;
+	const status = candidate.status ?? candidate.statusCode;
+	return (
+		status === 409 &&
+		typeof candidate.message === "string" &&
+		/object .*already exists|already exists .*not be overwritten/i.test(
+			candidate.message,
+		)
+	);
+}
 
-	for (const [name, value] of Object.entries(result.res?.headers ?? {})) {
-		if (name.toLowerCase() !== "etag" || typeof value !== "string") continue;
-		const header = value.trim();
-		if (header) return header;
+function isMissingMultipartEtagCorsError(error: unknown): boolean {
+	if (!error || typeof error !== "object" || !("message" in error)) {
+		return false;
 	}
-	throw new Error(
-		"OSS upload completed without an ETag. Expose the ETag response header in bucket CORS.",
+	return (
+		typeof error.message === "string" &&
+		/please set the etag of expose-headers in oss/i.test(error.message)
 	);
 }
 
@@ -245,13 +304,30 @@ export function resolveOssMultipartPartSize(
 }
 
 function createClientConfiguration(
-	input: Pick<OssMultipartUploadInput, "bucket" | "credentials" | "region">,
+	input: Pick<OssMultipartUploadInput, "bucket" | "credentials" | "region"> &
+		Partial<Pick<OssMultipartUploadInput, "refreshCredentials">>,
 ): AliOssClientConfiguration {
 	return {
 		accessKeyId: input.credentials.accessKeyId,
 		accessKeySecret: input.credentials.accessKeySecret,
 		bucket: input.bucket,
 		region: input.region,
+		...(input.refreshCredentials
+			? {
+					refreshSTSToken: async () => {
+						const credentials = await input.refreshCredentials?.();
+						if (!credentials) {
+							throw new Error("STS refresh returned no credentials.");
+						}
+						return {
+							accessKeyId: credentials.accessKeyId,
+							accessKeySecret: credentials.accessKeySecret,
+							stsToken: credentials.securityToken,
+						};
+					},
+					refreshSTSTokenInterval: OSS_STS_REFRESH_INTERVAL_MS,
+				}
+			: {}),
 		secure: true,
 		stsToken: input.credentials.securityToken,
 	};
@@ -348,6 +424,9 @@ export function startOssMultipartUpload(
 	const client = (dependencies.createClient ?? defaultClientFactory)(
 		createClientConfiguration(input),
 	);
+	const useSimpleUpload =
+		input.file.size <= MAX_OSS_SIMPLE_UPLOAD_FILE_SIZE_BYTES &&
+		typeof client.put === "function";
 	let cancelled = false;
 	let uploadCompleted = false;
 	let latestCheckpoint = input.checkpoint ?? null;
@@ -370,10 +449,11 @@ export function startOssMultipartUpload(
 	};
 	input.signal?.addEventListener("abort", cancel, { once: true });
 
+	const headers = { "x-oss-forbid-overwrite": "true" } as const;
 	const options: AliOssMultipartOptions = {
 		...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
 		disabledMD5: true,
-		headers: { "x-oss-forbid-overwrite": "true" },
+		headers,
 		...(input.mimeType ? { mime: input.mimeType } : {}),
 		parallel: OSS_MULTIPART_PARALLELISM,
 		partSize,
@@ -389,24 +469,46 @@ export function startOssMultipartUpload(
 	};
 
 	const promise = Promise.resolve()
-		.then(() => {
+		.then(async () => {
 			if (cancelled) throw new OssUploadCancelledError();
+			if (useSimpleUpload && client.put) {
+				if (resumedUploadId) {
+					await abortWithClient(
+						client,
+						input.objectKey,
+						resumedUploadId,
+						timeout,
+					);
+					latestCheckpoint = null;
+				}
+				input.onProgress?.(0);
+				return client.put(input.objectKey, input.file, {
+					headers,
+					...(input.mimeType ? { mime: input.mimeType } : {}),
+					timeout,
+				});
+			}
 			return client.multipartUpload(input.objectKey, input.file, options);
 		})
-		.then((result) => {
+		.then(() => {
 			if (cancelled || client.isCancel?.()) {
 				throw new OssUploadCancelledError();
 			}
 			uploadCompleted = true;
 			input.onProgress?.(1);
 			return {
-				objectEtag: resultEtag(result),
 				objectKey: input.objectKey,
 			};
 		})
 		.catch((error: unknown) => {
 			if (cancelled || client.isCancel?.() || isCancelledError(error)) {
 				throw new OssUploadCancelledError();
+			}
+			if (isAlreadyExistsError(error)) {
+				throw new OssUploadAlreadyExistsError();
+			}
+			if (isMissingMultipartEtagCorsError(error)) {
+				throw new OssMultipartEtagCorsError();
 			}
 			throw error;
 		})

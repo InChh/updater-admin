@@ -1,7 +1,7 @@
 {
   "schemaVersion": "aegis.schema.v0",
   "taskId": "2026-07-14-updater-admin-implementation",
-  "currentTodo": "Authorized external environment setup, deployment, and verification",
+  "currentTodo": "Complete operator-owned follow-ups: expose ETag through OSS CORS, verify incomplete-multipart lifecycle, and rotate the production administrator password after browser acceptance",
   "completedTodos": [
     "Batch 0: isolated worktree and fresh baseline verification",
     "Batch 1: tooling, dependencies, Intent allowlist, and deterministic test harness",
@@ -17,9 +17,12 @@
     "Batch 11: ETag-protected system-settings singleton, validated defaults and repository URL, Query cache ownership, and stale-write recovery",
     "Batch 12: authenticated readiness/metrics, renderer-neutral release series, append-only audit history/detail, native SVG chart, and monitoring/audit UI",
     "Batch 13: conditional Sentry and source-map integration, shared redaction, Netlify/Start security hardening, deployment guidance, and cross-cutting security verification",
-    "Batch 14: scaffold demo retirement, production runtime owner proof, durable CLI/Intent toolchain guidance, route/secret/accessibility scans, desktop/mobile Playwright coverage, and credential-gated screenshot capture paths"
+    "Batch 14: scaffold demo retirement, production runtime owner proof, durable CLI/Intent toolchain guidance, route/secret/accessibility scans, desktop/mobile Playwright coverage, and credential-gated screenshot capture paths",
+    "External 2026-07-20: authorized Sentry source-map upload, multi-stage cleanup repair, complete debug-ID artifact bundle, deployed browser symbolication proof, and nonproduction Preview redeploy",
+    "External 2026-07-20: actual in-app-browser forced-password and live OSS multipart/version flow, server HEAD recovery, version activation, final nonproduction redeploy, and post-test administrator disable/session revocation",
+    "External 2026-08-06: exact production cleanup and Better Auth bootstrap, Free-plan Secrets Controller configuration, current Sentry source-map release, formal Netlify publication, positive anonymous manifest/signed-download smoke with exact cleanup, and real production in-app-browser acceptance"
   ],
-  "activeSlice": "Local implementation and verification are complete; no external system mutation is authorized by this record",
+  "activeSlice": "Application implementation and formal production acceptance are complete. Only provider-owned OSS bucket settings and an operator-owned production password rotation remain as follow-ups.",
   "evidenceRefs": [
     "Batch 6 program contract fixes page values to 1..1,000,000, page sizes to 20/50/100, literal case-sensitive filtering, stable createdAt plus id sorting, weak ETag/If-Match mutations, and DELETE 204 without a response ETag",
     "Batch 6 validation counts Unicode code points and emits bounded control-free well-formed validation paths; program soft delete preserves file metadata, relation history, and OSS objects",
@@ -30,7 +33,7 @@
     "Batch 7 omitted fileIds preserves relations and an explicit empty list removes all; soft deletion preserves file metadata and relation history, while full before/after sets are audited atomically",
     "Batch 7 passed Biome, typecheck, unit/contract/repository/domain/API/app-integration tests, guarded DB harness, Netlify client/SSR build, and diff-check; independent repository and backend re-reviews passed",
     "Batch 8/9 enforce canonical relative POSIX paths, an exact 41,943,040,000-byte multipart bound, 1,023-byte OSS keys, deterministic lock ordering, server-only HEAD verification, and atomic idempotent completion",
-    "Batch 8 keeps permanent RAM keys server-only, grants browser STS only PutObject/AbortMultipartUpload/ListParts, documents separate server GetObject verification permission, and audits credential issuance without paths or secrets",
+    "Batch 8 keeps permanent RAM keys server-only, grants browser STS only PutObject/AbortMultipartUpload, uses in-memory checkpoints without remote reconciliation, documents separate server GetObject verification permission, and audits credential issuance without paths or secrets",
     "Batch 8 root gate passed Biome over 184 files, typecheck, 52 test files with 337 tests, guarded DB harness with 5 explicit skips, Netlify client/SSR build, and diff-check; server, domain/API, and client re-reviews passed",
     "Batch 9 passed 60 test files with 421 tests, Biome, typecheck, guarded DB/E2E harnesses, Netlify client/SSR build, and diff-check; independent acceptance and security re-reviews passed",
     "Batch 10 implements administrator/profile/account ownership without a second identity or session owner; its real temporary-admin lifecycle remains within the credential-gated E2E group",
@@ -40,9 +43,22 @@
     "The authoritative final local matrix passed frozen install, route generation, Intent 10 packages/31 skills, TanStack CLI 16-library discovery, Biome 279 files, TypeScript, 98 Vitest files/568 tests, Drizzle check, Netlify client/SSR build, built-function health/security-header smoke, route/client-secret/source-map scans, diff-check, and Aegis workspace check",
     "Batch 14 E2E proves 8 public desktop/mobile tests passed and 18 authenticated tests skipped because E2E credentials are absent; the skipped journeys are not passes",
     "The guarded database harness loaded 6 files/6 tests and explicitly skipped them without an authorized disposable database",
-    "ADR-0001 records the same-origin TanStack Start/raw Request/Elysia decision and the appended baseline reflects the same current-state ownership"
+    "ADR-0001 records the same-origin TanStack Start/raw Request/Elysia decision and the appended baseline reflects the same current-state ownership",
+    "The first 2026-07-19 attempt found a non-empty schema-inconsistent Neon target and stopped safely; after the user expressly authorized destructive repair, database reset, migration, and administrator bootstrap passed",
+    "The later authorized guarded database rerun passed 5 of 6 files and 23 of 25 tests. versions.server.db.test.ts had two 5-second timeouts against remote Neon, and cleanup then hit FK RESTRICT because timed-out child version rows remained; the suite is not passed",
+    "That partial guarded-DB attempt is superseded: vitest.db.config.ts now applies bounded 30-second test/hook timeouts for remote-Neon transaction and cleanup latency; versions.server.db.test.ts passed 6/6 three consecutive times in 35.20s, 28.22s, and 27.47s; the full guarded suite passed 6/6 files and 25/25 tests in 61.56s; exact post-suite counts for all 13 approved tables were zero; migrations/bootstrap recovery and final public health/anonymous-401 smoke then passed without persisting or disclosing the one-time credential",
+    "Netlify site updater-admin-e2e-019f5bdd32ab7261 (Project ID f8a4c65a-eebc-4519-8eb8-57964c6f695f) has latest ready deploy 6a5d7460187ccd05113f28e7 titled sentry-sourcemap-upload-verified only on alias codex-e2e-332273d; the Codex in-app browser reverified rendered login, JSON health, and anonymous Problem Details 401; production was never published",
+    "Public Preview checks passed: /health 200 with Permissions-Policy, Referrer-Policy, X-Content-Type-Options, X-Frame-Options, and HSTS; / redirected to programs; anonymous /api/v1/programs returned 401 application/problem+json UNAUTHENTICATED",
+    "Netlify strips standard request If-Match, so mutations use X-Updater-If-Match while responses retain standard ETag and no fallback exists. Direct authenticated sign-in/GET/PATCH advanced the ETag; standard If-Match alone returned 428; real UI edit/delete/administrator mutations passed",
+    "Actual Codex in-app-browser flows passed for login/session, program create/filter/reset/edit/delete, nested versions and dynamic-tab persistence, monitoring/audit detail, zh/en persistence, system-name update/revert, and administrator disable",
+    "The intermittent tab href error was fixed with stable-key retitle-only ownership. A fresh-tab final-deploy retest preserved pageSize=50 and the exact query plus dynamic program-name tab across hard reload with zero console errors; the test program was deleted and all tabs were finalized",
+    "Focused tests, TypeScript, Biome, and the production build pass. After replacing the Zod convenience-alias import with the direct module namespace without changing the assertion and inlining @tanstack/solid-start in the test-only transform pipeline, literal pnpm test under standard Node 22 and the full direct-Bun suite both pass 101 of 101 files and 589 of 589 tests",
+    "After explicit approval, Sentry artifact bundle 4d712dfc-e2e0-54a6-a122-d8564eedba27 contains paired JavaScript/maps for browser and server debug IDs; deployed browser event 3359719d22b9454690cdb85dd7199ac5 has no processing errors and resolves to src/lib/api/client.ts lines 399 and 383. Post-upload cleanup leaves zero maps in dist and the public .map URL returns 404.",
+    "Live OSS evidence supersedes the earlier incomplete gate: STS AssumeRole and multipart init/upload-part/abort passed; the real browser received upload credentials and Aliyun OSS HTTP 200 responses; server HEAD recovery completed metadata registration; version creation returned 201; activation returned 200; and the database ties active version 1.0.0 to the preserved 303-byte object. The bucket CORS rule still needs ETag in exposed headers, while lifecycle inspection correctly returns AccessDenied to the least-privileged application principal and remains an operator follow-up.",
+    "The forced-password journey passed in the actual browser. After final evidence capture, the temporary E2E administrator was disabled and all of its sessions were revoked. Latest nonproduction deploy 6a5d95ea2c8afd55c56dc095 is ready on the branch alias; production was never published.",
+    "Formal production supersedes the historical publication gate: deploy 6a73ec801b96527dc4878d85 is ready; health/auth/CORS/public-manifest/signed-download checks passed; exact smoke cleanup restored zero business rows and one user; and the production in-app browser passed login, tables, dynamic tabs, monitoring, audit, settings, menus, logout, and zero console errors."
   ],
-  "blockedOn": "External proof requires a disposable TEST_DATABASE_URL plus TEST_DATABASE_CONFIRM_DISPOSABLE=updater-admin-destructive-tests, seeded E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD, an authorized OSS sandbox, authorized Sentry credentials, and an authorized Netlify Preview.",
-  "nextStep": "When explicitly authorized, provision isolated external environments, run migrations/bootstrap, execute the remaining database/authenticated-browser/OSS/Sentry/Preview gates, and attach results without implying success for unavailable checks.",
-  "updatedAt": "2026-07-15"
+  "blockedOn": "Application production and public API are not blocked. The least-privileged runtime identity cannot inspect bucket CORS or lifecycle settings; an environment operator owns those checks. Password rotation requires the operator to choose and submit the replacement secret.",
+  "nextStep": "Rotate the production administrator password and remove the bootstrap value from ignored local configuration. Separately expose ETag in the existing OSS CORS rule and verify an incomplete-multipart lifecycle rule without widening runtime-role permissions.",
+  "updatedAt": "2026-08-06"
 }

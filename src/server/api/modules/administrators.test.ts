@@ -188,7 +188,7 @@ describe("administrators and profile API contracts", () => {
 		});
 	});
 
-	it("forwards If-Match and returns the updated administrator ETag", async () => {
+	it("forwards X-Updater-If-Match and returns the updated administrator ETag", async () => {
 		const updated = {
 			...administrator(),
 			etag: 'W/"4"' as const,
@@ -200,7 +200,7 @@ describe("administrators and profile API contracts", () => {
 				body: JSON.stringify({ name: "Updated Target" }),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 					origin: "http://localhost",
 				},
 				method: "PATCH",
@@ -262,7 +262,7 @@ describe("administrators and profile API contracts", () => {
 					body: JSON.stringify({ temporaryPassword: TEMPORARY_PASSWORD }),
 					headers: {
 						"content-type": "application/json",
-						"if-match": 'W/"3"',
+						"x-updater-if-match": 'W/"3"',
 						origin: "http://localhost",
 					},
 					method: "POST",
@@ -303,6 +303,7 @@ describe("administrators and profile API contracts", () => {
 					headers: {
 						"content-type": "application/json",
 						origin: "http://localhost",
+						"x-updater-if-match": 'W/"3"',
 					},
 					method: "PATCH",
 				}),
@@ -367,7 +368,7 @@ describe("administrators and profile API contracts", () => {
 				body: JSON.stringify({ locale: "en", name: " Updated Name " }),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 					origin: "http://localhost",
 				},
 				method: "PATCH",
@@ -442,7 +443,7 @@ describe("administrators and profile API contracts", () => {
 				body: JSON.stringify({ name: "Changed" }),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 					origin: "http://localhost",
 				},
 				method: "PATCH",
@@ -462,7 +463,7 @@ describe("administrators and profile API contracts", () => {
 				body: JSON.stringify({ locale: "en" }),
 				headers: {
 					"content-type": "application/json",
-					"if-match": 'W/"3"',
+					"x-updater-if-match": 'W/"3"',
 					origin: "http://localhost",
 				},
 				method: "PATCH",

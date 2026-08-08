@@ -1,5 +1,5 @@
 import { Config } from "@alicloud/openapi-client";
-import StsClient, {
+import StsClientModule, {
 	AssumeRoleRequest,
 	type AssumeRoleResponse,
 } from "@alicloud/sts20150401";
@@ -11,11 +11,7 @@ import { normalizeUploadPrefix } from "./path";
 export const DEFAULT_UPLOAD_STS_DURATION_SECONDS = 900;
 export const MAX_UPLOAD_STS_DURATION_SECONDS = 3_600;
 
-const UPLOAD_ACTIONS = [
-	"oss:PutObject",
-	"oss:AbortMultipartUpload",
-	"oss:ListParts",
-] as const;
+const UPLOAD_ACTIONS = ["oss:PutObject", "oss:AbortMultipartUpload"] as const;
 
 const OSS_BUCKET_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const ROLE_SESSION_ALLOWED_PATTERN = /[^A-Za-z0-9.@_-]+/g;
@@ -36,6 +32,35 @@ export class UploadStsError extends Error {
 		this.name = "UploadStsError";
 		this.code = code;
 	}
+}
+
+type AliyunStsClient = {
+	assumeRole(request: AssumeRoleRequest): Promise<AssumeRoleResponse>;
+};
+
+type AliyunStsClientConstructor = new (
+	configuration: Config,
+) => AliyunStsClient;
+
+/**
+ * The Aliyun STS package is CommonJS. Native Node ESM exposes its default
+ * class as `default.default`, while Vite may expose the class directly.
+ */
+export function resolveAliyunStsClientConstructor(
+	moduleDefault: unknown,
+): AliyunStsClientConstructor {
+	if (typeof moduleDefault === "function") {
+		return moduleDefault as AliyunStsClientConstructor;
+	}
+	if (
+		typeof moduleDefault === "object" &&
+		moduleDefault !== null &&
+		"default" in moduleDefault &&
+		typeof moduleDefault.default === "function"
+	) {
+		return moduleDefault.default as AliyunStsClientConstructor;
+	}
+	throw new UploadStsError("INVALID_CONFIGURATION");
 }
 
 export interface UploadStsConfiguration {
@@ -136,8 +161,10 @@ function assertConfiguration(
 
 /**
  * Creates the inline session policy used by AssumeRole. Multipart initiate,
- * part upload, and completion are all covered by OSS PutObject; only abort and
- * listing uploaded parts require additional actions.
+ * part upload, and completion are all covered by OSS PutObject. Cancellation
+ * with a known upload ID additionally requires AbortMultipartUpload. Resume is
+ * driven entirely by the in-memory client checkpoint and never lists remote
+ * parts.
  */
 export function createUploadStsPolicy(
 	configuration: Pick<UploadStsConfiguration, "bucket" | "uploadPrefix">,
@@ -195,6 +222,7 @@ function mapSdkResponse(
 function createAliyunUploadStsClient(
 	configuration: UploadStsRuntimeConfiguration,
 ): UploadStsClient {
+	const StsClient = resolveAliyunStsClientConstructor(StsClientModule);
 	const client = new StsClient(
 		new Config({
 			accessKeyId: configuration.accessKeyId,

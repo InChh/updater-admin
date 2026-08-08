@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 
-import { asc, eq, inArray, or } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -18,10 +18,10 @@ import {
 import { assertDisposableDatabaseGuard } from "../schema/database-test-safety";
 import {
 	createVersionsRepository,
-	VersionFilesNotFoundRepositoryError,
+	DraftIncompleteRepositoryError,
+	VersionFinalizedRequiredRepositoryError,
 	VersionNotGreaterRepositoryError,
 	VersionNumberConflictRepositoryError,
-	VersionStaleWriteRepositoryError,
 } from "./versions.server";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -126,7 +126,6 @@ if (!testDatabaseUrl) {
 				.insert(fileMetadata)
 				.values({
 					createdBy: actorId,
-					etag: `etag-${sha256}`,
 					mimeType: "application/octet-stream",
 					objectKey: `versions-db-test/${sha256}/${path}`,
 					path,
@@ -139,13 +138,12 @@ if (!testDatabaseUrl) {
 			return file;
 		}
 
-		it("serializes concurrent creates against the historical numeric maximum", async () => {
+		it("serializes concurrent draft creation for one semantic version", async () => {
 			const program = await insertProgram(`Concurrent ${randomUUID()}`);
 			const repository = createVersionsRepository(client.db);
 			const candidate = {
 				description: "Concurrent candidate",
-				fileIds: [],
-				isActive: false,
+				expectedFileCount: 1,
 				programId: program.id,
 				versionMajor: 1,
 				versionMinor: 0,
@@ -153,8 +151,8 @@ if (!testDatabaseUrl) {
 				versionPatch: 0,
 			} as const;
 			const results = await Promise.allSettled([
-				repository.create({ ...candidate, audit: audit() }),
-				repository.create({ ...candidate, audit: audit() }),
+				repository.createDraft({ ...candidate, audit: audit() }),
+				repository.createDraft({ ...candidate, audit: audit() }),
 			]);
 
 			expect(
@@ -167,374 +165,218 @@ if (!testDatabaseUrl) {
 			expect(rejected?.reason).toBeInstanceOf(
 				VersionNumberConflictRepositoryError,
 			);
-			const rows = await client.db
-				.select({ versionNumber: applicationVersions.versionNumber })
-				.from(applicationVersions)
-				.where(eq(applicationVersions.applicationId, program.id));
-			expect(rows).toEqual([{ versionNumber: "1.0.0" }]);
 		});
 
-		it("keeps multiple versions active and moves exactly one numeric latest marker", async () => {
-			const program = await insertProgram(`Activation ${randomUUID()}`);
+		it("ignores drafts in history but retains deleted finalized releases", async () => {
+			const program = await insertProgram(`Version history ${randomUUID()}`);
 			const repository = createVersionsRepository(client.db);
-			const first = await repository.create({
+			const draft = await repository.createDraft({
 				audit: audit(),
-				description: "First",
-				fileIds: [],
-				isActive: true,
-				programId: program.id,
-				versionMajor: 1,
-				versionMinor: 9,
-				versionNumber: "1.9.99",
-				versionPatch: 99,
-			});
-			const second = await repository.create({
-				audit: audit(),
-				description: "Second",
-				fileIds: [],
-				isActive: true,
-				programId: program.id,
-				versionMajor: 1,
-				versionMinor: 10,
-				versionNumber: "1.10.0",
-				versionPatch: 0,
-			});
-			const third = await repository.create({
-				audit: audit(),
-				description: "Third",
-				fileIds: [],
-				isActive: false,
-				programId: program.id,
-				versionMajor: 2,
-				versionMinor: 0,
-				versionNumber: "2.0.0",
-				versionPatch: 0,
-			});
-
-			const initial = await repository.list({
-				page: 1,
-				pageSize: 20,
-				programId: program.id,
-				sort: "createdAt:asc",
-			});
-			expect(initial.items.filter(({ isLatest }) => isLatest)).toEqual([
-				expect.objectContaining({ id: second.id }),
-			]);
-
-			const activated = await repository.setActivation({
-				audit: audit(),
-				expectedRowVersion: third.rowVersion,
-				id: third.id,
-				isActive: true,
-				now: new Date("2026-07-15T01:00:00.000Z"),
-				programId: program.id,
-			});
-			expect(activated).toMatchObject({ isLatest: true, rowVersion: 2n });
-			const activeRows = await client.db
-				.select({
-					id: applicationVersions.id,
-					isActive: applicationVersions.isActive,
-				})
-				.from(applicationVersions)
-				.where(eq(applicationVersions.applicationId, program.id));
-			expect(activeRows).toEqual(
-				expect.arrayContaining([
-					{ id: first.id, isActive: true },
-					{ id: second.id, isActive: true },
-					{ id: third.id, isActive: true },
-				]),
-			);
-
-			const disabled = await repository.setActivation({
-				audit: audit(),
-				expectedRowVersion: activated.rowVersion,
-				id: third.id,
-				isActive: false,
-				now: new Date("2026-07-15T01:01:00.000Z"),
-				programId: program.id,
-			});
-			expect(disabled.isLatest).toBe(false);
-			const final = await repository.list({
-				page: 1,
-				pageSize: 20,
-				programId: program.id,
-				sort: "createdAt:asc",
-			});
-			expect(final.items.filter(({ isLatest }) => isLatest)).toEqual([
-				expect.objectContaining({ id: second.id }),
-			]);
-		});
-
-		it("distinguishes omitted fileIds from an explicit remove-all replacement", async () => {
-			const program = await insertProgram(`Relations ${randomUUID()}`);
-			const [firstFile, secondFile] = await Promise.all([
-				insertFile(`relations/${randomUUID()}/a.bin`),
-				insertFile(`relations/${randomUUID()}/b.bin`),
-			]);
-			const repository = createVersionsRepository(client.db);
-			const created = await repository.create({
-				audit: audit(),
-				description: "Original",
-				fileIds: [secondFile.id, firstFile.id],
-				isActive: false,
+				description: "Discarded draft",
+				expectedFileCount: 1,
 				programId: program.id,
 				versionMajor: 1,
 				versionMinor: 0,
 				versionNumber: "1.0.0",
 				versionPatch: 0,
 			});
-			const preserveRequestId = `req_${randomUUID()}`;
-			const preserved = await repository.update({
-				audit: audit(preserveRequestId),
-				description: "Description only",
-				expectedRowVersion: created.rowVersion,
-				id: created.id,
-				now: new Date("2026-07-15T02:00:00.000Z"),
-				programId: program.id,
-			});
-			expect(preserved.fileIds).toEqual([firstFile.id, secondFile.id].sort());
-
-			const removeRequestId = `req_${randomUUID()}`;
-			const removed = await repository.update({
-				audit: audit(removeRequestId),
-				expectedRowVersion: preserved.rowVersion,
-				fileIds: [],
-				id: created.id,
-				now: new Date("2026-07-15T02:01:00.000Z"),
-				programId: program.id,
-			});
-			expect(removed.fileIds).toEqual([]);
-			const relations = await client.db
-				.select()
-				.from(versionFiles)
-				.where(eq(versionFiles.versionId, created.id));
-			expect(relations).toEqual([]);
-			const [event] = await client.db
-				.select({
-					after: auditEvents.afterJson,
-					before: auditEvents.beforeJson,
-				})
-				.from(auditEvents)
-				.where(eq(auditEvents.requestId, removeRequestId));
-			expect(event).toMatchObject({
-				after: { fileIds: [] },
-				before: { fileIds: [firstFile.id, secondFile.id].sort() },
-			});
-		});
-
-		it("rolls back the whole aggregate when a replacement file is missing or audit append fails", async () => {
-			const program = await insertProgram(`Rollback ${randomUUID()}`);
-			const file = await insertFile(`rollback/${randomUUID()}/app.bin`);
-			const repository = createVersionsRepository(client.db);
-			const created = await repository.create({
+			await repository.delete({
 				audit: audit(),
-				description: "Original",
-				fileIds: [file.id],
-				isActive: false,
+				expectedRowVersion: draft.rowVersion,
+				id: draft.id,
+				now: new Date(),
 				programId: program.id,
-				versionMajor: 1,
-				versionMinor: 0,
-				versionNumber: "1.0.0",
-				versionPatch: 0,
 			});
 
 			await expect(
-				repository.update({
+				repository.createDraft({
 					audit: audit(),
-					description: "Must roll back",
-					expectedRowVersion: created.rowVersion,
-					fileIds: [file.id, randomUUID()],
-					id: created.id,
-					now: new Date("2026-07-15T03:00:00.000Z"),
-					programId: program.id,
-				}),
-			).rejects.toBeInstanceOf(VersionFilesNotFoundRepositoryError);
-
-			await expect(
-				repository.update({
-					audit: audit("r".repeat(129)),
-					expectedRowVersion: created.rowVersion,
-					fileIds: [],
-					id: created.id,
-					now: new Date("2026-07-15T03:01:00.000Z"),
-					programId: program.id,
-				}),
-			).rejects.toBeDefined();
-
-			const detail = await repository.findById(program.id, created.id);
-			expect(detail).toMatchObject({
-				description: "Original",
-				fileIds: [file.id],
-				rowVersion: created.rowVersion,
-			});
-		});
-
-		it("preserves files and relation history on soft delete and never permits version rollback", async () => {
-			const program = await insertProgram(`Delete ${randomUUID()}`);
-			const file = await insertFile(`delete/${randomUUID()}/app.bin`);
-			const repository = createVersionsRepository(client.db);
-			const first = await repository.create({
-				audit: audit(),
-				description: "First",
-				fileIds: [],
-				isActive: true,
-				programId: program.id,
-				versionMajor: 1,
-				versionMinor: 0,
-				versionNumber: "1.0.0",
-				versionPatch: 0,
-			});
-			const second = await repository.create({
-				audit: audit(),
-				description: "Second",
-				fileIds: [file.id],
-				isActive: true,
-				programId: program.id,
-				versionMajor: 2,
-				versionMinor: 0,
-				versionNumber: "2.0.0",
-				versionPatch: 0,
-			});
-			await expect(
-				repository.update({
-					audit: audit(),
-					expectedRowVersion: second.rowVersion,
-					id: second.id,
-					now: new Date("2026-07-15T03:58:00.000Z"),
+					description: "Recreated draft",
+					expectedFileCount: 1,
 					programId: program.id,
 					versionMajor: 1,
 					versionMinor: 0,
 					versionNumber: "1.0.0",
 					versionPatch: 0,
 				}),
-			).rejects.toBeInstanceOf(VersionNumberConflictRepositoryError);
+			).resolves.toMatchObject({ versionNumber: "1.0.0" });
 			await expect(
-				repository.update({
+				repository.createDraft({
 					audit: audit(),
-					expectedRowVersion: second.rowVersion,
-					id: second.id,
-					now: new Date("2026-07-15T03:59:00.000Z"),
+					description: "Another unfinalized version",
+					expectedFileCount: 1,
 					programId: program.id,
-					versionMajor: 1,
-					versionMinor: 5,
-					versionNumber: "1.5.0",
+					versionMajor: 0,
+					versionMinor: 9,
+					versionNumber: "0.9.0",
 					versionPatch: 0,
 				}),
-			).rejects.toBeInstanceOf(VersionNotGreaterRepositoryError);
-			const deleteRequestId = `req_${randomUUID()}`;
-			await repository.delete({
-				audit: audit(deleteRequestId),
-				expectedRowVersion: second.rowVersion,
-				id: second.id,
-				now: new Date("2026-07-15T04:00:00.000Z"),
-				programId: program.id,
-			});
+			).resolves.toMatchObject({ versionNumber: "0.9.0" });
 
-			const [storedFile] = await client.db
-				.select()
-				.from(fileMetadata)
-				.where(eq(fileMetadata.id, file.id));
-			const relations = await client.db
-				.select()
-				.from(versionFiles)
-				.where(eq(versionFiles.versionId, second.id));
-			expect(storedFile).toMatchObject({ deletedAt: null });
-			expect(relations).toEqual([
-				{ fileMetadataId: file.id, versionId: second.id },
-			]);
-			const page = await repository.list({
-				page: 1,
-				pageSize: 20,
-				programId: program.id,
-				sort: "createdAt:asc",
+			await client.db.insert(applicationVersions).values({
+				applicationId: program.id,
+				createdBy: actorId,
+				deletedAt: new Date(),
+				deletedBy: actorId,
+				description: "Deleted finalized release",
+				expectedFileCount: null,
+				finalizedAt: new Date(),
+				isActive: false,
+				lifecycleStatus: "finalized",
+				updatedBy: actorId,
+				versionMajor: 2,
+				versionMinor: 0,
+				versionNumber: "2.0.0",
+				versionPatch: 0,
 			});
-			expect(page.items).toEqual([
-				expect.objectContaining({ id: first.id, isLatest: true }),
-			]);
-			const [event] = await client.db
-				.select({ after: auditEvents.afterJson })
-				.from(auditEvents)
-				.where(eq(auditEvents.requestId, deleteRequestId));
-			expect(event?.after).toMatchObject({ fileIds: [file.id] });
 
 			await expect(
-				repository.create({
+				repository.createDraft({
 					audit: audit(),
-					description: "No reuse",
-					fileIds: [],
-					isActive: false,
+					description: "Must not reuse finalized history",
+					expectedFileCount: 1,
 					programId: program.id,
 					versionMajor: 2,
 					versionMinor: 0,
 					versionNumber: "2.0.0",
 					versionPatch: 0,
 				}),
-			).rejects.toMatchObject({ currentMax: "2.0.0" });
-			await expect(
-				repository.create({
-					audit: audit(),
-					description: "Next",
-					fileIds: [],
-					isActive: false,
-					programId: program.id,
-					versionMajor: 2,
-					versionMinor: 0,
-					versionNumber: "2.0.1",
-					versionPatch: 1,
-				}),
-			).resolves.toMatchObject({ versionNumber: "2.0.1" });
+			).rejects.toBeInstanceOf(VersionNotGreaterRepositoryError);
 		});
 
-		it("allows only one mutation to consume a matching row version", async () => {
-			const program = await insertProgram(`ETag ${randomUUID()}`);
+		it("rejects incomplete finalization then atomically finalizes exact membership", async () => {
+			const program = await insertProgram(`Finalize ${randomUUID()}`);
 			const repository = createVersionsRepository(client.db);
-			const created = await repository.create({
+			const draft = await repository.createDraft({
 				audit: audit(),
-				description: "Original",
-				fileIds: [],
-				isActive: false,
+				description: "Draft",
+				expectedFileCount: 2,
 				programId: program.id,
 				versionMajor: 1,
 				versionMinor: 0,
 				versionNumber: "1.0.0",
 				versionPatch: 0,
 			});
-			const results = await Promise.allSettled([
-				repository.update({
+
+			await expect(
+				repository.finalize({
 					audit: audit(),
-					description: "Winner A",
-					expectedRowVersion: created.rowVersion,
-					id: created.id,
-					now: new Date("2026-07-15T05:00:00.000Z"),
+					expectedRowVersion: draft.rowVersion,
+					id: draft.id,
+					now: new Date(),
 					programId: program.id,
 				}),
-				repository.update({
-					audit: audit(),
-					description: "Winner B",
-					expectedRowVersion: created.rowVersion,
-					id: created.id,
-					now: new Date("2026-07-15T05:01:00.000Z"),
-					programId: program.id,
-				}),
+			).rejects.toBeInstanceOf(DraftIncompleteRepositoryError);
+
+			const files = await Promise.all([
+				insertFile(`a-${randomUUID()}.bin`),
+				insertFile(`b-${randomUUID()}.bin`),
 			]);
-			expect(
-				results.filter(({ status }) => status === "fulfilled"),
-			).toHaveLength(1);
-			const rejected = results.find(
-				(result): result is PromiseRejectedResult =>
-					result.status === "rejected",
+			await client.db.insert(versionFiles).values(
+				files.map((file) => ({
+					fileMetadataId: file.id,
+					versionId: draft.id,
+				})),
 			);
-			expect(rejected?.reason).toBeInstanceOf(VersionStaleWriteRepositoryError);
-			const [current] = await client.db
-				.select({
-					description: applicationVersions.description,
-					rowVersion: applicationVersions.rowVersion,
+			const finalized = await repository.finalize({
+				audit: audit(),
+				expectedRowVersion: draft.rowVersion,
+				id: draft.id,
+				now: new Date(),
+				programId: program.id,
+			});
+			expect(finalized).toMatchObject({
+				associatedFileCount: 2,
+				lifecycleStatus: "finalized",
+				rowVersion: draft.rowVersion + 1n,
+			});
+			expect(finalized.finalizedAt).toBeInstanceOf(Date);
+		});
+
+		it("forbids draft activation and keeps finalized latest lifecycle-aware", async () => {
+			const program = await insertProgram(`Lifecycle ${randomUUID()}`);
+			const repository = createVersionsRepository(client.db);
+			const draft = await repository.createDraft({
+				audit: audit(),
+				description: "Draft",
+				expectedFileCount: 1,
+				programId: program.id,
+				versionMajor: 1,
+				versionMinor: 0,
+				versionNumber: "1.0.0",
+				versionPatch: 0,
+			});
+			await expect(
+				repository.setActivation({
+					audit: audit(),
+					expectedRowVersion: draft.rowVersion,
+					id: draft.id,
+					isActive: true,
+					now: new Date(),
+					programId: program.id,
+				}),
+			).rejects.toBeInstanceOf(VersionFinalizedRequiredRepositoryError);
+
+			const [migrated] = await client.db
+				.insert(applicationVersions)
+				.values({
+					applicationId: program.id,
+					createdBy: actorId,
+					description: "Migrated",
+					expectedFileCount: null,
+					finalizedAt: new Date(),
+					isActive: true,
+					lifecycleStatus: "finalized",
+					updatedBy: actorId,
+					versionMajor: 2,
+					versionMinor: 0,
+					versionNumber: "2.0.0",
+					versionPatch: 0,
 				})
-				.from(applicationVersions)
-				.where(eq(applicationVersions.id, created.id))
-				.orderBy(asc(applicationVersions.id));
-			expect(current?.rowVersion).toBe(created.rowVersion + 1n);
-			expect(["Winner A", "Winner B"]).toContain(current?.description);
+				.returning();
+			if (!migrated) throw new Error("migrated insert returned no row");
+			const listed = await repository.list({
+				page: 1,
+				pageSize: 20,
+				programId: program.id,
+				sort: "createdAt:desc",
+			});
+			expect(listed.items.find(({ id }) => id === migrated.id)).toMatchObject({
+				expectedFileCount: null,
+				isLatest: true,
+				lifecycleStatus: "finalized",
+			});
+			expect(listed.items.find(({ id }) => id === draft.id)?.isLatest).toBe(
+				false,
+			);
+		});
+
+		it("stores bounded lifecycle summaries instead of membership arrays", async () => {
+			const program = await insertProgram(`Audit ${randomUUID()}`);
+			const repository = createVersionsRepository(client.db);
+			const requestId = `req_${randomUUID()}`;
+			await repository.createDraft({
+				audit: audit(requestId),
+				description: "Draft",
+				expectedFileCount: 10_001,
+				programId: program.id,
+				versionMajor: 1,
+				versionMinor: 0,
+				versionNumber: "1.0.0",
+				versionPatch: 0,
+			});
+			const [event] = await client.db
+				.select({ after: auditEvents.afterJson })
+				.from(auditEvents)
+				.where(eq(auditEvents.requestId, requestId));
+			expect(event?.after).toEqual({
+				associatedFileCount: 0,
+				expectedFileCount: 10_001,
+				isActive: false,
+				lifecycleStatus: "draft",
+				versionNumber: "1.0.0",
+			});
+			expect(JSON.stringify(event?.after)).not.toContain("fileIds");
 		});
 	});
 }

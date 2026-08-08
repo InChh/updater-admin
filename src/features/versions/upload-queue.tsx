@@ -1,6 +1,6 @@
 import { useSelector } from "@tanstack/solid-store";
 import { CircleCheck, RotateCcw, Trash2, X } from "lucide-solid";
-import { For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../../components/ui/button";
 import type {
@@ -10,17 +10,26 @@ import type {
 } from "./upload-store";
 
 export interface UploadQueueLabels {
+	readonly associatedCount: (count: number) => string;
 	readonly aggregateProgress: string;
 	readonly cancel: string;
 	readonly clearCompleted: string;
 	readonly empty: string;
 	readonly files: (count: number) => string;
 	readonly hideCompleted: string;
+	readonly hashedCount: (count: number) => string;
+	readonly nextFiles: string;
+	readonly previousFiles: string;
 	readonly remove: string;
+	readonly reusedCount: (count: number) => string;
 	readonly retry: string;
 	readonly showCompleted: string;
 	readonly status: Readonly<Record<UploadQueueStatus, string>>;
 	readonly totalSize: (bytes: number) => string;
+	readonly uploadRequiredCount: (count: number) => string;
+	readonly uploadedCount: (count: number) => string;
+	readonly failedCount: (count: number) => string;
+	readonly visibleRange: (from: number, to: number, total: number) => string;
 }
 
 export interface UploadQueueProps {
@@ -38,6 +47,7 @@ const DEFAULT_STATUS_LABELS: Readonly<Record<UploadQueueStatus, string>> = {
 	complete: "已登记",
 	failed: "失败",
 	hashing: "正在计算校验值",
+	resolving: "正在检查是否可复用",
 	queued: "等待处理",
 	ready: "等待上传",
 	registering: "正在登记",
@@ -45,18 +55,29 @@ const DEFAULT_STATUS_LABELS: Readonly<Record<UploadQueueStatus, string>> = {
 	uploading: "正在上传",
 };
 
+export const UPLOAD_QUEUE_RENDER_WINDOW_SIZE = 100;
+
 const DEFAULT_LABELS: UploadQueueLabels = {
+	associatedCount: (count) => `已关联 ${count}`,
 	aggregateProgress: "总上传进度",
 	cancel: "取消",
 	clearCompleted: "清除已完成",
 	empty: "尚未选择程序文件夹",
 	files: (count) => `${count} 个文件`,
 	hideCompleted: "隐藏已完成文件",
+	hashedCount: (count) => `已哈希 ${count}`,
+	nextFiles: "下一批文件",
+	previousFiles: "上一批文件",
 	remove: "移除",
+	reusedCount: (count) => `已复用 ${count}`,
 	retry: "重试",
 	showCompleted: "显示已完成文件",
 	status: DEFAULT_STATUS_LABELS,
 	totalSize: (bytes) => `总计 ${formatUploadBytes(bytes)}`,
+	uploadRequiredCount: (count) => `需上传 ${count}`,
+	uploadedCount: (count) => `已上传 ${count}`,
+	failedCount: (count) => `失败 ${count}`,
+	visibleRange: (from, to, total) => `显示第 ${from}–${to} 个，共 ${total} 个`,
 };
 
 export function formatUploadBytes(size: number): string {
@@ -88,6 +109,7 @@ function canCancel(status: UploadQueueStatus): boolean {
 	return (
 		status === "queued" ||
 		status === "hashing" ||
+		status === "resolving" ||
 		status === "ready" ||
 		status === "uploading"
 	);
@@ -106,6 +128,7 @@ function canRemove(status: UploadQueueStatus): boolean {
 
 export function UploadQueue(props: UploadQueueProps) {
 	const state = useSelector(props.controller.store, (current) => current);
+	const [windowStart, setWindowStart] = createSignal(0);
 	const labels = (): UploadQueueLabels => ({
 		...DEFAULT_LABELS,
 		...props.labels,
@@ -114,17 +137,62 @@ export function UploadQueue(props: UploadQueueProps) {
 			...props.labels?.status,
 		},
 	});
-	const visibleItems = () =>
+	const visibleItems = createMemo(() =>
 		state().items.filter(
 			(item) =>
 				!item.dismissed &&
 				(state().showCompleted || item.status !== "complete"),
+		),
+	);
+	const maximumWindowStart = () => {
+		const count = visibleItems().length;
+		return count === 0
+			? 0
+			: Math.floor((count - 1) / UPLOAD_QUEUE_RENDER_WINDOW_SIZE) *
+					UPLOAD_QUEUE_RENDER_WINDOW_SIZE;
+	};
+	createEffect(() => {
+		const maximum = maximumWindowStart();
+		if (windowStart() > maximum) setWindowStart(maximum);
+	});
+	const renderedItems = () =>
+		visibleItems().slice(
+			windowStart(),
+			windowStart() + UPLOAD_QUEUE_RENDER_WINDOW_SIZE,
+		);
+	const visibleRangeEnd = () =>
+		Math.min(
+			windowStart() + UPLOAD_QUEUE_RENDER_WINDOW_SIZE,
+			visibleItems().length,
 		);
 	const hasClearableCompletedItems = () =>
 		state().items.some((item) => item.status === "complete" && !item.dismissed);
 	const aggregatePercent = () => Math.round(state().aggregateProgress * 100);
 	const totalSize = () =>
 		state().items.reduce((total, item) => total + item.size, 0);
+	const counts = () => {
+		const items = state().items;
+		return {
+			associated: items.filter(({ status }) => status === "complete").length,
+			failed: items.filter(
+				({ status }) => status === "failed" || status === "cancelled",
+			).length,
+			hashed: items.filter(({ sha256 }) => sha256 !== null).length,
+			reused: items.filter(
+				({ resolutionStatus }) => resolutionStatus === "reused",
+			).length,
+			uploadRequired: items.filter(
+				({ resolutionStatus }) => resolutionStatus === "uploadRequired",
+			).length,
+			uploaded: items.filter(
+				({ resolutionStatus, status }) =>
+					resolutionStatus === "uploadRequired" &&
+					(status === "uploaded" ||
+						status === "registering" ||
+						status === "complete"),
+			).length,
+		};
+	};
 
 	return (
 		<section
@@ -173,6 +241,59 @@ export function UploadQueue(props: UploadQueueProps) {
 					</div>
 				</Show>
 			</div>
+			<div
+				class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted"
+				aria-live="polite"
+			>
+				<span>{labels().hashedCount(counts().hashed)}</span>
+				<span>{labels().reusedCount(counts().reused)}</span>
+				<span>{labels().uploadRequiredCount(counts().uploadRequired)}</span>
+				<span>{labels().uploadedCount(counts().uploaded)}</span>
+				<span>{labels().associatedCount(counts().associated)}</span>
+				<span>{labels().failedCount(counts().failed)}</span>
+			</div>
+			<Show when={visibleItems().length > UPLOAD_QUEUE_RENDER_WINDOW_SIZE}>
+				<div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+					<span>
+						{labels().visibleRange(
+							windowStart() + 1,
+							visibleRangeEnd(),
+							visibleItems().length,
+						)}
+					</span>
+					<div class="flex items-center gap-2">
+						<Button
+							disabled={windowStart() === 0}
+							onClick={() =>
+								setWindowStart((current) =>
+									Math.max(0, current - UPLOAD_QUEUE_RENDER_WINDOW_SIZE),
+								)
+							}
+							size="sm"
+							type="button"
+							variant="secondary"
+						>
+							{labels().previousFiles}
+						</Button>
+						<Button
+							disabled={visibleRangeEnd() >= visibleItems().length}
+							onClick={() =>
+								setWindowStart((current) =>
+									Math.min(
+										maximumWindowStart(),
+										current + UPLOAD_QUEUE_RENDER_WINDOW_SIZE,
+									),
+								)
+							}
+							size="sm"
+							type="button"
+							variant="secondary"
+						>
+							{labels().nextFiles}
+						</Button>
+					</div>
+				</div>
+			</Show>
 
 			<Show
 				fallback={
@@ -180,10 +301,10 @@ export function UploadQueue(props: UploadQueueProps) {
 						{labels().empty}
 					</div>
 				}
-				when={visibleItems().length > 0}
+				when={renderedItems().length > 0}
 			>
 				<ul class="m-0 grid max-h-[min(40vh,24rem)] list-none gap-2 overflow-y-auto p-0 pr-1">
-					<For each={visibleItems()}>
+					<For each={renderedItems()}>
 						{(item) => {
 							const percent = () => Math.round(itemProgress(item) * 100);
 							return (

@@ -1,3 +1,5 @@
+import { createIsomorphicFn } from "@tanstack/solid-start";
+
 import type {
 	ApiProblem,
 	EntityResult,
@@ -7,6 +9,7 @@ import type {
 import {
 	isWellFormedUnicode,
 	parseWeakEntityTag,
+	UPDATER_IF_MATCH_HEADER,
 } from "../../shared/api/common";
 
 export type ApiMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
@@ -120,17 +123,23 @@ function createRequestInit(options: ApiRequestOptions): RequestInit {
 		throw new TypeError("GET requests cannot carry a JSON body.");
 	}
 	if (options.ifMatch !== undefined && !isWeakEntityTag(options.ifMatch)) {
-		throw new TypeError("If-Match must be an exact weak entity tag.");
+		throw new TypeError(
+			"The precondition token must be an exact weak entity tag.",
+		);
 	}
 
 	const headers = new Headers({ Accept: "application/json" });
 	if (hasBody) headers.set("Content-Type", "application/json");
 	if (options.ifMatch !== undefined) {
-		headers.set("If-Match", options.ifMatch);
+		// Netlify's proxy consumes the standard If-Match request header before
+		// invoking Functions. Use an application-owned header while retaining
+		// standard ETag response headers for entity version discovery.
+		headers.set(UPDATER_IF_MATCH_HEADER, options.ifMatch);
 	}
 
 	return {
 		...(hasBody ? { body: JSON.stringify(options.body) } : {}),
+		...(method === "GET" ? { cache: "no-store" as const } : {}),
 		credentials: "include",
 		headers,
 		method,
@@ -354,7 +363,18 @@ async function jsonFromResponse<T>(response: Response): Promise<T> {
 	return parsed.value as T;
 }
 
-const defaultFetch: ApiFetch = (input, init) => globalThis.fetch(input, init);
+const defaultFetch: ApiFetch = createIsomorphicFn()
+	.client((input: RequestInfo | URL, init?: RequestInit) =>
+		globalThis.fetch(input, init),
+	)
+	.server(async (input: RequestInfo | URL, init?: RequestInit) => {
+		// Vitest transforms this module through the SSR pipeline even for jsdom
+		// suites. Keep their explicitly stubbed browser transport available;
+		// deployed SSR continues through the request-scoped Elysia bridge below.
+		if (import.meta.env.MODE === "test") return globalThis.fetch(input, init);
+		const { fetchApiOnServer } = await import("./default-fetch.server");
+		return fetchApiOnServer(input, init);
+	});
 
 export function createApiClient(fetcher: ApiFetch = defaultFetch): ApiClient {
 	const request = async (path: ApiPath, options: ApiRequestOptions = {}) => {

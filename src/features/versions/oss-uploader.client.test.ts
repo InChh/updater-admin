@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { MAX_UPLOAD_SIZE_BYTES } from "../../shared/api/uploads";
 
 import type {
+	AliOssClientConfiguration,
 	AliOssClientLike,
 	AliOssMultipartOptions,
 	AliOssMultipartResult,
+	AliOssPutOptions,
 } from "./oss-uploader.client";
 import {
 	abortOssMultipartCheckpoint,
@@ -13,7 +15,11 @@ import {
 	MAX_OSS_MULTIPART_FILE_SIZE_BYTES,
 	MAX_OSS_MULTIPART_IN_FLIGHT_PART_BYTES_PER_FILE,
 	MAX_OSS_MULTIPART_PART_COUNT,
+	MAX_OSS_SIMPLE_UPLOAD_FILE_SIZE_BYTES,
 	OSS_MULTIPART_PARALLELISM,
+	OSS_STS_REFRESH_INTERVAL_MS,
+	OssMultipartEtagCorsError,
+	OssUploadAlreadyExistsError,
 	OssUploadCancelledError,
 	resolveOssMultipartPartSize,
 	startOssMultipartUpload,
@@ -40,6 +46,75 @@ function baseInput() {
 }
 
 describe("browser OSS multipart uploader", () => {
+	it("uses a bounded simple PUT without requiring a part ETag", async () => {
+		let options: AliOssPutOptions | undefined;
+		const onProgress = vi.fn();
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(),
+			put: vi.fn(async (_objectKey, _file, nextOptions) => {
+				options = nextOptions;
+				return { etag: '"object-etag"' };
+			}),
+		};
+
+		const task = startOssMultipartUpload(
+			{ ...baseInput(), mimeType: "application/octet-stream", onProgress },
+			{ createClient: () => client },
+		);
+
+		await expect(task.promise).resolves.toEqual({
+			objectKey: "updater/sha/release.bin",
+		});
+		expect(client.put).toHaveBeenCalledOnce();
+		expect(client.multipartUpload).not.toHaveBeenCalled();
+		expect(options).toEqual({
+			headers: { "x-oss-forbid-overwrite": "true" },
+			mime: "application/octet-stream",
+			timeout: 120_000,
+		});
+		expect(onProgress.mock.calls.map(([value]) => value)).toEqual([0, 1]);
+		expect(MAX_OSS_SIMPLE_UPLOAD_FILE_SIZE_BYTES).toBe(8 * 1024 * 1024);
+	});
+
+	it("keeps files above the simple memory bound on multipart upload", async () => {
+		const file = new File(
+			[new Uint8Array(MAX_OSS_SIMPLE_UPLOAD_FILE_SIZE_BYTES + 1)],
+			"large.bin",
+		);
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async () => ({ etag: '"multipart-etag"' })),
+			put: vi.fn(async () => ({ etag: '"simple-etag"' })),
+		};
+		const task = startOssMultipartUpload(
+			{ ...baseInput(), file },
+			{ createClient: () => client },
+		);
+
+		await expect(task.promise).resolves.toEqual({
+			objectKey: "updater/sha/release.bin",
+		});
+		expect(client.multipartUpload).toHaveBeenCalledOnce();
+		expect(client.put).not.toHaveBeenCalled();
+	});
+
+	it("accepts a simple PUT when the final ETag is not exposed", async () => {
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(),
+			put: vi.fn(async () => ({ res: { headers: {} } })),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		await expect(task.promise).resolves.toEqual({
+			objectKey: "updater/sha/release.bin",
+		});
+		expect(client.multipartUpload).not.toHaveBeenCalled();
+	});
+
 	it("uses STS configuration, bounded defaults, progress, and checkpoints", async () => {
 		const checkpoint = { doneParts: [], uploadId: "upload-1" };
 		let options: AliOssMultipartOptions | undefined;
@@ -67,7 +142,6 @@ describe("browser OSS multipart uploader", () => {
 		);
 
 		await expect(task.promise).resolves.toEqual({
-			objectEtag: '"object-etag"',
 			objectKey: "updater/sha/release.bin",
 		});
 		expect(createClient).toHaveBeenCalledWith({
@@ -111,6 +185,43 @@ describe("browser OSS multipart uploader", () => {
 		);
 	});
 
+	it("wires the shared refresh callback into every ali-oss client", async () => {
+		const captured: { configuration?: AliOssClientConfiguration } = {};
+		const refreshCredentials = vi.fn(async () => ({
+			accessKeyId: "refreshed-id",
+			accessKeySecret: "refreshed-secret",
+			securityToken: "refreshed-token",
+		}));
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async () => ({ etag: '"etag"' })),
+		};
+		const task = startOssMultipartUpload(
+			{ ...baseInput(), refreshCredentials },
+			{
+				createClient: (nextConfiguration) => {
+					captured.configuration = nextConfiguration;
+					return client;
+				},
+			},
+		);
+
+		await task.promise;
+		const configuration = captured.configuration;
+		if (!configuration?.refreshSTSToken) {
+			throw new Error("Refresh callback was not configured.");
+		}
+		await expect(configuration.refreshSTSToken()).resolves.toEqual({
+			accessKeyId: "refreshed-id",
+			accessKeySecret: "refreshed-secret",
+			stsToken: "refreshed-token",
+		});
+		expect(configuration.refreshSTSTokenInterval).toBe(
+			OSS_STS_REFRESH_INTERVAL_MS,
+		);
+		expect(refreshCredentials).toHaveBeenCalledOnce();
+	});
+
 	it("passes an in-memory checkpoint back when retrying", async () => {
 		const input = baseInput();
 		const checkpoint = {
@@ -134,9 +245,7 @@ describe("browser OSS multipart uploader", () => {
 			{ createClient: () => client },
 		);
 
-		await expect(task.promise).resolves.toMatchObject({
-			objectEtag: "header-etag",
-		});
+		await expect(task.promise).resolves.toEqual({ objectKey: input.objectKey });
 		expect(receivedOptions?.checkpoint).toBe(checkpoint);
 	});
 
@@ -371,7 +480,7 @@ describe("browser OSS multipart uploader", () => {
 		expect(createClient).not.toHaveBeenCalled();
 	});
 
-	it("fails closed when CORS does not expose an ETag", async () => {
+	it("does not require a final multipart ETag after the SDK completes", async () => {
 		const client: AliOssClientLike = {
 			cancel: vi.fn(),
 			multipartUpload: vi.fn(async () => ({ res: { headers: {} } })),
@@ -380,8 +489,47 @@ describe("browser OSS multipart uploader", () => {
 			createClient: () => client,
 		});
 
-		await expect(task.promise).rejects.toThrow(
-			"Expose the ETag response header in bucket CORS",
+		await expect(task.promise).resolves.toEqual({
+			objectKey: "updater/sha/release.bin",
+		});
+	});
+
+	it("normalizes a missing multipart part ETag into an actionable CORS error", async () => {
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async () => {
+				throw new Error(
+					"Please set the etag of expose-headers in OSS part_num: 1",
+				);
+			}),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		await expect(task.promise).rejects.toBeInstanceOf(
+			OssMultipartEtagCorsError,
+		);
+	});
+
+	it("reports an ambiguous success when a prior attempt already committed the object", async () => {
+		const client: AliOssClientLike = {
+			cancel: vi.fn(),
+			multipartUpload: vi.fn(async () => {
+				throw {
+					code: "FileAlreadyExists",
+					message:
+						"The object you specified already exists and can not be overwritten.",
+					status: 409,
+				};
+			}),
+		};
+		const task = startOssMultipartUpload(baseInput(), {
+			createClient: () => client,
+		});
+
+		await expect(task.promise).rejects.toBeInstanceOf(
+			OssUploadAlreadyExistsError,
 		);
 	});
 });

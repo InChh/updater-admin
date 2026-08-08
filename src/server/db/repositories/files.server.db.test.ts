@@ -102,7 +102,6 @@ if (!testDatabaseUrl) {
 				.values({
 					createdAt,
 					createdBy: actorId,
-					etag: `etag-${sha256}`,
 					mimeType: "application/octet-stream",
 					objectKey: `files-db-test/${sha256}/${path}`,
 					path,
@@ -218,7 +217,6 @@ if (!testDatabaseUrl) {
 			await expect(repository.findById(deleted.id)).resolves.toBeNull();
 			await expect(repository.findById(live.id)).resolves.toMatchObject({
 				id: live.id,
-				objectEtag: live.etag,
 				size: live.size,
 			});
 		});

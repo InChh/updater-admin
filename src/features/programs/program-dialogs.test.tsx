@@ -95,9 +95,11 @@ describe("ProgramDialogs", () => {
 
 		await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
 		expect(onClose).not.toHaveBeenCalled();
-		const [, init] = fetcher.mock.calls[0] ?? [];
+		const [, init] =
+			fetcher.mock.calls.find(([, request]) => request?.method === "DELETE") ??
+			[];
 		expect(init?.method).toBe("DELETE");
-		expect(new Headers(init?.headers).get("if-match")).toBe('W/"1"');
+		expect(new Headers(init?.headers).get("x-updater-if-match")).toBe('W/"1"');
 	});
 
 	it("refreshes the edited detail and program lists after a stale write", async () => {
@@ -172,7 +174,9 @@ describe("ProgramDialogs", () => {
 			([, init]) => init?.method === "PATCH",
 		);
 		const secondPatch = patchCalls[patchCalls.length - 1]?.[1];
-		expect(new Headers(secondPatch?.headers).get("if-match")).toBe('W/"2"');
+		expect(new Headers(secondPatch?.headers).get("x-updater-if-match")).toBe(
+			'W/"2"',
+		);
 		expect(JSON.parse(String(secondPatch?.body))).toMatchObject({
 			name: "Reviewed edit",
 		});
@@ -200,7 +204,11 @@ describe("ProgramDialogs", () => {
 			target: { value: "Pending edit" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-		await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(
+				fetcher.mock.calls.some(([, request]) => request?.method === "PATCH"),
+			).toBe(true),
+		);
 
 		expect(
 			screen.getByRole("button", { name: "Close" }).hasAttribute("disabled"),

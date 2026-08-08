@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import process from "node:process";
 
 import { and, count, eq, inArray, or } from "drizzle-orm";
@@ -20,6 +22,13 @@ import {
 import { assertDisposableDatabaseGuard } from "./database-test-safety";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const lifecycleMigrationStatements = readFileSync(
+	resolve(process.cwd(), "drizzle/0002_shiny_adam_destine.sql"),
+	"utf8",
+)
+	.split("--> statement-breakpoint")
+	.map((statement) => statement.trim())
+	.filter((statement) => statement.length > 0);
 
 if (!testDatabaseUrl) {
 	describe("database schema integration", () => {
@@ -140,12 +149,15 @@ if (!testDatabaseUrl) {
 			applicationId: string,
 			description = "Required",
 		) {
+			const finalizedAt = new Date("2026-07-14T01:00:00.000Z");
 			const [version] = await client.db
 				.insert(applicationVersions)
 				.values({
 					applicationId,
 					createdBy: actorId,
 					description,
+					finalizedAt,
+					lifecycleStatus: "finalized",
 					updatedBy: actorId,
 					versionMajor: 1,
 					versionMinor: 2,
@@ -173,6 +185,152 @@ if (!testDatabaseUrl) {
 			if (!file) throw new Error("file insert returned no row");
 			return file;
 		}
+
+		it("backfills a pre-lifecycle active version as finalized without an expected count", async () => {
+			const connection = await client.pool.connect();
+			const existingVersionId = randomUUID();
+			const createdAt = new Date("2026-07-13T12:34:56.000Z");
+
+			try {
+				await connection.query("begin");
+				await connection.query("set local search_path to pg_temp");
+				await connection.query(`
+					create temporary table "application_versions" (
+						"id" uuid primary key,
+						"application_id" uuid not null,
+						"version_major" integer not null,
+						"version_minor" integer not null,
+						"version_patch" integer not null,
+						"is_active" boolean default false not null,
+						"created_at" timestamp with time zone not null,
+						"deleted_at" timestamp with time zone
+					) on commit drop
+				`);
+				await connection.query(`
+					create index "application_versions_latest_idx"
+					on "application_versions" (
+						"application_id",
+						"is_active",
+						"version_major" desc,
+						"version_minor" desc,
+						"version_patch" desc
+					)
+					where "deleted_at" is null
+				`);
+				await connection.query(
+					`insert into "application_versions" (
+						"id", "application_id", "version_major", "version_minor",
+						"version_patch", "is_active", "created_at"
+					) values ($1, $2, 1, 2, 3, true, $3)`,
+					[existingVersionId, randomUUID(), createdAt],
+				);
+
+				for (const statement of lifecycleMigrationStatements) {
+					await connection.query(statement);
+				}
+
+				const migrated = await connection.query<{
+					expected_file_count: number | null;
+					finalized_at_matches: boolean;
+					is_active: boolean;
+					lifecycle_status: string;
+				}>(
+					`select
+						"expected_file_count",
+						"finalized_at" = "created_at" as "finalized_at_matches",
+						"is_active",
+						"lifecycle_status"
+					from "application_versions"
+					where "id" = $1`,
+					[existingVersionId],
+				);
+				expect(migrated.rows).toEqual([
+					{
+						expected_file_count: null,
+						finalized_at_matches: true,
+						is_active: true,
+						lifecycle_status: "finalized",
+					},
+				]);
+
+				await expect(
+					connection.query(
+						`insert into "application_versions" (
+							"id", "application_id", "version_major", "version_minor",
+							"version_patch", "expected_file_count", "is_active", "created_at"
+						) values ($1, $2, 2, 0, 0, 1, true, $3)`,
+						[randomUUID(), randomUUID(), createdAt],
+					),
+				).rejects.toThrow();
+			} finally {
+				await connection.query("rollback");
+				connection.release();
+			}
+		});
+
+		it("defaults new versions to inactive drafts and enforces lifecycle consistency", async () => {
+			const application = await insertApplication("Lifecycle constraints");
+			const [draft] = await client.db
+				.insert(applicationVersions)
+				.values({
+					applicationId: application.id,
+					createdBy: actorId,
+					description: "Draft",
+					expectedFileCount: 2,
+					updatedBy: actorId,
+					versionMajor: 1,
+					versionMinor: 0,
+					versionNumber: "1.0.0",
+					versionPatch: 0,
+				})
+				.returning();
+			expect(draft).toMatchObject({
+				expectedFileCount: 2,
+				finalizedAt: null,
+				isActive: false,
+				lifecycleStatus: "draft",
+			});
+
+			await expect(
+				client.db.insert(applicationVersions).values({
+					applicationId: application.id,
+					createdBy: actorId,
+					description: "Active draft",
+					expectedFileCount: 1,
+					isActive: true,
+					updatedBy: actorId,
+					versionMajor: 1,
+					versionMinor: 0,
+					versionNumber: "1.0.1",
+					versionPatch: 1,
+				}),
+			).rejects.toThrow();
+
+			const finalizedAt = new Date("2026-07-14T02:00:00.000Z");
+			const [activeFinalized] = await client.db
+				.insert(applicationVersions)
+				.values({
+					applicationId: application.id,
+					createdBy: actorId,
+					description: "Active finalized",
+					expectedFileCount: null,
+					finalizedAt,
+					isActive: true,
+					lifecycleStatus: "finalized",
+					updatedBy: actorId,
+					versionMajor: 1,
+					versionMinor: 0,
+					versionNumber: "1.0.2",
+					versionPatch: 2,
+				})
+				.returning();
+			expect(activeFinalized).toMatchObject({
+				expectedFileCount: null,
+				finalizedAt,
+				isActive: true,
+				lifecycleStatus: "finalized",
+			});
+		});
 
 		it("enforces live application-name uniqueness but permits reuse after soft deletion", async () => {
 			const application = await insertApplication("Desktop");

@@ -22,6 +22,7 @@ import {
 	LastActiveAdministratorError,
 } from "../../domain/administrators.server";
 import type { ApiRequestContextStore } from "../context.server";
+import { readUpdaterIfMatch } from "../preconditions";
 import { ApiProblemError } from "../problem";
 import type { ExactWireShape } from "../schemas/alignment";
 import { supportedLocaleSchema, weakEntityTagSchema } from "../schemas/common";
@@ -283,7 +284,7 @@ export function createAdministratorsModule({
 				const result = await execute(() =>
 					getAdministratorsService().update(
 						params.administratorId,
-						request.headers.get("if-match"),
+						readUpdaterIfMatch(request),
 						body,
 						request.headers,
 						audit,

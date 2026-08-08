@@ -55,6 +55,8 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 	const administratorsQuery = createQuery(() =>
 		administratorListQueryOptions(listSearch()),
 	);
+	const administratorsData = () =>
+		administratorsQuery.isPending ? undefined : administratorsQuery.data;
 	const [filterQuery, setFilterQuery] = createSignal(
 		props.search().query ?? "",
 	);
@@ -65,13 +67,11 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 	const pageCount = () =>
 		Math.max(
 			1,
-			Math.ceil(
-				(administratorsQuery.data?.total ?? 0) / props.search().pageSize,
-			),
+			Math.ceil((administratorsData()?.total ?? 0) / props.search().pageSize),
 		);
 	createEffect(() => {
 		if (
-			administratorsQuery.data &&
+			administratorsData() &&
 			!props.search().dialog &&
 			props.search().page > pageCount() &&
 			!administratorsQuery.isFetching
@@ -133,12 +133,12 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 		),
 	);
 	const selectedAdministrator = createMemo(() =>
-		administratorsQuery.data?.items.find(
+		administratorsData()?.items.find(
 			(administrator) => administrator.id === props.search().administratorId,
 		),
 	);
 	const rangeStart = () => {
-		const total = administratorsQuery.data?.total ?? 0;
+		const total = administratorsData()?.total ?? 0;
 		return total === 0
 			? 0
 			: (props.search().page - 1) * props.search().pageSize + 1;
@@ -146,7 +146,7 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 	const rangeEnd = () =>
 		Math.min(
 			props.search().page * props.search().pageSize,
-			administratorsQuery.data?.total ?? 0,
+			administratorsData()?.total ?? 0,
 		);
 
 	return (
@@ -237,10 +237,10 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 				<TableShell
 					class="rounded-none border-0 shadow-none"
 					description={i18n.t("administrators.table.description", {
-						total: i18n.formatNumber(administratorsQuery.data?.total ?? 0),
+						total: i18n.formatNumber(administratorsData()?.total ?? 0),
 					})}
 					footer={
-						!administratorsQuery.isError || administratorsQuery.data ? (
+						!administratorsQuery.isError || administratorsData() ? (
 							<Pagination
 								label={i18n.t("a11y.pagination")}
 								nextLabel={i18n.t("pagination.next")}
@@ -261,9 +261,7 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 								summary={i18n.t("pagination.rangeSummary", {
 									from: i18n.formatNumber(rangeStart()),
 									to: i18n.formatNumber(rangeEnd()),
-									total: i18n.formatNumber(
-										administratorsQuery.data?.total ?? 0,
-									),
+									total: i18n.formatNumber(administratorsData()?.total ?? 0),
 								})}
 							/>
 						) : undefined
@@ -303,7 +301,7 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 					}
 				>
 					<Show
-						when={!administratorsQuery.isError || administratorsQuery.data}
+						when={!administratorsQuery.isError || administratorsData()}
 						fallback={
 							<div class="grid min-h-56 place-items-center px-6 py-10 text-center">
 								<div>
@@ -324,7 +322,7 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 					>
 						<AdministratorTable
 							currentAdministratorId={props.currentAdministratorId}
-							items={administratorsQuery.data?.items ?? []}
+							items={administratorsData()?.items ?? []}
 							loading={administratorsQuery.isPending}
 							onResetPassword={(administrator, trigger) => {
 								setDialogReturnFocus(trigger);
@@ -360,7 +358,7 @@ export function AdministratorsPage(props: AdministratorsPageProps) {
 							page={props.search().page}
 							pageSize={props.search().pageSize}
 							sort={props.search().sort}
-							total={administratorsQuery.data?.total ?? 0}
+							total={administratorsData()?.total ?? 0}
 						/>
 					</Show>
 				</TableShell>

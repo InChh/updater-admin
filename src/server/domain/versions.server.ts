@@ -12,20 +12,20 @@ import {
 	type FileListSearch,
 	type FileMetadataDto,
 	type FilePage,
-	VERSION_FILE_SORTS,
-	type VersionFileListSearch,
 } from "../../shared/api/files";
+import type {
+	CreateDraftVersionInput,
+	SetVersionActivationInput,
+	UpdateVersionInput,
+	VersionDetailDto,
+	VersionListItemDto,
+	VersionListSearch,
+	VersionPage,
+} from "../../shared/api/versions";
 import {
-	type CreateVersionInput,
-	type SetVersionActivationInput,
-	type UpdateVersionInput,
 	VERSION_MAX_PAGE,
 	VERSION_PAGE_SIZES,
 	VERSION_SORTS,
-	type VersionDetailDto,
-	type VersionListItemDto,
-	type VersionListSearch,
-	type VersionPage,
 } from "../../shared/api/versions";
 import {
 	createFilesRepository,
@@ -38,8 +38,12 @@ import {
 } from "../db/repositories/programs.server";
 import {
 	createVersionsRepository,
+	DraftFileCountConflictRepositoryError,
+	DraftIncompleteRepositoryError,
+	DraftPathConflictRepositoryError,
 	type VersionDetailRecord,
-	VersionFilesNotFoundRepositoryError,
+	VersionDraftRequiredRepositoryError,
+	VersionFinalizedRequiredRepositoryError,
 	VersionNotFoundRepositoryError,
 	VersionNotGreaterRepositoryError,
 	VersionNumberConflictRepositoryError,
@@ -51,10 +55,8 @@ import { ProgramNotFoundError } from "./programs.server";
 import { parseVersionNumber } from "./version-number";
 
 const VERSION_DESCRIPTION_MAX_LENGTH = 1024;
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const FILE_PATH_MAX_LENGTH = 1024;
-const VERSION_FILE_IDS_MAX_ITEMS = 10_000;
-const UUID_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class VersionsValidationError extends Error {
 	readonly fieldErrors: readonly FieldError[];
@@ -118,10 +120,55 @@ export class VersionStaleWriteError extends Error {
 	}
 }
 
+export class VersionDraftRequiredError extends Error {
+	constructor() {
+		super("The version is already finalized.");
+		this.name = "VersionDraftRequiredError";
+	}
+}
+
+export class VersionFinalizedRequiredError extends Error {
+	constructor() {
+		super("Draft versions cannot be activated.");
+		this.name = "VersionFinalizedRequiredError";
+	}
+}
+
+export class DraftIncompleteError extends Error {
+	readonly actual: number;
+	readonly expected: number;
+
+	constructor(expected: number, actual: number) {
+		super("The draft is incomplete.");
+		this.name = "DraftIncompleteError";
+		this.expected = expected;
+		this.actual = actual;
+	}
+}
+
+export class DraftFileCountConflictError extends Error {
+	readonly actual: number;
+	readonly expected: number;
+
+	constructor(expected: number, actual: number) {
+		super("The draft file count conflicts with its expected count.");
+		this.name = "DraftFileCountConflictError";
+		this.expected = expected;
+		this.actual = actual;
+	}
+}
+
+export class DraftPathConflictError extends Error {
+	constructor() {
+		super("The draft contains duplicate canonical paths.");
+		this.name = "DraftPathConflictError";
+	}
+}
+
 export interface VersionsService {
-	create(
+	createDraft(
 		programId: string,
-		input: CreateVersionInput,
+		input: CreateDraftVersionInput,
 		audit: ProgramMutationContext,
 	): Promise<EntityResult<VersionDetailDto>>;
 	delete(
@@ -130,16 +177,17 @@ export interface VersionsService {
 		ifMatch: string | null,
 		audit: ProgramMutationContext,
 	): Promise<void>;
+	finalize(
+		programId: string,
+		id: string,
+		ifMatch: string | null,
+		audit: ProgramMutationContext,
+	): Promise<EntityResult<VersionDetailDto>>;
 	getById(
 		programId: string,
 		id: string,
 	): Promise<EntityResult<VersionDetailDto>>;
 	list(programId: string, search: VersionListSearch): Promise<VersionPage>;
-	listFiles(
-		programId: string,
-		id: string,
-		search: VersionFileListSearch,
-	): Promise<FilePage>;
 	setActivation(
 		programId: string,
 		id: string,
@@ -162,8 +210,6 @@ export interface FilesService {
 }
 
 export interface VersionsServiceDependencies {
-	readonly filesRepository?: FilesRepository;
-	readonly getFilesRepository?: () => FilesRepository;
 	readonly getRepository?: () => VersionsRepository;
 	readonly now?: () => Date;
 	readonly repository?: VersionsRepository;
@@ -198,6 +244,20 @@ function normalizeDescription(value: unknown): string {
 	return normalized;
 }
 
+function normalizeExpectedFileCount(value: unknown): number {
+	if (
+		typeof value !== "number" ||
+		!Number.isInteger(value) ||
+		value < 1 ||
+		value > POSTGRES_INTEGER_MAX
+	) {
+		throw new VersionsValidationError([
+			{ code: "INVALID_VALUE", path: "expectedFileCount" },
+		]);
+	}
+	return value;
+}
+
 function normalizeVersionNumber(value: unknown) {
 	const parsed = parseVersionNumber(value);
 	if (!parsed) {
@@ -208,91 +268,41 @@ function normalizeVersionNumber(value: unknown) {
 	return parsed;
 }
 
-function normalizeFileIds(
-	value: unknown,
-	options: { readonly required: boolean },
-): readonly string[] {
-	if (
-		!Array.isArray(value) ||
-		(options.required && value.length === 0) ||
-		value.length > VERSION_FILE_IDS_MAX_ITEMS
-	) {
-		throw new VersionsValidationError([
-			{
-				code: options.required ? "REQUIRED" : "INVALID_VALUE",
-				path: "fileIds",
-			},
-		]);
-	}
-	const errors: FieldError[] = [];
-	const ids: string[] = [];
-	const seen = new Set<string>();
-	for (const [index, item] of value.entries()) {
-		if (typeof item !== "string" || !UUID_PATTERN.test(item)) {
-			errors.push({ code: "INVALID_VALUE", path: `fileIds.${index}` });
-			continue;
-		}
-		if (seen.has(item)) {
-			errors.push({ code: "DUPLICATE_VALUE", path: `fileIds.${index}` });
-			continue;
-		}
-		seen.add(item);
-		ids.push(item);
-	}
-	if (errors.length > 0) throw new VersionsValidationError(errors);
-	return ids;
-}
-
 function normalizeVersionSearch(search: VersionListSearch): VersionListSearch {
-	const errors: FieldError[] = [];
 	if (
-		!Number.isSafeInteger(search.page) ||
+		!Number.isInteger(search.page) ||
 		search.page < 1 ||
 		search.page > VERSION_MAX_PAGE
 	) {
-		errors.push({ code: "INVALID_VALUE", path: "page" });
+		throw new VersionsValidationError([
+			{ code: "INVALID_VALUE", path: "page" },
+		]);
 	}
 	if (!VERSION_PAGE_SIZES.includes(search.pageSize)) {
-		errors.push({ code: "INVALID_VALUE", path: "pageSize" });
+		throw new VersionsValidationError([
+			{ code: "INVALID_VALUE", path: "pageSize" },
+		]);
 	}
 	if (!VERSION_SORTS.includes(search.sort)) {
-		errors.push({ code: "INVALID_VALUE", path: "sort" });
+		throw new VersionsValidationError([
+			{ code: "INVALID_VALUE", path: "sort" },
+		]);
 	}
-	if (errors.length > 0) throw new VersionsValidationError(errors);
 	return search;
 }
 
-function normalizeVersionFileSearch(
-	search: VersionFileListSearch,
-): VersionFileListSearch {
-	const errors = validateFilePagination(search);
-	if (!VERSION_FILE_SORTS.includes(search.sort)) {
-		errors.push({ code: "INVALID_VALUE", path: "sort" });
-	}
-	if (errors.length > 0) throw new VersionsValidationError(errors);
-	return search;
-}
-
-function validateFilePagination(search: {
-	readonly page: number;
-	readonly pageSize: number;
-}): FieldError[] {
+function normalizeFileSearch(search: FileListSearch): FileListSearch {
 	const errors: FieldError[] = [];
 	if (
-		!Number.isSafeInteger(search.page) ||
+		!Number.isInteger(search.page) ||
 		search.page < 1 ||
 		search.page > FILE_MAX_PAGE
 	) {
 		errors.push({ code: "INVALID_VALUE", path: "page" });
 	}
-	if (!FILE_PAGE_SIZES.includes(search.pageSize as 20 | 50 | 100)) {
+	if (!FILE_PAGE_SIZES.includes(search.pageSize)) {
 		errors.push({ code: "INVALID_VALUE", path: "pageSize" });
 	}
-	return errors;
-}
-
-function normalizeFileSearch(search: FileListSearch): FileListSearch {
-	const errors = validateFilePagination(search);
 	if (!FILE_SORTS.includes(search.sort)) {
 		errors.push({ code: "INVALID_VALUE", path: "sort" });
 	}
@@ -328,14 +338,18 @@ function parseExpectedRowVersion(ifMatch: string | null): bigint {
 	return rowVersion;
 }
 
-function versionBase(record: VersionRecord) {
+function versionBase(record: VersionRecord): VersionDetailDto {
 	return {
+		associatedFileCount: record.associatedFileCount,
 		createdAt: record.createdAt.toISOString(),
 		description: record.description,
+		expectedFileCount: record.expectedFileCount,
 		fileCount: record.fileCount,
+		finalizedAt: record.finalizedAt?.toISOString() ?? null,
 		id: record.id,
 		isActive: record.isActive,
 		isLatest: record.isLatest,
+		lifecycleStatus: record.lifecycleStatus,
 		programId: record.programId,
 		updatedAt: record.updatedAt.toISOString(),
 		versionNumber: record.versionNumber,
@@ -353,7 +367,7 @@ function versionEntity(
 	record: VersionDetailRecord,
 ): EntityResult<VersionDetailDto> {
 	return {
-		data: { ...versionBase(record), fileIds: [...record.fileIds] },
+		data: versionBase(record),
 		etag: formatWeakEntityTag(record.rowVersion),
 	};
 }
@@ -364,7 +378,6 @@ function fileDto(record: FileMetadataRecord): FileMetadataDto {
 		createdAt: record.createdAt.toISOString(),
 		id: record.id,
 		mimeType: record.mimeType,
-		objectEtag: record.objectEtag,
 		path: record.path,
 		sha256: record.sha256,
 		size: record.size.toString(),
@@ -388,8 +401,20 @@ function mapRepositoryError(error: unknown): never {
 	if (error instanceof VersionNotGreaterRepositoryError) {
 		throw new VersionNotGreaterError(error.currentMax);
 	}
-	if (error instanceof VersionFilesNotFoundRepositoryError) {
-		throw new VersionsValidationError([{ code: "NOT_FOUND", path: "fileIds" }]);
+	if (error instanceof VersionDraftRequiredRepositoryError) {
+		throw new VersionDraftRequiredError();
+	}
+	if (error instanceof VersionFinalizedRequiredRepositoryError) {
+		throw new VersionFinalizedRequiredError();
+	}
+	if (error instanceof DraftIncompleteRepositoryError) {
+		throw new DraftIncompleteError(error.expected, error.actual);
+	}
+	if (error instanceof DraftFileCountConflictRepositoryError) {
+		throw new DraftFileCountConflictError(error.expected, error.actual);
+	}
+	if (error instanceof DraftPathConflictRepositoryError) {
+		throw new DraftPathConflictError();
 	}
 	throw error;
 }
@@ -406,29 +431,24 @@ export function createVersionsService(
 	dependencies: VersionsServiceDependencies = {},
 ): VersionsService {
 	let repository = dependencies.repository;
-	let filesRepository = dependencies.filesRepository;
 	const resolveRepository = () => {
 		repository ??= dependencies.getRepository?.() ?? createVersionsRepository();
 		return repository;
 	};
-	const resolveFilesRepository = () => {
-		filesRepository ??=
-			dependencies.getFilesRepository?.() ?? createFilesRepository();
-		return filesRepository;
-	};
 	const now = dependencies.now ?? (() => new Date());
 
 	return {
-		async create(programId, input, audit) {
+		async createDraft(programId, input, audit) {
 			const version = normalizeVersionNumber(input.versionNumber);
 			const description = normalizeDescription(input.description);
-			const fileIds = normalizeFileIds(input.fileIds, { required: true });
+			const expectedFileCount = normalizeExpectedFileCount(
+				input.expectedFileCount,
+			);
 			const created = await mapRepositoryErrors(() =>
-				resolveRepository().create({
+				resolveRepository().createDraft({
 					audit,
 					description,
-					fileIds,
-					isActive: false,
+					expectedFileCount,
 					programId,
 					versionMajor: version.major,
 					versionMinor: version.minor,
@@ -450,6 +470,19 @@ export function createVersionsService(
 				}),
 			);
 		},
+		async finalize(programId, id, ifMatch, audit) {
+			const expectedRowVersion = parseExpectedRowVersion(ifMatch);
+			const finalized = await mapRepositoryErrors(() =>
+				resolveRepository().finalize({
+					audit,
+					expectedRowVersion,
+					id,
+					now: now(),
+					programId,
+				}),
+			);
+			return versionEntity(finalized);
+		},
 		async getById(programId, id) {
 			const record = await mapRepositoryErrors(() =>
 				resolveRepository().findById(programId, id),
@@ -464,22 +497,6 @@ export function createVersionsService(
 			);
 			return {
 				items: result.items.map(versionListItem),
-				page: normalized.page,
-				pageSize: normalized.pageSize,
-				total: result.total,
-			};
-		},
-		async listFiles(programId, id, search) {
-			const normalized = normalizeVersionFileSearch(search);
-			const result = await mapRepositoryErrors(() =>
-				resolveFilesRepository().listForVersion({
-					...normalized,
-					programId,
-					versionId: id,
-				}),
-			);
-			return {
-				items: result.items.map(fileDto),
 				page: normalized.page,
 				pageSize: normalized.pageSize,
 				total: result.total,
@@ -507,7 +524,6 @@ export function createVersionsService(
 		async update(programId, id, ifMatch, input, audit) {
 			if (
 				input.description === undefined &&
-				input.fileIds === undefined &&
 				input.versionNumber === undefined
 			) {
 				throw new VersionsValidationError([
@@ -523,16 +539,11 @@ export function createVersionsService(
 				input.description === undefined
 					? undefined
 					: normalizeDescription(input.description);
-			const fileIds =
-				input.fileIds === undefined
-					? undefined
-					: normalizeFileIds(input.fileIds, { required: false });
 			const updated = await mapRepositoryErrors(() =>
 				resolveRepository().update({
 					audit,
 					...(description === undefined ? {} : { description }),
 					expectedRowVersion,
-					...(fileIds === undefined ? {} : { fileIds }),
 					id,
 					now: now(),
 					programId,

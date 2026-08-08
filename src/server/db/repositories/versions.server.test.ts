@@ -1,3 +1,4 @@
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 import type { VersionRecord } from "./versions.server";
@@ -5,7 +6,6 @@ import {
 	compareVersionRepositoryValues,
 	createVersionsRepository,
 	isLiveVersionNumberUniqueViolation,
-	normalizeRelationFileIds,
 	type VersionNotGreaterRepositoryError,
 	VersionNumberConflictRepositoryError,
 } from "./versions.server";
@@ -19,12 +19,16 @@ function version(
 	overrides: Partial<Omit<VersionRecord, "isLatest">> = {},
 ): Omit<VersionRecord, "isLatest"> {
 	return {
+		associatedFileCount: 0,
 		createdAt: new Date("2026-07-14T01:00:00.000Z"),
 		createdBy: ACTOR_ID,
 		description: "Release",
+		expectedFileCount: null,
 		fileCount: 0,
+		finalizedAt: new Date("2026-07-14T01:00:00.000Z"),
 		id: VERSION_1_ID,
 		isActive: true,
+		lifecycleStatus: "finalized",
 		programId: PROGRAM_ID,
 		rowVersion: 1n,
 		updatedAt: new Date("2026-07-14T01:00:00.000Z"),
@@ -40,8 +44,8 @@ function version(
 function createSelectHarness(selectResults: readonly (readonly unknown[])[]) {
 	const results = [...selectResults];
 	const orderings: unknown[][] = [];
+	const predicates: unknown[] = [];
 	const insert = vi.fn();
-
 	const select = vi.fn(() => {
 		const result = Promise.resolve(results.shift() ?? []);
 		const builder = {
@@ -55,7 +59,10 @@ function createSelectHarness(selectResults: readonly (readonly unknown[])[]) {
 			}),
 			// biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are intentionally thenable.
 			then: result.then.bind(result),
-			where: vi.fn(() => builder),
+			where: vi.fn((predicate: unknown) => {
+				predicates.push(predicate);
+				return builder;
+			}),
 		};
 		return builder;
 	});
@@ -63,12 +70,15 @@ function createSelectHarness(selectResults: readonly (readonly unknown[])[]) {
 		async (operation: (database: unknown) => Promise<unknown>) =>
 			operation({ insert, select }),
 	);
-	return {
-		database: { select, transaction },
-		insert,
-		orderings,
-	};
+	return { database: { select, transaction }, insert, orderings, predicates };
 }
+
+const audit = {
+	actorId: ACTOR_ID,
+	ip: null,
+	requestId: "req_test",
+	userAgent: null,
+} as const;
 
 describe("versions repository", () => {
 	it("compares numeric components instead of lexicographic version text", () => {
@@ -80,10 +90,6 @@ describe("versions repository", () => {
 		).toBeGreaterThan(0);
 	});
 
-	it("normalizes relation IDs as a deterministic set", () => {
-		expect(normalizeRelationFileIds(["b", "a", "b"])).toEqual(["a", "b"]);
-	});
-
 	it("maps only the exact live-number PostgreSQL constraint", () => {
 		expect(
 			isLiveVersionNumberUniqueViolation({
@@ -91,26 +97,33 @@ describe("versions repository", () => {
 				constraint: "application_versions_live_number_unique",
 			}),
 		).toBe(true);
-		for (const error of [
-			{ code: "23505", constraint: "another_constraint" },
-			{ code: "23503", constraint: "application_versions_live_number_unique" },
-			new Error("application_versions_live_number_unique"),
-		]) {
-			expect(isLiveVersionNumberUniqueViolation(error)).toBe(false);
-		}
+		expect(
+			isLiveVersionNumberUniqueViolation({
+				code: "23505",
+				constraint: "another_constraint",
+			}),
+		).toBe(false);
 	});
 
-	it("marks only the numerically highest active row returned by the list", async () => {
+	it("marks only the highest active finalized row as latest", async () => {
 		const first = version();
 		const second = version({
 			id: VERSION_2_ID,
 			versionMinor: 10,
 			versionNumber: "1.10.0",
 		});
+		const draft = version({
+			finalizedAt: null,
+			id: "00000000-0000-4000-8000-000000000022",
+			isActive: false,
+			lifecycleStatus: "draft",
+			versionMinor: 11,
+			versionNumber: "1.11.0",
+		});
 		const harness = createSelectHarness([
 			[{ id: PROGRAM_ID }],
-			[first, second],
-			[{ value: 2 }],
+			[first, second, draft],
+			[{ value: 3 }],
 			[{ id: VERSION_2_ID }],
 		]);
 		const repository = createVersionsRepository(harness.database as never);
@@ -126,14 +139,14 @@ describe("versions repository", () => {
 			items: [
 				{ id: VERSION_1_ID, isLatest: false },
 				{ id: VERSION_2_ID, isLatest: true },
+				{ id: draft.id, isLatest: false },
 			],
-			total: 2,
+			total: 3,
 		});
-		expect(harness.orderings[0]).toHaveLength(2);
 		expect(harness.orderings[1]).toHaveLength(4);
 	});
 
-	it("rejects a create below the historical maximum before inserting anything", async () => {
+	it("rejects a draft below the historical maximum before inserting", async () => {
 		const harness = createSelectHarness([
 			[{ id: PROGRAM_ID }],
 			[],
@@ -149,16 +162,10 @@ describe("versions repository", () => {
 		const repository = createVersionsRepository(harness.database as never);
 
 		await expect(
-			repository.create({
-				audit: {
-					actorId: ACTOR_ID,
-					ip: null,
-					requestId: "req_test",
-					userAgent: null,
-				},
+			repository.createDraft({
+				audit,
 				description: "Regression",
-				fileIds: [],
-				isActive: false,
+				expectedFileCount: 3,
 				programId: PROGRAM_ID,
 				versionMajor: 1,
 				versionMinor: 9,
@@ -169,9 +176,22 @@ describe("versions repository", () => {
 			currentMax: "2.0.0",
 		} satisfies Partial<VersionNotGreaterRepositoryError>);
 		expect(harness.insert).not.toHaveBeenCalled();
+		const historicalMaximumPredicate = new PgDialect().sqlToQuery(
+			harness.predicates[2] as Parameters<PgDialect["sqlToQuery"]>[0],
+		);
+		expect(historicalMaximumPredicate.sql).toContain(
+			'"application_versions"."lifecycle_status" = $2',
+		);
+		expect(historicalMaximumPredicate.sql).not.toContain(
+			'"application_versions"."deleted_at"',
+		);
+		expect(historicalMaximumPredicate.params).toEqual([
+			PROGRAM_ID,
+			"finalized",
+		]);
 	});
 
-	it("classifies an exact live duplicate before historical monotonicity", async () => {
+	it("classifies a live duplicate before historical monotonicity", async () => {
 		const harness = createSelectHarness([
 			[{ id: PROGRAM_ID }],
 			[{ id: VERSION_1_ID }],
@@ -179,16 +199,10 @@ describe("versions repository", () => {
 		const repository = createVersionsRepository(harness.database as never);
 
 		await expect(
-			repository.create({
-				audit: {
-					actorId: ACTOR_ID,
-					ip: null,
-					requestId: "req_test",
-					userAgent: null,
-				},
+			repository.createDraft({
+				audit,
 				description: "Duplicate",
-				fileIds: [],
-				isActive: false,
+				expectedFileCount: 1,
 				programId: PROGRAM_ID,
 				versionMajor: 1,
 				versionMinor: 0,

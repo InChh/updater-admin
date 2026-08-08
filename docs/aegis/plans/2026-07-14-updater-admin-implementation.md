@@ -4,7 +4,7 @@
 
 **Goal:** Build the approved single-tenant version-management administration system on the generated Solid/TanStack Start scaffold, with Better Auth, a redesigned Elysia `/api/v1` backend, Drizzle/Neon persistence, direct Aliyun OSS uploads, monitoring, audit, Sentry, and Netlify deployment wiring.
 
-**Architecture:** TanStack Start owns the Solid application shell and same-origin Netlify request entry. Better Auth remains the sole session owner under `/api/auth/*`. A thin Start catch-all forwards raw requests to a server-only Elysia app, which is the only business-contract, authorization, validation, transaction, and audit owner. Drizzle repositories are the only SQL owners. TanStack Query is the only remote-cache owner; Router, Table, Form, and Store retain their approved UI responsibilities.
+**Architecture:** TanStack Start owns the Solid application shell and same-origin Netlify request entry. Better Auth remains the sole session owner under `/api/auth/*`. A thin Start catch-all forwards raw browser requests to a server-only Elysia app; SSR API calls use a request-scoped same-origin direct Elysia bridge instead of an HTTP self-request into the Function. Elysia is the only business-contract, authorization, validation, transaction, and audit owner. Drizzle repositories are the only SQL owners. TanStack Query is the only remote-cache owner; Router, Table, Form, and Store retain their approved UI responsibilities.
 
 **Tech Stack:** Solid 1.9, TanStack Start/Router/Query/Table/Form/Store/CLI/Intent, Tailwind CSS 4, Solid-UI/Kobalte primitives, Elysia 1.4, Better Auth 1.6, Drizzle ORM, Neon Postgres, Aliyun STS/OSS, Sentry, Netlify, pnpm, Biome, Vitest, Playwright.
 
@@ -14,7 +14,7 @@
 
 **TDD Route:** Mode `off`; Decision `skipped`; Strict authority `not applicable`; Test posture `post-change regression`; Reason: the user did not request strict/test-first TDD; Verification: every batch adds focused unit, contract, integration, component, or E2E coverage before its completion gate.
 
-**Verification:** `pnpm check`, `pnpm typecheck`, `pnpm test`, targeted database integration tests with `TEST_DATABASE_URL`, `pnpm test:e2e`, `pnpm build`, local Netlify-function smoke tests, and an authorized Netlify Preview smoke test before release.
+**Verification:** `pnpm check`, `pnpm typecheck`, `pnpm test`, targeted database integration tests with `TEST_DATABASE_URL`, `pnpm test:e2e`, `pnpm build`, local Netlify-function smoke tests, and an authorized Netlify Preview smoke test before release. The Preview gate must include a real authenticated browser mutation that traverses the Netlify proxy and reaches the Function with `X-Updater-If-Match`; local or mocked transport evidence cannot replace it.
 
 ## Aegis Visibility
 
@@ -49,9 +49,10 @@
 1. The database keeps approved `applications`/`application_versions` table names; the public UI and API consistently say `programs`/`versions`.
 2. Better Auth's admin plugin fields (`user.role`, `user.banned`, `user.banReason`, `user.banExpires`, and `session.impersonatedBy`) are technical auth fields, not product RBAC. `user.banned` is the only disabled-state enforcement owner. `admin_metadata` stores only `mustChangePassword`, `locale`, and `lastLoginAt`, avoiding a second disabled-state owner. Every account is created with role `admin`; no role-management UI or permission table exists.
 3. A small `rate_limit_windows` table is added because Netlify function instances cannot provide a reliable process-local limiter. Better Auth owns login rate limits; Elysia uses the Neon-backed fixed-window limiter only for STS, administrator creation/reset, and profile password changes.
-4. The authenticated shell and session guard are SSR-capable. Business page routes use `ssr: false` for phase one, so their Router loaders run in the browser and call the same-origin `/api/v1` through TanStack Query without duplicating cookie-forwarding adapters. API authorization remains server-side in Elysia.
-5. Paginated list items include an opaque `etag` string so table-row mutations such as version activation can send `If-Match` without an extra detail request. Single-resource responses also emit the HTTP `ETag` header.
+4. The authenticated shell and session guard are SSR-capable. Business page routes use `ssr: false` for phase one, so their Router loaders run in the browser and call the same-origin `/api/v1` through TanStack Query. Any SSR API call defaults to the request-scoped direct Elysia bridge, inherits only `authorization`, `cookie`, and `origin`, rejects cross-origin targets, and never self-fetches the deployed Function. API authorization remains server-side in Elysia.
+5. Paginated list items include an opaque `etag` string so table-row mutations such as version activation can send that value as `X-Updater-If-Match` without an extra detail request. Detail and entity-returning mutation responses continue to emit the standard HTTP `ETag` header.
 6. Upload idempotency uses the approved `path + sha256 + size` partial unique key and deterministic object key; no upload-session table or second upload state machine is introduced.
+7. `2026-07-19 Netlify platform amendment`: the Functions proxy strips standard `If-Match` before the handler. Every optimistic-concurrency mutation therefore sends only the application-owned `X-Updater-If-Match`; missing application header is `428 PRECONDITION_REQUIRED`, and a stale value is `409 STALE_WRITE`. Client and server import `UPDATER_IF_MATCH_HEADER` from `src/shared/api/common.ts`. Standard/custom dual-read fallback is forbidden. Domain parameters remain named `ifMatch` as the internal precondition concept.
 
 ## BaselineUsageDraft
 
@@ -78,7 +79,7 @@
 | Database | `drizzle.config.ts`, `drizzle/`, `src/server/db/client.server.ts`, `src/server/db/schema/`, `src/server/db/repositories/` | Schema, migrations, SQL, transactions |
 | Authentication | `src/server/auth/`, `src/lib/auth-client.ts`, `src/routes/api/auth/$.ts` | Better Auth config, session lookup, bootstrap, password/session operations |
 | Business API | `src/server/api/`, `src/routes/api/v1/$.ts`, `src/routes/health.ts` | Elysia contracts, plugins, modules, transport, Problem Details |
-| Shared wire types | `src/shared/api/` | Runtime-free DTO and query types safe for browser imports |
+| Shared wire types | `src/shared/api/` | Runtime-free DTO/query types and wire-header constants, including `UPDATER_IF_MATCH_HEADER` in `common.ts`, safe for browser imports |
 | App shell | `src/features/shell/`, `src/routes/_authenticated.tsx`, `src/routes/__root.tsx` | Responsive shell, toolbar, sidebar, persistent opened tabs |
 | Remote data | `src/lib/api/`, per-feature `queries.ts` | Fetch/Problem parser, query keys/options, precise invalidation |
 | Programs | `src/server/domain/programs.server.ts`, `src/server/api/modules/programs.ts`, `src/features/programs/`, `src/routes/_authenticated/programs.tsx` | Program vertical slice |
@@ -96,7 +97,7 @@
 - API request/response JSON is camelCase; database columns are snake_case.
 - IDs are UUIDs, timestamps are UTC `timestamptz`, and UI formatting defaults to `Asia/Shanghai`.
 - Lists return `{ items, page, pageSize, total }`; page starts at 1; page size is one of 20, 50, 100.
-- Mutations use `If-Match`; missing preconditions return 428 and stale writes return 409 `STALE_WRITE`.
+- Optimistic-concurrency mutations use only `X-Updater-If-Match`; missing application preconditions return 428 and stale writes return 409 `STALE_WRITE`. Standard `If-Match` is deliberately not a fallback, while response version discovery remains standard `ETag`.
 - Soft deletion never triggers an OSS delete. Audit records are append-only and scrub secrets.
 - No `tenantId`, organization, billing, subscription, invoice, updater-client manifest, download STS, or legacy compatibility path may appear.
 
@@ -128,6 +129,7 @@
 - Dependency direction is `route/component -> feature query/form -> /api/v1 -> Elysia domain -> repository -> DB`; no reverse browser-to-server import is allowed.
 - `*.server.ts` and server-only markers isolate secrets, DB clients, OSS permanent credentials, and Sentry server configuration.
 - Elysia is constructed by a dependency-injected factory for contract tests; production singleton creation is separate from route definitions.
+- Browser requests cross the thin Start route; SSR calls use the request-scoped same-origin direct Elysia bridge with only `authorization`/`cookie`/`origin` inheritance. Neither path creates another API owner or a Function self-request.
 - Domain services own version comparison, last-admin protection, soft-delete cascades, file-set replacement, and audit intent. Repositories do not repeat those rules.
 - The plan retires scaffold demos and does not add fallback APIs, duplicated caches, duplicated disabled state, or client compatibility branches.
 
@@ -156,7 +158,7 @@
 
 - High-risk seams: Better Auth schema/plugin integration, Netlify raw-request forwarding to Elysia, interactive Neon transactions, direct OSS multipart upload, stale-write handling, last-admin concurrency.
 - Long-running seams: dependency installation, migrations against a disposable Neon branch, Playwright, production build, Netlify Preview smoke.
-- Contract/schema seams: every API module, Better Auth schema, partial indexes, ETag/If-Match, audit redaction, upload metadata idempotency.
+- Contract/schema seams: every API module, Better Auth schema, partial indexes, standard response ETag plus application-owned `X-Updater-If-Match`, audit redaction, upload metadata idempotency.
 - Required review gates: foundation, auth/API core, programs, versions/uploads, administration/settings, monitoring/deployment, final retirement.
 - Execution workspace precondition: because the repository has no commit, capture the approved scaffold/spec/plan as an initial baseline commit before creating the isolated implementation worktree.
 
@@ -167,7 +169,7 @@
 | Authentication | Missing/expired session returns 401 on every `/api/v1` route; banned user returns 403; `mustChangePassword` can only access allowed profile/password paths |
 | Problem Details | Every non-2xx body has `type`, `title`, `status`, `code`, `requestId`; validation adds `fieldErrors`; 500 output excludes stack, SQL, paths, cookies, tokens, and credentials |
 | Pagination/search | Programs, versions, administrators, files, and audit return page-1 lists with clamped whitelist page sizes and whitelist sort fields |
-| Concurrency | Detail/mutation responses emit ETag; mutation without `If-Match` is 428; stale token is 409 `STALE_WRITE`; success increments row version |
+| Concurrency | Detail/entity-mutation responses emit standard ETag; mutation without `X-Updater-If-Match` is 428; standard `If-Match` alone is rejected without fallback; stale application token is 409 `STALE_WRITE`; success increments row version |
 | Programs | Create/update uniqueness, name/description validation, soft-delete cascade, affected-version count, audit before/after |
 | Versions | Canonical parse, numerical ordering, greater-than-max, uniqueness, multiple active, one numeric `isLatest`, activation isolation, whole-file-set replacement |
 | Uploads | Path and hash validation, deterministic object keys, STS policy scope/TTL, HEAD mismatch conflict, duplicate completion returns same metadata IDs |
@@ -249,16 +251,16 @@
 
 ### Batch 4: Build the Elysia API foundation, transport adapter, and security plugins
 
-**Files:** `src/shared/api/common.ts`, `src/shared/api/profile.ts`, `src/server/security/redact.ts`, `src/server/security/redact.test.ts`, `src/server/db/repositories/audit.server.ts`, `src/server/db/repositories/rate-limit.server.ts`, `src/server/api/problem.ts`, `src/server/api/schemas/common.ts`, `src/server/api/context.server.ts`, `src/server/api/plugins/request-id.ts`, `src/server/api/plugins/session.server.ts`, `src/server/api/plugins/origin.server.ts`, `src/server/api/plugins/rate-limit.server.ts`, `src/server/api/plugins/audit.server.ts`, `src/server/api/modules/profile.ts`, `src/server/api/app.server.ts`, `src/server/api/app.test.ts`, `src/routes/api/v1/$.ts`, `src/routes/health.ts`.
+**Files:** `src/shared/api/common.ts`, `src/shared/api/profile.ts`, `src/server/security/redact.ts`, `src/server/security/redact.test.ts`, `src/server/db/repositories/audit.server.ts`, `src/server/db/repositories/rate-limit.server.ts`, `src/server/api/problem.ts`, `src/server/api/preconditions.ts`, `src/server/api/schemas/common.ts`, `src/server/api/context.server.ts`, `src/server/api/plugins/request-id.ts`, `src/server/api/plugins/session.server.ts`, `src/server/api/plugins/origin.server.ts`, `src/server/api/plugins/rate-limit.server.ts`, `src/server/api/plugins/audit.server.ts`, `src/server/api/modules/profile.ts`, `src/server/api/app.server.ts`, `src/server/api/app.test.ts`, `src/routes/api/v1/$.ts`, `src/routes/health.ts`, `src/lib/api/default-fetch.server.ts`.
 
-1. Define browser-safe `Page<T>`, `ApiProblem`, `FieldError`, `EntityResult<T>`, locale, sort, and ETag types under `src/shared/api/`; keep Elysia runtime schemas canonical and prove response/type alignment in contract tests. Format row versions as opaque weak ETags.
+1. Define browser-safe `Page<T>`, `ApiProblem`, `FieldError`, `EntityResult<T>`, locale, sort, ETag types, and the single `UPDATER_IF_MATCH_HEADER` constant under `src/shared/api/`; keep Elysia runtime schemas canonical and prove response/type alignment in contract tests. Format row versions as opaque weak ETags.
 2. Implement a single Problem Details mapper for validation, auth, not-found, conflict, precondition, rate-limit, and internal errors. Production 500 responses expose only request ID and stable code.
 3. Implement the shared recursive redactor before any audited write route exists. Implement append-only audit writes and atomic rate-window increments as focused repositories.
 4. Construct Elysia from injected dependencies. Add request ID propagation, same-origin mutation enforcement, session/banned/must-change checks, rate limiting, audit context, and centralized error mapping.
 5. Implement `GET /health` outside authenticated `/api/v1`; return only `{ status: "ok" }`.
 6. Add the minimum profile contract needed to complete authentication: `GET /api/v1/profile` and `POST /api/v1/profile/change-password`. Change password through Better Auth using the current session, clear `mustChangePassword`, revoke every old session, and return a reauthentication requirement; the browser then signs in with the new password to establish a fresh session.
-7. Implement the Start splat route as method-for-method raw `Request` forwarding to Elysia. Do not parse JSON, query the DB, or make authorization decisions in the Start route.
-8. Add contract tests using `app.handle(new Request("http://localhost/api/v1/programs", requestInit))` for raw body/query/headers, 401/403/422/428/429/500 Problem Details, request IDs, origin checks, forced-password route restrictions, session rotation, redaction, and `/health` secrecy.
+7. Implement the Start splat route as method-for-method raw browser `Request` forwarding to Elysia. Implement SSR's default fetch as a request-scoped same-origin direct bridge that inherits only `authorization`, `cookie`, and `origin`, rejects cross-origin targets, and avoids a Function self-request. Neither transport may parse JSON, query the DB, or make authorization decisions.
+8. Add contract tests using `app.handle(new Request("http://localhost/api/v1/programs", requestInit))` for raw body/query/headers, 401/403/422/428/429/500 Problem Details, request IDs, origin checks, forced-password route restrictions, session rotation, redaction, `/health` secrecy, exact `X-Updater-If-Match` handling, and rejection of standard-`If-Match`-only requests.
 
 **Verify:** `pnpm test -- src/server/api/app.test.ts`, `pnpm check`, `pnpm typecheck`, start the app and curl `/health` plus an unauthenticated `/api/v1` path, then `pnpm build`.
 
@@ -285,7 +287,7 @@
 
 **Files:** `src/shared/api/programs.ts`, `src/server/db/repositories/programs.server.ts`, `src/server/domain/programs.server.ts`, `src/server/domain/programs.test.ts`, `src/server/api/modules/programs.ts`, `src/server/api/modules/programs.test.ts`, `src/lib/api/client.ts`, `src/lib/api/query-keys.ts`, `src/features/programs/api.ts`, `src/features/programs/queries.ts`, `src/features/programs/program-table.tsx`, `src/features/programs/program-form.tsx`, `src/features/programs/program-dialogs.tsx`, `src/features/programs/programs-page.tsx`, `src/features/programs/programs-page.test.tsx`, `src/routes/_authenticated/programs.tsx`.
 
-1. Add the typed fetch client that parses ETag and Problem Details, throws `ApiProblemError`, includes credentials, and never imports server runtime code.
+1. Add the typed fetch client that parses standard response ETag and Problem Details, throws `ApiProblemError`, includes credentials, sends concurrency tokens with the shared `UPDATER_IF_MATCH_HEADER`, and never imports server runtime code.
 2. Implement program repository queries with whitelist name filter, created-time sort, page sizes, detail lock/read, partial uniqueness, row-version update, and transactional soft-delete cascade.
 3. Implement domain validation, conflict mapping, ETag creation, audit before/after, and affected-version count. Preserve file metadata and OSS objects on delete.
 4. Mount GET/POST/detail/PATCH/DELETE schemas and handlers in Elysia with exact list and concurrency contracts.
@@ -304,7 +306,7 @@
 2. Lock the parent application row in create/change-number transactions, read the current maximum numeric triplet, and enforce strict greater-than plus the partial unique index.
 3. Implement version list/detail/create/update/delete/activation/nested files plus the approved paginated `GET /api/v1/files` and `GET /api/v1/files/{fileId}` metadata endpoints. Multiple active rows remain untouched; after each list/mutation mark exactly the numerically highest active row `isLatest`.
 4. Replace version file relations transactionally only when `fileIds` is present. An empty array removes all relations; omitted `fileIds` preserves them. Audit full before/after ID sets so the UpdaterServer remove-only defect cannot recur.
-5. Soft delete versions without deleting file metadata or objects; require ETag/If-Match for update/delete/activation.
+5. Soft delete versions without deleting file metadata or objects; require the current ETag value via `X-Updater-If-Match` for update/delete/activation, with no standard-header fallback.
 6. Test parser boundaries, `1.10.0 > 1.9.99`, concurrent max creation, multiple active/latest, activation isolation, remove-only replacement, omitted replacement, stale writes, and soft deletion.
 
 **Verify:** version unit/contract tests, disposable-DB transaction tests, `pnpm check`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
@@ -335,7 +337,7 @@
 2. Render the screenshot-aligned table: sequence, copyable ID, semantic version, description, enabled switch, latest badge, created time, actions, refresh, and numbered pagination.
 3. Connect create to folder picker -> hash -> STS -> multipart -> complete -> version-create. Disable submit until all required uploads are complete; preserve successful metadata IDs when retrying a failed final create.
 4. Implement edit description/optional greater version/explicit folder replacement; omitted folder preserves relations and an explicit empty folder replaces with none only after confirmation.
-5. Implement optimistic activation with per-row mutation serialization, cached ETag, rollback on Problem Details, precise list/detail invalidation, and latest-badge recomputation from the server response.
+5. Implement optimistic activation with per-row mutation serialization, cached ETag sent as `X-Updater-If-Match`, rollback on Problem Details, precise list/detail invalidation, and latest-badge recomputation from the server response.
 6. Open the tab key `versions:{programId}` with title `版本 · {programName}` and retain its concrete href across navigation/reload.
 7. Test upload/form state, optimistic success/rollback/stale-write flow, numeric latest display, pagination, two distinct program tabs, and delete without OSS side effects.
 
@@ -363,7 +365,7 @@
 **Files:** `src/shared/api/settings.ts`, `src/server/db/repositories/settings.server.ts`, `src/server/domain/settings.server.ts`, `src/server/domain/settings.test.ts`, `src/server/api/modules/settings.ts`, `src/server/api/modules/settings.test.ts`, `src/features/settings/system-form.tsx`, `src/routes/_authenticated/settings.system.tsx`.
 
 1. Read/create the fixed singleton and expose system name, default locale, page size, and optional HTTPS repository URL only.
-2. Validate locale and page-size enums, normalize empty repository URL to null, require ETag, increment row version, and audit changes.
+2. Validate locale and page-size enums, normalize empty repository URL to null, require the current ETag through `X-Updater-If-Match`, increment row version, and audit changes.
 3. Build TanStack Form UI and update shell title/defaults after success without copying settings into a second persistent client store.
 4. Test singleton races, invalid URL/page size, stale write, locale fallback, repository-icon conditional visibility, and exact query invalidation.
 
@@ -392,11 +394,11 @@
 1. Initialize `@sentry/solid` only when `VITE_SENTRY_DSN` exists; initialize `@sentry/node` lazily per server runtime; tag request ID, environment, release, route, and actor ID without PII payloads.
 2. Apply the same recursive scrubber to audit and Sentry `beforeSend`; drop headers/query/body fields that can contain secrets or signed URLs.
 3. Add conditional `@sentry/vite-plugin` source-map upload only when build credentials are present. A local build without Sentry credentials must still succeed.
-4. Verify Netlify plugin order, publish directory, function routing, Node runtime, canonical Better Auth URL, same-origin cookie behavior, and explicit pre-deploy `pnpm db:migrate`. Do not run migrations during request startup.
+4. Verify Netlify plugin order, publish directory, function routing, Node runtime, canonical Better Auth URL, same-origin cookie behavior, the platform's stripping of standard `If-Match`, preservation of `X-Updater-If-Match`, and explicit pre-deploy `pnpm db:migrate`. Do not run migrations during request startup.
 5. Document all environment variables and follow-up cloud setup: Neon migration, one-time bootstrap removal, OSS RAM/CORS, Sentry project, Netlify canonical URL/secrets.
 6. Add cross-cutting tests for CSRF/origin, rate limits, request ID propagation, secure-cookie production config, scrubber coverage, and server-only import boundaries.
 
-**Verify:** `pnpm check`, `pnpm typecheck`, `pnpm test`, `pnpm build`; local `netlify dev` smoke when CLI/auth are available; authorized Preview checks for `/login`, `/health`, protected redirect, `/api/v1` 401, session cookie, DB readiness, STS readiness, and Sentry test event.
+**Verify:** `pnpm check`, `pnpm typecheck`, `pnpm test`, `pnpm build`; local `netlify dev` smoke when CLI/auth are available; authorized Preview checks for `/login`, `/health`, protected redirect, `/api/v1` 401, session cookie, DB readiness, STS readiness, and Sentry test event. Also run a real authenticated browser -> Preview -> Function concurrency mutation and observe the next standard `ETag`; no direct-handler or route-mocked substitute satisfies this gate.
 
 **Commit:** `feat: finalize sentry and netlify integration`.
 
@@ -408,13 +410,13 @@
 
 1. Prove every requested TanStack library has a real production owner before deleting its demo: Start/Router shell and routes, Query remote cache, Table lists, Form forms, Store tabs/upload queue, CLI scripts/metadata, Intent context/guidance.
 2. Delete demo routes/components and stale imports; regenerate the route tree; assert no `/demo/*`, `/about`, `/dashboard`, `/billing`, tenant, or legacy `/api/app/*` route remains.
-3. Add E2E suites for auth/returnTo/forced password, persistent tabs, programs, versions/upload stub, administrators, settings, monitoring/audit, locale, mobile drawer, keyboard-only flow, and stale-write recovery.
+3. Add E2E suites for auth/returnTo/forced password, persistent tabs, programs, versions/upload stub, administrators, settings, monitoring/audit, locale, mobile drawer, keyboard-only flow, and stale-write recovery through `X-Updater-If-Match`.
 4. Compare desktop program/version pages and dialogs against the eight reference screenshots; capture 1920px desktop and 390px mobile evidence. Verify high-fidelity green spacing, toolbar-tab-title order, pagination, modals, language menu, and account menu without copying screenshot defects.
 5. Run an accessibility pass: landmarks, headings, labels, table captions, icon names/tooltips, focus trap/return, color contrast, reduced motion, horizontal table scroll, chart text alternative.
 6. Run the full command matrix. Scan production routes with `rg -n '/dashboard|/billing|/api/app/' src/routeTree.gen.ts src/routes --glob '!**/*.test.*'`; it must return no matches. Scan client output with `rg -n 'DATABASE_URL|OSS_ACCESS_KEY_SECRET|BETTER_AUTH_SECRET|SENTRY_AUTH_TOKEN|BOOTSTRAP_ADMIN_PASSWORD' dist/client`; it must return no matches.
 7. Update durable context with final env/setup/deployment steps, known gotchas, verified commands, and remaining external actions. Preserve one ADR signal for the proven same-origin Start/Elysia boundary; create an ADR only if the implementation evidence still shows the decision is durable and non-obvious.
 
-**Verify:** `pnpm intent:list`, `pnpm check`, `pnpm typecheck`, `pnpm test`; with `TEST_DATABASE_URL` set to a disposable Neon branch, run `pnpm test:db`; then run `pnpm test:e2e`, `pnpm build`, `git diff --check`, route/secret scans, and authorized Netlify Preview smoke.
+**Verify:** `pnpm intent:list`, `pnpm check`, `pnpm typecheck`, `pnpm test`; with `TEST_DATABASE_URL` set to a disposable Neon branch, run `pnpm test:db`; then run `pnpm test:e2e`, `pnpm build`, `git diff --check`, route/secret scans, and authorized Netlify Preview smoke including the real browser concurrency mutation.
 
 **Commit:** `chore: complete updater admin verification and retire demos`.
 
@@ -425,6 +427,7 @@
 - Programs and versions match the supplied desktop visual direction and remain usable on mobile/keyboard.
 - Better Auth signup is disabled; new admins use temporary passwords; all accounts have identical full access; last-admin and session-revocation rules hold.
 - Elysia owns every approved `/api/v1` route and rejects unauthenticated/stale/invalid requests with compact Problem Details.
+- Every optimistic-concurrency mutation sends `X-Updater-If-Match` from the shared constant; responses discover versions through standard `ETag`, standard `If-Match` has no dual-read fallback, and a real browser -> Preview -> Function mutation proves the platform path.
 - Drizzle migrations create only approved auth/business/security tables in a fresh Neon database.
 - Multiple versions can be active and exactly the numerically highest active version is latest.
 - Folder upload hashes incrementally and sends file bodies browser-to-OSS with progress/retry/cancel; Netlify receives metadata only.
@@ -436,7 +439,8 @@
 
 - Stop if Better Auth generated schema and committed schema disagree on required plugin fields; reconcile before migration.
 - Stop if Neon's selected driver cannot prove interactive transaction/lock behavior in a disposable branch; do not emulate correctness with process locks.
-- Stop if Start-to-Elysia forwarding changes request body, cookies, status, or headers; repair the single adapter before adding modules.
+- Stop if Start-to-Elysia forwarding changes request body, cookies, status, or headers, or if the SSR direct bridge crosses origin/inherits any header beyond `authorization`/`cookie`/`origin`; repair the single transport owner before adding modules.
+- Stop completion if Netlify Preview does not deliver `X-Updater-If-Match` to the Function or if correctness would require a standard/custom dual-read fallback.
 - Stop if an OSS test would require production credentials, object deletion, or a broader RAM policy; use mocks/sandbox and request separate authority.
 - Stop if a proposed convenience adds tenant/Billing/client-compatibility/data-migration state or duplicates a canonical owner.
 - Stop completion if any high-risk contract lacks automated evidence, if source/test complexity is exceeded and unresolved, or if real Preview behavior contradicts local verification.

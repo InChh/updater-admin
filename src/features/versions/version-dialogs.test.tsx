@@ -1,13 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { programQueryKeys, versionQueryKeys } from "../../lib/api/query-keys";
 import { I18nProvider } from "../../lib/i18n/i18n";
 import type { EntityResult } from "../../shared/api/common";
 import type { VersionDetailDto } from "../../shared/api/versions";
+import type { VersionDialog } from "./search";
 import { createUploadQueueController } from "./upload-store";
-import type { UploadWorkflow } from "./upload-workflow.client";
+import type {
+	UploadDraftContext,
+	UploadWorkflow,
+} from "./upload-workflow.client";
 import {
 	VersionDialogs,
 	type VersionUploadSession,
@@ -18,18 +23,23 @@ vi.mock("../../components/ui/toast", () => ({ notify: vi.fn() }));
 
 const PROGRAM_ID = "ca6f79db-c7c4-4a34-9ab5-2a85ca9df501";
 const VERSION_ID = "84f19927-d53c-4b5c-a0bf-c836cf9c11cb";
-const SIBLING_VERSION_ID = "84f19927-d53c-4b5c-a0bf-c836cf9c11cc";
 
-function versionEntity(): EntityResult<VersionDetailDto> {
+function versionEntity(
+	lifecycleStatus: "draft" | "finalized" = "finalized",
+): EntityResult<VersionDetailDto> {
 	return {
 		data: {
+			associatedFileCount: lifecycleStatus === "draft" ? 0 : 1,
 			createdAt: "2026-07-15T00:00:00.000Z",
 			description: "Stable release",
-			fileCount: 1,
-			fileIds: ["7095f861-5cff-4f1b-9be8-4b22e0fc4a27"],
+			expectedFileCount: lifecycleStatus === "draft" ? 1 : null,
+			fileCount: lifecycleStatus === "draft" ? 0 : 1,
+			finalizedAt:
+				lifecycleStatus === "draft" ? null : "2026-07-15T01:00:00.000Z",
 			id: VERSION_ID,
 			isActive: false,
 			isLatest: false,
+			lifecycleStatus,
 			programId: PROGRAM_ID,
 			updatedAt: "2026-07-15T00:00:00.000Z",
 			versionNumber: "1.0.0",
@@ -51,36 +61,25 @@ function jsonResponse(
 
 function createImmediateUploadSession(): VersionUploadSession {
 	const queue = createUploadQueueController({ storage: null });
+	let currentDraft: UploadDraftContext | null = null;
 	const workflow: UploadWorkflow = {
 		queue,
 		cancel: (itemId) => queue.cancel(itemId),
 		discard: async (itemId) => queue.remove(itemId),
 		dispose: vi.fn(),
-		getCompletedFileMetadataIds: () => {
-			const items = queue.getState().items;
-			if (
-				items.length === 0 ||
-				items.some((item) => item.status !== "complete")
-			) {
-				return null;
-			}
-			return items.map(() => "7095f861-5cff-4f1b-9be8-4b22e0fc4a27");
-		},
+		getDraft: () => currentDraft,
 		isRunning: () => false,
 		retry: async () => null,
+		setDraft: (draft) => {
+			currentDraft = draft;
+		},
 		start: async () => {
 			for (const item of queue.getState().items) {
 				if (item.status !== "queued") continue;
 				queue.startHash(item.id);
 				queue.markHashSucceeded(item.id, "a".repeat(64));
-				queue.setObjectTarget(item.id, `releases/${item.path}`);
-				queue.startUpload(item.id);
-				queue.markUploadSucceeded(item.id, `etag-${item.id}`);
-				queue.startRegistration(item.id);
-				queue.markRegistrationSucceeded(
-					item.id,
-					"7095f861-5cff-4f1b-9be8-4b22e0fc4a27",
-				);
+				queue.startResolution(item.id);
+				queue.markResolutionSucceeded(item.id, "reused");
 			}
 		},
 	};
@@ -98,35 +97,25 @@ function testQueryClient(): QueryClient {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("VersionDialogs", () => {
-	it("keeps completed upload metadata after final create fails and retries the same version payload", async () => {
+	it("creates a durable draft before upload and closes only after finalization", async () => {
 		const queryClient = testQueryClient();
 		queryClient.setQueryData(programQueryKeys.detail(PROGRAM_ID), {
 			data: { id: PROGRAM_ID, versionCount: 0 },
 			etag: 'W/"1"',
 		});
 		const session = createImmediateUploadSession();
-		let createAttempts = 0;
-		const requestBodies: unknown[] = [];
-		const fetcher = vi.fn(
-			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				createAttempts += 1;
-				requestBodies.push(JSON.parse(String(init?.body)) as unknown);
-				if (createAttempts === 1) {
-					return jsonResponse(
-						{
-							code: "INTERNAL_ERROR",
-							requestId: "req_version_create",
-							status: 500,
-							title: "Internal error",
-							type: "about:blank",
-						},
-						500,
-					);
-				}
-				const created = versionEntity();
-				return jsonResponse(created.data, 201, { etag: created.etag });
-			},
-		);
+		const draft = versionEntity("draft");
+		const finalized = versionEntity("finalized");
+		const fetcher = vi
+			.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(draft.data, 201, { etag: draft.etag }),
+			)
+			.mockResolvedValueOnce(
+				jsonResponse(draft.data, 201, { etag: draft.etag }),
+			)
+			.mockResolvedValueOnce(
+				jsonResponse(finalized.data, 200, { etag: 'W/"2"' }),
+			);
 		vi.stubGlobal("fetch", fetcher);
 		const onClose = vi.fn();
 		render(() => (
@@ -143,7 +132,7 @@ describe("VersionDialogs", () => {
 			</QueryClientProvider>
 		));
 
-		fireEvent.input(screen.getByRole("textbox", { name: "Version number" }), {
+		fireEvent.input(screen.getByRole("textbox", { name: /Version number/ }), {
 			target: { value: "1.0.0" },
 		});
 		fireEvent.change(screen.getByLabelText("Choose program folder"), {
@@ -156,34 +145,29 @@ describe("VersionDialogs", () => {
 			},
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Upload" }));
-		const createButton = screen.getByRole("button", { name: "Create" });
-		await waitFor(() =>
-			expect(createButton.hasAttribute("disabled")).toBe(false),
-		);
-		fireEvent.click(createButton);
 
-		expect(
-			await screen.findByText(
-				"The service is temporarily unavailable. Request ID: req_version_create",
-			),
-		).toBeTruthy();
-		expect(session.queue.getState().items[0]?.status).toBe("complete");
+		await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
 		expect(onClose).not.toHaveBeenCalled();
-		const retryCreate = await screen.findByRole("button", { name: "Create" });
-		fireEvent.click(retryCreate);
-
-		await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-		expect(requestBodies).toHaveLength(2);
-		expect(requestBodies[1]).toEqual(requestBodies[0]);
-		expect(requestBodies[0]).toEqual({
+		expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
 			description: "",
-			fileIds: ["7095f861-5cff-4f1b-9be8-4b22e0fc4a27"],
+			expectedFileCount: 1,
 			versionNumber: "1.0.0",
 		});
+		const finalize = await screen.findByRole("button", {
+			name: "Finalize version",
+		});
+		await waitFor(() => expect(finalize.hasAttribute("disabled")).toBe(false));
+		fireEvent.click(finalize);
+
+		await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+		expect(fetcher.mock.calls[1]?.[0]).toBe(
+			`/api/v1/programs/${PROGRAM_ID}/versions/${VERSION_ID}/finalize`,
+		);
 		expect(
-			queryClient.getQueryState(programQueryKeys.detail(PROGRAM_ID))
-				?.isInvalidated,
-		).toBe(true);
+			new Headers(fetcher.mock.calls[1]?.[1]?.headers).get(
+				"x-updater-if-match",
+			),
+		).toBe(draft.etag);
 	});
 
 	it("deletes only version metadata and invalidates the parent version count", async () => {
@@ -196,18 +180,6 @@ describe("VersionDialogs", () => {
 			data: { id: PROGRAM_ID, versionCount: 1 },
 			etag: 'W/"1"',
 		});
-		queryClient.setQueryData(
-			versionQueryKeys.detail(PROGRAM_ID, SIBLING_VERSION_ID),
-			{
-				...versionEntity(),
-				data: {
-					...versionEntity().data,
-					id: SIBLING_VERSION_ID,
-					isLatest: true,
-					versionNumber: "2.0.0",
-				},
-			},
-		);
 		const fetcher = vi.fn(
 			async (_input: RequestInfo | URL, _init?: RequestInit) =>
 				new Response(null, { status: 204 }),
@@ -228,65 +200,187 @@ describe("VersionDialogs", () => {
 			</QueryClientProvider>
 		));
 
-		expect(await screen.findByText("Delete version 1.0.0.")).toBeTruthy();
-		expect(
-			screen.getByText("File metadata and OSS objects will not be deleted."),
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
 		await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
-		expect(fetcher).toHaveBeenCalledOnce();
-		const [input, init] = fetcher.mock.calls[0] ?? [];
-		expect(String(input)).toContain(
-			`/api/v1/programs/${PROGRAM_ID}/versions/${VERSION_ID}`,
-		);
-		expect(String(input)).not.toContain("/uploads/");
-		expect(init?.method).toBe("DELETE");
-		expect(init?.body).toBeUndefined();
-		expect(new Headers(init?.headers).get("if-match")).toBe('W/"1"');
+		expect(fetcher.mock.calls[0]?.[1]?.method).toBe("DELETE");
+		expect(String(fetcher.mock.calls[0]?.[0])).not.toContain("/uploads/");
 		expect(
 			queryClient.getQueryState(programQueryKeys.detail(PROGRAM_ID))
 				?.isInvalidated,
 		).toBe(true);
+	});
+
+	it("resumes a durable draft without enabling metadata edits", async () => {
+		const queryClient = testQueryClient();
+		queryClient.setQueryData(
+			versionQueryKeys.detail(PROGRAM_ID, VERSION_ID),
+			versionEntity("draft"),
+		);
+		render(() => (
+			<QueryClientProvider client={queryClient}>
+				<I18nProvider locale="en">
+					<VersionDialogs
+						dialog="edit"
+						onClose={() => {}}
+						onDeleted={() => {}}
+						programId={PROGRAM_ID}
+						uploadSessionFactory={createImmediateUploadSession}
+						versionId={VERSION_ID}
+					/>
+				</I18nProvider>
+			</QueryClientProvider>
+		));
+
 		expect(
-			queryClient.getQueryState(
-				versionQueryKeys.detail(PROGRAM_ID, SIBLING_VERSION_ID),
-			)?.isInvalidated,
+			await screen.findByRole("heading", { name: "Resume draft upload" }),
+		).toBeTruthy();
+		expect(screen.getByLabelText("Choose program folder")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("textbox", { name: /Version number/ })
+				.hasAttribute("disabled"),
 		).toBe(true);
 	});
 
-	it("invalidates every program-scoped detail after an edit can change latest authority", async () => {
+	it("retains the live upload session when a draft dialog closes and reopens", async () => {
+		const queryClient = testQueryClient();
+		queryClient.setQueryData(
+			versionQueryKeys.detail(PROGRAM_ID, VERSION_ID),
+			versionEntity("draft"),
+		);
+		const session = createImmediateUploadSession();
+		session.queue.addFiles([
+			{
+				file: new File(["release"], "app.bin"),
+				path: "release/app.bin",
+			},
+		]);
+		const sessionFactory = vi.fn(() => session);
+		const [dialog, setDialog] = createSignal<VersionDialog | undefined>("edit");
+		const view = render(() => (
+			<QueryClientProvider client={queryClient}>
+				<I18nProvider locale="en">
+					<VersionDialogs
+						dialog={dialog()}
+						onClose={() => setDialog(undefined)}
+						onDeleted={() => {}}
+						programId={PROGRAM_ID}
+						uploadSessionFactory={sessionFactory}
+						versionId={VERSION_ID}
+					/>
+				</I18nProvider>
+			</QueryClientProvider>
+		));
+
+		expect(
+			await screen.findByRole("heading", { name: "Resume draft upload" }),
+		).toBeTruthy();
+		expect(screen.getByText(/^1 file/)).toBeTruthy();
+		const itemId = session.queue.getState().items[0]?.id;
+		if (!itemId) throw new Error("Missing retained upload item.");
+		setDialog(undefined);
+		await waitFor(() =>
+			expect(screen.queryByLabelText("Choose program folder")).toBeNull(),
+		);
+		expect(session.workflow.dispose).not.toHaveBeenCalled();
+		session.queue.startHash(itemId);
+		session.queue.markHashProgress(itemId, 0.5);
+
+		setDialog("edit");
+		expect(
+			await screen.findByRole("heading", { name: "Resume draft upload" }),
+		).toBeTruthy();
+		expect(screen.getByText(/^1 file/)).toBeTruthy();
+		expect(
+			(
+				screen.getByRole("progressbar", {
+					name: /release\/app\.bin/,
+				}) as HTMLProgressElement
+			).value,
+		).toBe(0.5);
+		expect(sessionFactory).toHaveBeenCalledOnce();
+		expect(session.workflow.dispose).not.toHaveBeenCalled();
+
+		view.unmount();
+		expect(session.workflow.dispose).toHaveBeenCalledOnce();
+	});
+
+	it("promotes a newly created upload session into its resumable draft", async () => {
+		const queryClient = testQueryClient();
+		const session = createImmediateUploadSession();
+		const sessionFactory = vi.fn(() => session);
+		const draft = versionEntity("draft");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => jsonResponse(draft.data, 201, { etag: draft.etag })),
+		);
+		const [dialog, setDialog] = createSignal<VersionDialog | undefined>(
+			"create",
+		);
+		const [versionId, setVersionId] = createSignal<string>();
+		const view = render(() => (
+			<QueryClientProvider client={queryClient}>
+				<I18nProvider locale="en">
+					<VersionDialogs
+						dialog={dialog()}
+						onClose={() => setDialog(undefined)}
+						onDeleted={() => {}}
+						programId={PROGRAM_ID}
+						uploadSessionFactory={sessionFactory}
+						versionId={versionId()}
+					/>
+				</I18nProvider>
+			</QueryClientProvider>
+		));
+
+		fireEvent.input(screen.getByRole("textbox", { name: /Version number/ }), {
+			target: { value: "1.0.0" },
+		});
+		fireEvent.change(screen.getByLabelText("Choose program folder"), {
+			target: { files: [new File(["release"], "app.bin")] },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Finalize version" })
+					.hasAttribute("disabled"),
+			).toBe(false),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await waitFor(() =>
+			expect(screen.queryByLabelText("Choose program folder")).toBeNull(),
+		);
+
+		setVersionId(VERSION_ID);
+		setDialog("edit");
+		expect(
+			await screen.findByRole("heading", { name: "Resume draft upload" }),
+		).toBeTruthy();
+		expect(screen.getByText(/^1 file/)).toBeTruthy();
+		expect(sessionFactory).toHaveBeenCalledOnce();
+		expect(session.workflow.dispose).not.toHaveBeenCalled();
+
+		view.unmount();
+		expect(session.workflow.dispose).toHaveBeenCalledOnce();
+	});
+
+	it("keeps finalized edit metadata-only and invalidates version details", async () => {
 		const queryClient = testQueryClient();
 		const current = versionEntity();
 		queryClient.setQueryData(
 			versionQueryKeys.detail(PROGRAM_ID, VERSION_ID),
 			current,
 		);
-		queryClient.setQueryData(
-			versionQueryKeys.detail(PROGRAM_ID, SIBLING_VERSION_ID),
-			{
-				...current,
-				data: {
-					...current.data,
-					id: SIBLING_VERSION_ID,
-					isLatest: true,
-					versionNumber: "2.0.0",
-				},
-			},
-		);
 		const updated = {
 			...current,
-			data: {
-				...current.data,
-				isActive: true,
-				isLatest: true,
-				versionNumber: "3.0.0",
-			},
+			data: { ...current.data, description: "Updated" },
 			etag: 'W/"2"' as const,
 		};
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () =>
+			vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
 				jsonResponse(updated.data, 200, { etag: updated.etag }),
 			),
 		);
@@ -305,25 +399,13 @@ describe("VersionDialogs", () => {
 			</QueryClientProvider>
 		));
 
-		const versionInput = await screen.findByRole("textbox", {
-			name: "Version number",
+		const description = await screen.findByRole("textbox", {
+			name: "Description",
 		});
-		fireEvent.input(versionInput, { target: { value: "3.0.0" } });
+		fireEvent.input(description, { target: { value: "Updated" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-		expect(
-			queryClient.getQueryData<EntityResult<VersionDetailDto>>(
-				versionQueryKeys.detail(PROGRAM_ID, VERSION_ID),
-			),
-		).toMatchObject({
-			data: { isLatest: true, versionNumber: "3.0.0" },
-			etag: 'W/"2"',
-		});
-		expect(
-			queryClient.getQueryState(
-				versionQueryKeys.detail(PROGRAM_ID, SIBLING_VERSION_ID),
-			)?.isInvalidated,
-		).toBe(true);
+		expect(screen.queryByLabelText("Choose program folder")).toBeNull();
 	});
 });

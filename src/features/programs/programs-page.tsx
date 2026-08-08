@@ -54,6 +54,8 @@ export function ProgramsPage(props: ProgramsPageProps) {
 	const programsQuery = createQuery(() =>
 		programListQueryOptions(listSearch()),
 	);
+	const programsData = () =>
+		programsQuery.isPending ? undefined : programsQuery.data;
 	const [filterName, setFilterName] = createSignal(props.search().name ?? "");
 	const [dialogReturnFocus, setDialogReturnFocus] = createSignal<HTMLElement>();
 	const [deleteCompletionSearch, setDeleteCompletionSearch] =
@@ -68,7 +70,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 					dialog === "delete"
 						? programSearchAfterDelete(
 								props.search(),
-								programsQuery.data?.items.length ?? 0,
+								programsData()?.items.length ?? 0,
 							)
 						: undefined,
 				);
@@ -79,11 +81,11 @@ export function ProgramsPage(props: ProgramsPageProps) {
 	const pageCount = () =>
 		Math.max(
 			1,
-			Math.ceil((programsQuery.data?.total ?? 0) / props.search().pageSize),
+			Math.ceil((programsData()?.total ?? 0) / props.search().pageSize),
 		);
 	createEffect(() => {
 		if (
-			programsQuery.data &&
+			programsData() &&
 			props.search().dialog !== "delete" &&
 			props.search().page > pageCount() &&
 			!programsQuery.isFetching
@@ -143,13 +145,13 @@ export function ProgramsPage(props: ProgramsPageProps) {
 			deleteCompletionSearch() ??
 			programSearchAfterDelete(
 				props.search(),
-				programsQuery.data?.items.length ?? 0,
+				programsData()?.items.length ?? 0,
 			);
 		setDeleteCompletionSearch(undefined);
 		props.onSearchChange(nextSearch, { replace: true });
 	};
 	const rangeStart = () => {
-		const total = programsQuery.data?.total ?? 0;
+		const total = programsData()?.total ?? 0;
 		return total === 0
 			? 0
 			: (props.search().page - 1) * props.search().pageSize + 1;
@@ -157,7 +159,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 	const rangeEnd = () =>
 		Math.min(
 			props.search().page * props.search().pageSize,
-			programsQuery.data?.total ?? 0,
+			programsData()?.total ?? 0,
 		);
 
 	return (
@@ -213,10 +215,10 @@ export function ProgramsPage(props: ProgramsPageProps) {
 				<TableShell
 					class="rounded-none border-0 shadow-none"
 					description={i18n.t("programs.table.description", {
-						total: i18n.formatNumber(programsQuery.data?.total ?? 0),
+						total: i18n.formatNumber(programsData()?.total ?? 0),
 					})}
 					footer={
-						!programsQuery.isError || programsQuery.data ? (
+						!programsQuery.isError || programsData() ? (
 							<Pagination
 								label={i18n.t("a11y.pagination")}
 								nextLabel={i18n.t("pagination.next")}
@@ -237,7 +239,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 								summary={i18n.t("pagination.rangeSummary", {
 									from: i18n.formatNumber(rangeStart()),
 									to: i18n.formatNumber(rangeEnd()),
-									total: i18n.formatNumber(programsQuery.data?.total ?? 0),
+									total: i18n.formatNumber(programsData()?.total ?? 0),
 								})}
 							/>
 						) : undefined
@@ -275,7 +277,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 					}
 				>
 					<Show
-						when={!programsQuery.isError || programsQuery.data}
+						when={!programsQuery.isError || programsData()}
 						fallback={
 							<div class="grid min-h-56 place-items-center px-6 py-10 text-center">
 								<div>
@@ -294,7 +296,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 							</div>
 						}
 					>
-						<Show when={programsQuery.isError && programsQuery.data}>
+						<Show when={programsQuery.isError && programsData()}>
 							<div
 								class="flex flex-wrap items-center justify-between gap-3 border-b border-danger/15 bg-danger/6 px-5 py-3 text-sm text-danger"
 								role="alert"
@@ -311,14 +313,14 @@ export function ProgramsPage(props: ProgramsPageProps) {
 							</div>
 						</Show>
 						<ProgramTable
-							items={programsQuery.data?.items ?? []}
+							items={programsData()?.items ?? []}
 							loading={programsQuery.isPending}
 							onDelete={(program, trigger) => {
 								setDialogReturnFocus(trigger);
 								setDeleteCompletionSearch(
 									programSearchAfterDelete(
 										props.search(),
-										programsQuery.data?.items.length ?? 0,
+										programsData()?.items.length ?? 0,
 									),
 								);
 								props.onSearchChange(
@@ -335,7 +337,7 @@ export function ProgramsPage(props: ProgramsPageProps) {
 							page={props.search().page}
 							pageSize={props.search().pageSize}
 							sort={props.search().sort}
-							total={programsQuery.data?.total ?? 0}
+							total={programsData()?.total ?? 0}
 						/>
 					</Show>
 				</TableShell>

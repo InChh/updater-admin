@@ -45,7 +45,6 @@ export default defineConfig(({ mode }) => {
 				},
 				sourcemaps: {
 					assets: ["dist/client/**/*.{js,map}", "dist/server/**/*.{js,map}"],
-					filesToDeleteAfterUpload: "dist/**/*.map",
 				},
 				telemetry: false,
 			}),
@@ -60,5 +59,9 @@ export default defineConfig(({ mode }) => {
 		},
 		plugins,
 		resolve: { tsconfigPaths: true },
+		// Netlify V2 Functions are packaged with NFT. Keep Better Auth's
+		// instrumentation constants inside the SSR bundle so the deployed
+		// function never depends on a pnpm symlink surviving packaging.
+		ssr: { noExternal: ["@opentelemetry/semantic-conventions"] },
 	};
 });

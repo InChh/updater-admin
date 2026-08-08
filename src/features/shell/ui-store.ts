@@ -70,6 +70,7 @@ export interface ShellUiController {
 	hydrateForAccount(input: HydrateForAccountInput): void;
 	logout(): void;
 	openOrActivateTab(input: OpenTabInput): OpenedTab;
+	retitleTab(key: string, title: string): boolean;
 	setLocale(locale: SupportedLocale): void;
 	setMobileNavigationOpen(open: boolean): void;
 	setSidebarCollapsed(collapsed: boolean): void;
@@ -316,6 +317,21 @@ export function createShellUiController(
 		return tab;
 	};
 
+	const retitleTab = (key: string, title: string): boolean => {
+		if (!validTitle(title)) {
+			throw new TypeError("Tab title must be a non-empty canonical label.");
+		}
+		if (!store.state.openedTabs.some((tab) => tab.key === key)) return false;
+
+		store.setState((state) => ({
+			...state,
+			openedTabs: state.openedTabs.map((tab) =>
+				tab.key === key ? { ...tab, title } : tab,
+			),
+		}));
+		return true;
+	};
+
 	const hydrateForAccount = (input: HydrateForAccountInput) => {
 		requireAccountId(input.accountId);
 
@@ -395,6 +411,7 @@ export function createShellUiController(
 			store.setState(() => initialState(initialLocale));
 		},
 		openOrActivateTab,
+		retitleTab,
 		setLocale: (locale) => {
 			if (!validLocale(locale)) throw new TypeError("Unsupported locale.");
 			store.setState((state) => ({ ...state, locale }));

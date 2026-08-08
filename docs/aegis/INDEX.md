@@ -25,6 +25,14 @@ Entries are workspace records, not authoritative runtime decisions.
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch2-database.json | 2026-07-14-updater-admin-implementation evidence batch2-database |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch3-auth.json | 2026-07-14-updater-admin-implementation evidence batch3-auth |
 | 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch4-api.json | 2026-07-14-updater-admin-implementation evidence batch4-api |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch6-programs.json | 2026-07-14-updater-admin-implementation evidence batch6-programs |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch7-versions.json | 2026-07-14-updater-admin-implementation evidence batch7-versions |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch8-uploads.json | 2026-07-14-updater-admin-implementation evidence batch8-uploads |
+| 2026-07-14 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch9-versions-ui.json | 2026-07-14-updater-admin-implementation evidence batch9-versions-ui |
 | 2026-07-15 | adr | docs/aegis/adr/ADR-0001-same-origin-start-elysia-boundary.md | ADR-0001 - Keep Elysia behind the same-origin TanStack Start boundary |
+| 2026-07-15 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-batch10-14-release.json | 2026-07-14-updater-admin-implementation evidence batch10-14 release |
 | 2026-07-15 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/gate-input-pack.json | 2026-07-14-updater-admin-implementation gate input pack |
 | 2026-07-15 | work | docs/aegis/work/2026-07-14-updater-admin-implementation/proof-bundle.md | 2026-07-14-updater-admin-implementation proof bundle |
+| 2026-07-19 | artifact | docs/aegis/work/2026-07-14-updater-admin-implementation/evidence-bundle-draft-external-preview-e2e-2026-07-19.json | 2026-07-14-updater-admin-implementation external Preview and in-app-browser evidence |
+| 2026-07-20 | plan | docs/aegis/plans/2026-07-20-public-release-api-production-deploy.md | Public Release API and Production Deployment Plan |
+| 2026-07-20 | plan | docs/aegis/plans/2026-07-20-production-e2e-cleanup-manifest.md | Production E2E Cleanup Manifest |

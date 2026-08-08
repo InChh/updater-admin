@@ -23,6 +23,25 @@ export interface FieldControlProps {
 export function Field(props: FieldProps) {
 	const descriptionId = () => `${props.name}-description`;
 	const errorId = () => `${props.name}-error`;
+	const controlProps: FieldControlProps = {
+		get "aria-describedby"() {
+			if (props.error) return errorId();
+			if (props.description) return descriptionId();
+			return undefined;
+		},
+		get "aria-invalid"() {
+			return props.error ? (true as const) : undefined;
+		},
+		get "aria-required"() {
+			return props.required ? (true as const) : undefined;
+		},
+		get id() {
+			return props.name;
+		},
+	};
+	// Resolve the render prop once so reactive field updates patch the existing
+	// control instead of replacing it and dropping keyboard focus.
+	const control = props.children(controlProps);
 	return (
 		<div class={cn("grid gap-1.5", props.class)}>
 			<label class="text-sm font-medium text-ink" for={props.name}>
@@ -33,15 +52,7 @@ export function Field(props: FieldProps) {
 				</Show>
 				{props.label}
 			</label>
-			{props.children({
-				...(props.error ? { "aria-describedby": errorId() } : {}),
-				...(props.error ? { "aria-invalid": true as const } : {}),
-				...(props.required ? { "aria-required": true as const } : {}),
-				...(!props.error && props.description
-					? { "aria-describedby": descriptionId() }
-					: {}),
-				id: props.name,
-			})}
+			{control}
 			<Show when={props.description && !props.error}>
 				<p class="m-0 text-xs text-muted" id={descriptionId()}>
 					{props.description}

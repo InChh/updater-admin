@@ -1,4 +1,5 @@
 import { createForm } from "@tanstack/solid-form";
+import { useHydrated } from "@tanstack/solid-router";
 import { LogIn } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 
@@ -34,6 +35,7 @@ function firstError(errors: readonly unknown[]): string | undefined {
 }
 
 export function LoginForm(props: LoginFormProps) {
+	const hydrated = useHydrated();
 	const [submitError, setSubmitError] = createSignal("");
 	const [submitting, setSubmitting] = createSignal(false);
 	const form = createForm(() => ({
@@ -55,6 +57,7 @@ export function LoginForm(props: LoginFormProps) {
 		<form
 			aria-busy={submitting()}
 			class="grid gap-4"
+			method="post"
 			onSubmit={(event) => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -133,7 +136,11 @@ export function LoginForm(props: LoginFormProps) {
 					{submitError()}
 				</div>
 			</Show>
-			<Button class="mt-1 w-full" disabled={submitting()} type="submit">
+			<Button
+				class="mt-1 w-full"
+				disabled={!hydrated() || submitting()}
+				type="submit"
+			>
 				<LogIn aria-hidden="true" size={16} />
 				{submitting() ? props.labels.pending : props.labels.submit}
 			</Button>

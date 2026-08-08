@@ -23,6 +23,8 @@ import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_auth
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings.account'
 import { Route as AuthenticatedMonitoringOverviewRouteImport } from './routes/_authenticated/monitoring.overview'
 import { Route as AuthenticatedMonitoringAuditRouteImport } from './routes/_authenticated/monitoring.audit'
+import { Route as ApiPublicV2SplatRouteImport } from './routes/api/public/v2/$'
+import { Route as ApiPublicV1SplatRouteImport } from './routes/api/public/v1/$'
 import { Route as AuthenticatedProgramsProgramIdVersionsRouteImport } from './routes/_authenticated/programs.$programId.versions'
 
 const LoginRoute = LoginRouteImport.update({
@@ -101,6 +103,16 @@ const AuthenticatedMonitoringAuditRoute =
     path: '/monitoring/audit',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const ApiPublicV2SplatRoute = ApiPublicV2SplatRouteImport.update({
+  id: '/api/public/v2/$',
+  path: '/api/public/v2/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicV1SplatRoute = ApiPublicV1SplatRouteImport.update({
+  id: '/api/public/v1/$',
+  path: '/api/public/v1/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedProgramsProgramIdVersionsRoute =
   AuthenticatedProgramsProgramIdVersionsRouteImport.update({
     id: '/$programId/versions',
@@ -123,6 +135,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/programs/': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
+  '/api/public/v1/$': typeof ApiPublicV1SplatRoute
+  '/api/public/v2/$': typeof ApiPublicV2SplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -138,6 +152,8 @@ export interface FileRoutesByTo {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/programs': typeof AuthenticatedProgramsIndexRoute
   '/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
+  '/api/public/v1/$': typeof ApiPublicV1SplatRoute
+  '/api/public/v2/$': typeof ApiPublicV2SplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -156,6 +172,8 @@ export interface FileRoutesById {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/_authenticated/programs/': typeof AuthenticatedProgramsIndexRoute
   '/_authenticated/programs/$programId/versions': typeof AuthenticatedProgramsProgramIdVersionsRoute
+  '/api/public/v1/$': typeof ApiPublicV1SplatRoute
+  '/api/public/v2/$': typeof ApiPublicV2SplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -174,6 +192,8 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/programs/'
     | '/programs/$programId/versions'
+    | '/api/public/v1/$'
+    | '/api/public/v2/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -189,6 +209,8 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/programs'
     | '/programs/$programId/versions'
+    | '/api/public/v1/$'
+    | '/api/public/v2/$'
   id:
     | '__root__'
     | '/'
@@ -206,6 +228,8 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/_authenticated/programs/'
     | '/_authenticated/programs/$programId/versions'
+    | '/api/public/v1/$'
+    | '/api/public/v2/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -215,6 +239,8 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
+  ApiPublicV1SplatRoute: typeof ApiPublicV1SplatRoute
+  ApiPublicV2SplatRoute: typeof ApiPublicV2SplatRoute
 }
 
 declare module '@tanstack/solid-router' {
@@ -317,6 +343,20 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof AuthenticatedMonitoringAuditRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/api/public/v2/$': {
+      id: '/api/public/v2/$'
+      path: '/api/public/v2/$'
+      fullPath: '/api/public/v2/$'
+      preLoaderRoute: typeof ApiPublicV2SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/v1/$': {
+      id: '/api/public/v1/$'
+      path: '/api/public/v1/$'
+      fullPath: '/api/public/v1/$'
+      preLoaderRoute: typeof ApiPublicV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/programs/$programId/versions': {
       id: '/_authenticated/programs/$programId/versions'
       path: '/$programId/versions'
@@ -374,6 +414,8 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
+  ApiPublicV1SplatRoute: ApiPublicV1SplatRoute,
+  ApiPublicV2SplatRoute: ApiPublicV2SplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

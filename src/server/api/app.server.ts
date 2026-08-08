@@ -16,8 +16,13 @@ import type {
 } from "../db/repositories/rate-limit.server";
 import type { AdministratorsService } from "../domain/administrators.server";
 import type { AuditService } from "../domain/audit.server";
+import type { DraftVersionFilesService } from "../domain/draft-version-files.server";
 import type { MonitoringService } from "../domain/monitoring.server";
 import type { ProgramsService } from "../domain/programs.server";
+import type {
+	PublicReleasesService,
+	PublicReleasesV2Service,
+} from "../domain/public-releases.server";
 import type { SettingsService } from "../domain/settings.server";
 import type { UploadsService } from "../domain/uploads.server";
 import type { FilesService, VersionsService } from "../domain/versions.server";
@@ -25,18 +30,21 @@ import { captureServerException } from "../integrations/sentry/sentry.server";
 import { ApiRequestContextStore } from "./context.server";
 import { createAdministratorsModule } from "./modules/administrators";
 import { createAuditModule } from "./modules/audit";
+import { createDraftVersionFilesModule } from "./modules/draft-version-files";
 import { createFilesModule } from "./modules/files";
 import { createMonitoringModule } from "./modules/monitoring";
 import { createProfileModule, type PasswordAuthApi } from "./modules/profile";
 import { createProgramsModule } from "./modules/programs";
-import { createSettingsModule } from "./modules/settings";
 import {
-	createUploadsModule,
-	type UploadCompletionInFlightLimiter,
-} from "./modules/uploads";
+	createPublicReleasesModule,
+	createPublicReleasesV2Module,
+} from "./modules/public-releases";
+import { createSettingsModule } from "./modules/settings";
+import { createUploadsModule } from "./modules/uploads";
 import { createVersionsModule } from "./modules/versions";
 import { createAuditPlugin } from "./plugins/audit.server";
 import { createOriginPlugin } from "./plugins/origin.server";
+import { createPublicApiPlugin } from "./plugins/public-api.server";
 import {
 	createRateLimitPlugin,
 	type RateLimitPolicy,
@@ -67,10 +75,16 @@ export interface ApiAppDependencies {
 	readonly getCanonicalOrigin?: () => string | Promise<string>;
 	readonly getAdministratorsService?: () => AdministratorsService;
 	readonly getAuditService?: () => AuditService;
+	readonly getDraftVersionFilesService?: () => DraftVersionFilesService;
 	readonly getFilesService?: () => FilesService;
 	readonly getMonitoringService?: () => MonitoringService;
 	readonly getPasswordAuthApi?: () => PasswordAuthApi;
 	readonly getProgramsService?: () => ProgramsService;
+	readonly getPublicApiAllowedOrigins?: () =>
+		| Promise<readonly string[]>
+		| readonly string[];
+	readonly getPublicReleasesService?: () => PublicReleasesService;
+	readonly getPublicReleasesV2Service?: () => PublicReleasesV2Service;
 	readonly getSettingsService?: () => SettingsService;
 	readonly getSession?: (headers: Headers) => Promise<SafeSessionView | null>;
 	readonly getUploadsService?: () => UploadsService;
@@ -81,7 +95,6 @@ export interface ApiAppDependencies {
 		error: unknown,
 		requestId: string,
 	) => void | Promise<void>;
-	readonly uploadCompletionInFlightLimiter?: UploadCompletionInFlightLimiter;
 }
 
 function createFallbackRequestIdGenerator(generateRequestId?: () => string) {
@@ -128,6 +141,15 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 			createRequestIdPlugin({
 				contextStore,
 				generateRequestId: dependencies.generateRequestId,
+			}),
+		)
+		.use(
+			createPublicApiPlugin({
+				consume: dependencies.consumeRateLimit,
+				contextStore,
+				generateRequestId: dependencies.generateRequestId,
+				getAllowedOrigins: dependencies.getPublicApiAllowedOrigins,
+				now: dependencies.now,
 			}),
 		)
 		.use(
@@ -181,6 +203,29 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 		.get("/health", () => ({ status: "ok" as const }), {
 			response: { 200: healthSchema },
 		})
+		.group("/api/public/v1", (group) =>
+			group.use(
+				createPublicReleasesModule({
+					...(dependencies.getPublicReleasesService
+						? {
+								getPublicReleasesService: dependencies.getPublicReleasesService,
+							}
+						: {}),
+				}),
+			),
+		)
+		.group("/api/public/v2", (group) =>
+			group.use(
+				createPublicReleasesV2Module({
+					...(dependencies.getPublicReleasesV2Service
+						? {
+								getPublicReleasesV2Service:
+									dependencies.getPublicReleasesV2Service,
+							}
+						: {}),
+				}),
+			),
+		)
 		.group("/api/v1", (group) =>
 			group
 				.use(
@@ -245,6 +290,17 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 					}),
 				)
 				.use(
+					createDraftVersionFilesModule({
+						contextStore,
+						...(dependencies.getDraftVersionFilesService
+							? {
+									getDraftVersionFilesService:
+										dependencies.getDraftVersionFilesService,
+								}
+							: {}),
+					}),
+				)
+				.use(
 					createFilesModule({
 						contextStore,
 						...(dependencies.getFilesService
@@ -254,22 +310,10 @@ export function createApiApp(dependencies: ApiAppDependencies = {}) {
 				)
 				.use(
 					createUploadsModule({
-						...(dependencies.uploadCompletionInFlightLimiter
-							? {
-									completionInFlightLimiter:
-										dependencies.uploadCompletionInFlightLimiter,
-								}
-							: {}),
-						...(dependencies.consumeRateLimit
-							? {
-									consumeCompletionRateLimit: dependencies.consumeRateLimit,
-								}
-							: {}),
 						contextStore,
 						...(dependencies.getUploadsService
 							? { getUploadsService: dependencies.getUploadsService }
 							: {}),
-						...(dependencies.now ? { now: dependencies.now } : {}),
 					}),
 				),
 		);

@@ -20,13 +20,17 @@ function version(
 	overrides: Partial<VersionListItemDto> = {},
 ): VersionListItemDto {
 	return {
+		associatedFileCount: 1,
 		createdAt: "2026-07-15T00:00:00.000Z",
 		description: `${versionNumber} release`,
 		etag: 'W/"1"',
+		expectedFileCount: null,
 		fileCount: 1,
+		finalizedAt: "2026-07-15T00:00:00.000Z",
 		id,
 		isActive: true,
 		isLatest: false,
+		lifecycleStatus: "finalized",
 		programId: "ca6f79db-c7c4-4a34-9ab5-2a85ca9df500",
 		updatedAt: "2026-07-15T00:00:00.000Z",
 		versionNumber,
@@ -80,7 +84,11 @@ describe("VersionTable", () => {
 	it("shows the server-selected numeric latest badge and page-relative sequence", () => {
 		renderTable();
 
-		expect(screen.getByRole("table", { name: "版本列表" })).toBeTruthy();
+		const table = screen.getByRole("table", { name: "版本列表" });
+		expect(table).toBeTruthy();
+		expect(table.className).toContain("min-w-[1080px]");
+		const actionsHeader = screen.getByRole("columnheader", { name: "操作" });
+		expect(actionsHeader.className).not.toContain("sticky");
 		expect(screen.getByRole("cell", { name: "41" })).toBeTruthy();
 		expect(screen.getByRole("cell", { name: "42" })).toBeTruthy();
 		const olderRow = screen.getByRole("row", { name: /1\.9\.99/ });
@@ -123,6 +131,26 @@ describe("VersionTable", () => {
 			screen.getByRole("button", { name: "创建时间，切换为升序" }),
 		);
 		expect(callbacks.onSortChange).toHaveBeenCalledWith("createdAt:asc");
+	});
+
+	it("marks drafts, disables activation, and exposes resume instead of edit", () => {
+		const draft = version(FIRST_ID, "2.0.0", {
+			associatedFileCount: 0,
+			expectedFileCount: 1,
+			fileCount: 0,
+			finalizedAt: null,
+			isActive: false,
+			lifecycleStatus: "draft",
+		});
+		renderTable({ items: [draft], total: 1 });
+
+		expect(screen.getByText("草稿")).toBeTruthy();
+		expect(
+			screen.getByRole("switch", { name: "启用版本 2.0.0" }),
+		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByRole("button", { name: "继续上传版本 2.0.0" }),
+		).toBeTruthy();
 	});
 
 	it("exposes the complete version ID to copy controls and confirms success", async () => {

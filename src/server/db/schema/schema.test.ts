@@ -1,5 +1,13 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { is } from "drizzle-orm";
-import { type AnyPgTable, getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import {
+	type AnyPgTable,
+	getTableConfig,
+	PgDialect,
+	PgTable,
+} from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -36,6 +44,15 @@ function checkNames(table: AnyPgTable) {
 	return getTableConfig(table)
 		.checks.map((constraint) => constraint.name)
 		.sort();
+}
+
+function checkSql(table: AnyPgTable, name: string) {
+	const entry = getTableConfig(table).checks.find(
+		(candidate) => candidate.name === name,
+	);
+	expect(entry, `missing check ${name}`).toBeDefined();
+	if (!entry) throw new Error(`missing schema check ${name}`);
+	return new PgDialect().sqlToQuery(entry.value).sql;
 }
 
 function indexNames(table: AnyPgTable) {
@@ -77,6 +94,33 @@ function foreignKeySummary(table: AnyPgTable) {
 }
 
 describe("Updater Admin database schema", () => {
+	it("backfills existing versions before lifecycle defaults and constraints", () => {
+		const migration = readFileSync(
+			resolve(process.cwd(), "drizzle/0002_shiny_adam_destine.sql"),
+			"utf8",
+		);
+		const lifecycleColumn = migration.indexOf(
+			'ADD COLUMN "lifecycle_status" varchar(16)',
+		);
+		const backfill = migration.indexOf(
+			'UPDATE "application_versions" SET "lifecycle_status" = \'finalized\', "finalized_at" = "created_at"',
+		);
+		const lifecycleDefault = migration.indexOf(
+			"ALTER COLUMN \"lifecycle_status\" SET DEFAULT 'draft'",
+		);
+		const lifecycleConstraint = migration.indexOf(
+			'ADD CONSTRAINT "application_versions_lifecycle_status_supported"',
+		);
+
+		expect(lifecycleColumn).toBeGreaterThanOrEqual(0);
+		expect(backfill).toBeGreaterThan(lifecycleColumn);
+		expect(lifecycleDefault).toBeGreaterThan(backfill);
+		expect(lifecycleConstraint).toBeGreaterThan(lifecycleDefault);
+		expect(migration).not.toMatch(
+			/ALTER TABLE "(file_metadata|version_files)"/,
+		);
+	});
+
 	it("contains only the thirteen approved tables", () => {
 		const tableNames = tables.map((table) => getTableConfig(table).name).sort();
 		expect(tableNames).toEqual([
@@ -242,6 +286,9 @@ describe("Updater Admin database schema", () => {
 			"version_minor",
 			"version_patch",
 			"description",
+			"lifecycle_status",
+			"expected_file_count",
+			"finalized_at",
 			"is_active",
 			"created_at",
 			"created_by",
@@ -258,7 +305,6 @@ describe("Updater Admin database schema", () => {
 			"size",
 			"object_key",
 			"mime_type",
-			"etag",
 			"checksum_algorithm",
 			"created_at",
 			"created_by",
@@ -279,6 +325,22 @@ describe("Updater Admin database schema", () => {
 		// The approved design explicitly says version description is required.
 		expect(versionDescription?.notNull).toBe(true);
 		expect(versionDescription?.hasDefault).toBe(false);
+		const lifecycleStatus = getTableConfig(applicationVersions).columns.find(
+			(column) => column.name === "lifecycle_status",
+		);
+		expect(lifecycleStatus?.notNull).toBe(true);
+		expect(lifecycleStatus?.hasDefault).toBe(true);
+		expect(lifecycleStatus?.default).toBe("draft");
+		const expectedFileCount = getTableConfig(applicationVersions).columns.find(
+			(column) => column.name === "expected_file_count",
+		);
+		expect(expectedFileCount?.getSQLType()).toBe("integer");
+		expect(expectedFileCount?.notNull).toBe(false);
+		const finalizedAt = getTableConfig(applicationVersions).columns.find(
+			(column) => column.name === "finalized_at",
+		);
+		expect(finalizedAt?.getSQLType()).toBe("timestamp with time zone");
+		expect(finalizedAt?.notNull).toBe(false);
 		for (const table of [applications, applicationVersions, fileMetadata]) {
 			const rowVersion = getTableConfig(table).columns.find(
 				(column) => column.name === "row_version",
@@ -294,12 +356,29 @@ describe("Updater Admin database schema", () => {
 			"applications_row_version_positive",
 		]);
 		expect(checkNames(applicationVersions)).toEqual([
+			"application_versions_draft_consistent",
+			"application_versions_expected_file_count_nonnegative",
+			"application_versions_finalized_consistent",
+			"application_versions_lifecycle_status_supported",
 			"application_versions_major_nonnegative",
 			"application_versions_minor_nonnegative",
 			"application_versions_number_canonical",
 			"application_versions_patch_nonnegative",
 			"application_versions_row_version_positive",
 		]);
+		expect(
+			checkSql(applicationVersions, "application_versions_draft_consistent"),
+		).toBe(
+			'"application_versions"."lifecycle_status" <> \'draft\' or ("application_versions"."expected_file_count" is not null and "application_versions"."expected_file_count" > 0 and "application_versions"."is_active" = false and "application_versions"."finalized_at" is null)',
+		);
+		expect(
+			checkSql(
+				applicationVersions,
+				"application_versions_finalized_consistent",
+			),
+		).toBe(
+			'"application_versions"."lifecycle_status" <> \'finalized\' or "application_versions"."finalized_at" is not null',
+		);
 		expect(checkNames(fileMetadata)).toEqual([
 			"file_metadata_checksum_algorithm",
 			"file_metadata_row_version_positive",
@@ -333,6 +412,7 @@ describe("Updater Admin database schema", () => {
 			indexColumnNames(applicationVersions, "application_versions_latest_idx"),
 		).toEqual([
 			"application_id",
+			"lifecycle_status",
 			"is_active",
 			"version_major",
 			"version_minor",

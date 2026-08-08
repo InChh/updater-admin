@@ -65,6 +65,7 @@ export function AuditPage(props: AuditPageProps) {
 	const queryClient = useQueryClient();
 	const listSearch = createMemo(() => auditListSearch(props.search()));
 	const auditQuery = createQuery(() => auditListQueryOptions(listSearch()));
+	const auditData = () => (auditQuery.isPending ? undefined : auditQuery.data);
 	const [actorId, setActorId] = createSignal(props.search().actorId ?? "");
 	const [from, setFrom] = createSignal(props.search().from ?? "");
 	const [to, setTo] = createSignal(props.search().to ?? "");
@@ -90,13 +91,10 @@ export function AuditPage(props: AuditPageProps) {
 		),
 	);
 	const pageCount = () =>
-		Math.max(
-			1,
-			Math.ceil((auditQuery.data?.total ?? 0) / props.search().pageSize),
-		);
+		Math.max(1, Math.ceil((auditData()?.total ?? 0) / props.search().pageSize));
 	createEffect(() => {
 		if (
-			auditQuery.data &&
+			auditData() &&
 			!props.search().auditEventId &&
 			props.search().page > pageCount() &&
 			!auditQuery.isFetching
@@ -185,7 +183,7 @@ export function AuditPage(props: AuditPageProps) {
 			queryKey: auditQueryKeys.list(listSearch()),
 		});
 	const rangeStart = () => {
-		const total = auditQuery.data?.total ?? 0;
+		const total = auditData()?.total ?? 0;
 		return total === 0
 			? 0
 			: (props.search().page - 1) * props.search().pageSize + 1;
@@ -193,7 +191,7 @@ export function AuditPage(props: AuditPageProps) {
 	const rangeEnd = () =>
 		Math.min(
 			props.search().page * props.search().pageSize,
-			auditQuery.data?.total ?? 0,
+			auditData()?.total ?? 0,
 		);
 
 	return (
@@ -385,10 +383,10 @@ export function AuditPage(props: AuditPageProps) {
 				<TableShell
 					class="rounded-none border-0 shadow-none"
 					description={i18n.t("audit.table.description", {
-						total: i18n.formatNumber(auditQuery.data?.total ?? 0),
+						total: i18n.formatNumber(auditData()?.total ?? 0),
 					})}
 					footer={
-						!auditQuery.isError || auditQuery.data ? (
+						!auditQuery.isError || auditData() ? (
 							<Pagination
 								label={i18n.t("a11y.pagination")}
 								nextLabel={i18n.t("pagination.next")}
@@ -409,7 +407,7 @@ export function AuditPage(props: AuditPageProps) {
 								summary={i18n.t("pagination.rangeSummary", {
 									from: i18n.formatNumber(rangeStart()),
 									to: i18n.formatNumber(rangeEnd()),
-									total: i18n.formatNumber(auditQuery.data?.total ?? 0),
+									total: i18n.formatNumber(auditData()?.total ?? 0),
 								})}
 							/>
 						) : undefined
@@ -434,7 +432,7 @@ export function AuditPage(props: AuditPageProps) {
 					}
 				>
 					<Show
-						when={!auditQuery.isError || auditQuery.data}
+						when={!auditQuery.isError || auditData()}
 						fallback={
 							<div class="px-5 py-10 text-center text-sm text-danger">
 								<p class="m-0">{i18n.formatApiError(auditQuery.error)}</p>
@@ -451,8 +449,8 @@ export function AuditPage(props: AuditPageProps) {
 						}
 					>
 						<AuditTable
-							items={auditQuery.data?.items ?? []}
-							loading={auditQuery.isPending && !auditQuery.data}
+							items={auditData()?.items ?? []}
+							loading={auditQuery.isPending && !auditData()}
 							onSortChange={(sort) => updateListSearch({ page: 1, sort })}
 							onView={(event, trigger) => {
 								setDialogReturnFocus(trigger);
@@ -461,7 +459,7 @@ export function AuditPage(props: AuditPageProps) {
 							page={props.search().page}
 							pageSize={props.search().pageSize}
 							sort={props.search().sort}
-							total={auditQuery.data?.total ?? 0}
+							total={auditData()?.total ?? 0}
 						/>
 					</Show>
 				</TableShell>

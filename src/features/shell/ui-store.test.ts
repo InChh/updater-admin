@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { programVersionsHref } from "./route-registry";
+import { programVersionsHref, programVersionsTabKey } from "./route-registry";
 import {
 	createOpenedTab,
 	createShellUiController,
@@ -103,6 +103,93 @@ describe("shell UI store", () => {
 			`programVersions:${PROGRAM_B}`,
 		]);
 		expect(state.activeTabKey).toBe(`programVersions:${PROGRAM_B}`);
+		controller.dispose();
+	});
+
+	it("retitles an existing tab without changing activation or its query href", () => {
+		const controller = createShellUiController({ storage: null });
+		controller.hydrateForAccount({ accountId: ACCOUNT_A });
+		controller.openOrActivateTab(
+			tab(
+				"programVersions",
+				`${programVersionsHref(PROGRAM_A)}?page=9&sort=version&direction=desc`,
+				"Program versions",
+			),
+		);
+		controller.openOrActivateTab(
+			tab("administrators", "/administrators?page=2", "Administrators"),
+		);
+		const before = controller
+			.getState()
+			.openedTabs.find(({ key }) => key === programVersionsTabKey(PROGRAM_A));
+
+		expect(
+			controller.retitleTab(
+				programVersionsTabKey(PROGRAM_A),
+				"Updater Desktop",
+			),
+		).toBe(true);
+
+		const state = controller.getState();
+		expect(state.activeTabKey).toBe("administrators");
+		expect(
+			state.openedTabs.find(
+				({ key }) => key === programVersionsTabKey(PROGRAM_A),
+			),
+		).toEqual({ ...before, title: "Updater Desktop" });
+		controller.dispose();
+	});
+
+	it("restores a dynamic title after the shell updates the same tab's query href", () => {
+		const controller = createShellUiController({ storage: null });
+		controller.hydrateForAccount({ accountId: ACCOUNT_A });
+		const key = programVersionsTabKey(PROGRAM_A);
+		const fallbackTitle = "Program versions";
+		const dynamicTitle = "Updater Desktop";
+
+		controller.openOrActivateTab(
+			tab(
+				"programVersions",
+				`${programVersionsHref(PROGRAM_A)}?page=1`,
+				fallbackTitle,
+			),
+		);
+		expect(controller.retitleTab(key, dynamicTitle)).toBe(true);
+		controller.openOrActivateTab(
+			tab(
+				"programVersions",
+				`${programVersionsHref(PROGRAM_A)}?page=9&sort=version&direction=desc`,
+				fallbackTitle,
+			),
+		);
+		expect(controller.retitleTab(key, dynamicTitle)).toBe(true);
+
+		expect(controller.getState()).toMatchObject({
+			activeTabKey: key,
+			openedTabs: [
+				{ key: "programs" },
+				{
+					closable: true,
+					href: `${programVersionsHref(PROGRAM_A)}?page=9&sort=version&direction=desc`,
+					key,
+					routeId: "programVersions",
+					title: dynamicTitle,
+				},
+			],
+		});
+		controller.dispose();
+	});
+
+	it("does not create missing tabs while still rejecting invalid titles", () => {
+		const controller = createShellUiController({ storage: null });
+		controller.hydrateForAccount({ accountId: ACCOUNT_A });
+		const before = controller.getState();
+
+		expect(controller.retitleTab("missing-tab", "Missing")).toBe(false);
+		expect(controller.getState()).toEqual(before);
+		expect(() => controller.retitleTab("missing-tab", "")).toThrow(
+			"non-empty canonical label",
+		);
 		controller.dispose();
 	});
 

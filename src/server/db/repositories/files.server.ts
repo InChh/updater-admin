@@ -26,7 +26,6 @@ export interface FileMetadataRecord {
 	readonly createdBy: string;
 	readonly id: string;
 	readonly mimeType: string;
-	readonly objectEtag: string | null;
 	readonly path: string;
 	readonly rowVersion: bigint;
 	readonly sha256: string;
@@ -69,7 +68,6 @@ const FILE_SELECTION = {
 	createdBy: fileMetadata.createdBy,
 	id: fileMetadata.id,
 	mimeType: fileMetadata.mimeType,
-	objectEtag: fileMetadata.etag,
 	path: fileMetadata.path,
 	rowVersion: fileMetadata.rowVersion,
 	sha256: fileMetadata.sha256,

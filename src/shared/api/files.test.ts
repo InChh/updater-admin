@@ -27,7 +27,6 @@ describe("file API contract", () => {
 			createdAt: "2026-07-15T00:00:00.000Z",
 			id: "file-1",
 			mimeType: "application/octet-stream",
-			objectEtag: null,
 			path: "release/app.bin",
 			sha256: "a".repeat(64),
 			size: "9223372036854775807",

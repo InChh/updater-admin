@@ -1,6 +1,16 @@
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	countDistinct,
+	desc,
+	eq,
+	isNull,
+	sql,
+} from "drizzle-orm";
 
 import type {
+	VersionLifecycleStatus,
 	VersionPageSize,
 	VersionSort,
 } from "../../../shared/api/versions";
@@ -23,13 +33,17 @@ type DatabaseTransaction = Parameters<
 type VersionsDatabase = Pick<Database, "select" | "transaction">;
 
 export interface VersionRecord {
+	readonly associatedFileCount: number;
 	readonly createdAt: Date;
 	readonly createdBy: string;
 	readonly description: string;
+	readonly expectedFileCount: number | null;
 	readonly fileCount: number;
+	readonly finalizedAt: Date | null;
 	readonly id: string;
 	readonly isActive: boolean;
 	readonly isLatest: boolean;
+	readonly lifecycleStatus: VersionLifecycleStatus;
 	readonly programId: string;
 	readonly rowVersion: bigint;
 	readonly updatedAt: Date;
@@ -40,9 +54,7 @@ export interface VersionRecord {
 	readonly versionPatch: number;
 }
 
-export interface VersionDetailRecord extends VersionRecord {
-	readonly fileIds: readonly string[];
-}
+export type VersionDetailRecord = VersionRecord;
 
 export interface VersionNumberRepositoryValue {
 	readonly versionMajor: number;
@@ -63,12 +75,19 @@ export interface ListVersionsRepositoryResult {
 	readonly total: number;
 }
 
-export interface CreateVersionRepositoryInput
+export interface CreateDraftVersionRepositoryInput
 	extends VersionNumberRepositoryValue {
 	readonly audit: ProgramMutationContext;
 	readonly description: string;
-	readonly fileIds: readonly string[];
-	readonly isActive: boolean;
+	readonly expectedFileCount: number;
+	readonly programId: string;
+}
+
+export interface FinalizeDraftVersionRepositoryInput {
+	readonly audit: ProgramMutationContext;
+	readonly expectedRowVersion: bigint;
+	readonly id: string;
+	readonly now: Date;
 	readonly programId: string;
 }
 
@@ -76,7 +95,6 @@ export interface UpdateVersionRepositoryInput {
 	readonly audit: ProgramMutationContext;
 	readonly description?: string;
 	readonly expectedRowVersion: bigint;
-	readonly fileIds?: readonly string[];
 	readonly id: string;
 	readonly now: Date;
 	readonly programId: string;
@@ -104,8 +122,13 @@ export interface SetVersionActivationRepositoryInput {
 }
 
 export interface VersionsRepository {
-	create(input: CreateVersionRepositoryInput): Promise<VersionDetailRecord>;
+	createDraft(
+		input: CreateDraftVersionRepositoryInput,
+	): Promise<VersionDetailRecord>;
 	delete(input: DeleteVersionRepositoryInput): Promise<void>;
+	finalize(
+		input: FinalizeDraftVersionRepositoryInput,
+	): Promise<VersionDetailRecord>;
 	findById(programId: string, id: string): Promise<VersionDetailRecord | null>;
 	list(
 		input: ListVersionsRepositoryInput,
@@ -151,13 +174,48 @@ export class VersionNumberConflictRepositoryError extends Error {
 	}
 }
 
-export class VersionFilesNotFoundRepositoryError extends Error {
-	readonly missingFileIds: readonly string[];
+export class VersionDraftRequiredRepositoryError extends Error {
+	constructor() {
+		super("The operation requires a draft version.");
+		this.name = "VersionDraftRequiredRepositoryError";
+	}
+}
 
-	constructor(missingFileIds: readonly string[]) {
-		super("One or more file metadata records were not found.");
-		this.name = "VersionFilesNotFoundRepositoryError";
-		this.missingFileIds = missingFileIds;
+export class VersionFinalizedRequiredRepositoryError extends Error {
+	constructor() {
+		super("The operation requires a finalized version.");
+		this.name = "VersionFinalizedRequiredRepositoryError";
+	}
+}
+
+export class DraftIncompleteRepositoryError extends Error {
+	readonly actual: number;
+	readonly expected: number;
+
+	constructor(expected: number, actual: number) {
+		super("The draft does not contain every expected file.");
+		this.name = "DraftIncompleteRepositoryError";
+		this.expected = expected;
+		this.actual = actual;
+	}
+}
+
+export class DraftFileCountConflictRepositoryError extends Error {
+	readonly actual: number;
+	readonly expected: number;
+
+	constructor(expected: number, actual: number) {
+		super("The draft contains more files than expected.");
+		this.name = "DraftFileCountConflictRepositoryError";
+		this.expected = expected;
+		this.actual = actual;
+	}
+}
+
+export class DraftPathConflictRepositoryError extends Error {
+	constructor() {
+		super("The draft contains duplicate canonical paths.");
+		this.name = "DraftPathConflictRepositoryError";
 	}
 }
 
@@ -165,8 +223,11 @@ interface StoredVersionRecord {
 	readonly createdAt: Date;
 	readonly createdBy: string;
 	readonly description: string;
+	readonly expectedFileCount: number | null;
+	readonly finalizedAt: Date | null;
 	readonly id: string;
 	readonly isActive: boolean;
+	readonly lifecycleStatus: VersionLifecycleStatus;
 	readonly programId: string;
 	readonly rowVersion: bigint;
 	readonly updatedAt: Date;
@@ -181,8 +242,11 @@ const VERSION_SELECTION = {
 	createdAt: applicationVersions.createdAt,
 	createdBy: applicationVersions.createdBy,
 	description: applicationVersions.description,
+	expectedFileCount: applicationVersions.expectedFileCount,
+	finalizedAt: applicationVersions.finalizedAt,
 	id: applicationVersions.id,
 	isActive: applicationVersions.isActive,
+	lifecycleStatus: applicationVersions.lifecycleStatus,
 	programId: applicationVersions.applicationId,
 	rowVersion: applicationVersions.rowVersion,
 	updatedAt: applicationVersions.updatedAt,
@@ -195,7 +259,7 @@ const VERSION_SELECTION = {
 
 const VERSION_LIST_SELECTION = {
 	...VERSION_SELECTION,
-	fileCount: sql<number>`(
+	associatedFileCount: sql<number>`(
 		select count(*)::integer
 		from ${versionFiles}
 		where ${versionFiles.versionId} = ${applicationVersions.id}
@@ -244,12 +308,6 @@ export function compareVersionRepositoryValues(
 		return left.versionMinor - right.versionMinor;
 	}
 	return left.versionPatch - right.versionPatch;
-}
-
-export function normalizeRelationFileIds(
-	fileIds: readonly string[],
-): readonly string[] {
-	return [...new Set(fileIds)].sort();
 }
 
 async function lockLiveProgram(
@@ -319,7 +377,12 @@ async function findHistoricalMaximum(
 			versionPatch: applicationVersions.versionPatch,
 		})
 		.from(applicationVersions)
-		.where(eq(applicationVersions.applicationId, programId))
+		.where(
+			and(
+				eq(applicationVersions.applicationId, programId),
+				eq(applicationVersions.lifecycleStatus, "finalized"),
+			),
+		)
 		.orderBy(
 			desc(applicationVersions.versionMajor),
 			desc(applicationVersions.versionMinor),
@@ -373,6 +436,7 @@ async function findLatestActiveVersionId(
 		.where(
 			and(
 				eq(applicationVersions.applicationId, programId),
+				eq(applicationVersions.lifecycleStatus, "finalized"),
 				eq(applicationVersions.isActive, true),
 				isNull(applicationVersions.deletedAt),
 			),
@@ -387,63 +451,43 @@ async function findLatestActiveVersionId(
 	return latest?.id ?? null;
 }
 
-async function readRelationFileIds(
+async function readAssociatedFileCount(
 	database: Pick<Database, "select">,
 	versionId: string,
-): Promise<readonly string[]> {
-	const rows = await database
-		.select({ id: versionFiles.fileMetadataId })
+): Promise<number> {
+	const [row] = await database
+		.select({ value: count() })
 		.from(versionFiles)
-		.where(eq(versionFiles.versionId, versionId))
-		.orderBy(asc(versionFiles.fileMetadataId));
-	return rows.map(({ id }) => id);
-}
-
-async function assertLiveFileIds(
-	transaction: DatabaseTransaction,
-	fileIds: readonly string[],
-): Promise<readonly string[]> {
-	const normalized = normalizeRelationFileIds(fileIds);
-	if (normalized.length === 0) return normalized;
-	const rows = await transaction
-		.select({ id: fileMetadata.id })
-		.from(fileMetadata)
+		.innerJoin(fileMetadata, eq(fileMetadata.id, versionFiles.fileMetadataId))
 		.where(
-			and(inArray(fileMetadata.id, normalized), isNull(fileMetadata.deletedAt)),
+			and(
+				eq(versionFiles.versionId, versionId),
+				isNull(fileMetadata.deletedAt),
+			),
 		);
-	const found = new Set(rows.map(({ id }) => id));
-	const missing = normalized.filter((id) => !found.has(id));
-	if (missing.length > 0) {
-		throw new VersionFilesNotFoundRepositoryError(missing);
-	}
-	return normalized;
-}
-
-async function replaceRelationFileIds(
-	transaction: DatabaseTransaction,
-	versionId: string,
-	fileIds: readonly string[],
-): Promise<void> {
-	await transaction
-		.delete(versionFiles)
-		.where(eq(versionFiles.versionId, versionId));
-	if (fileIds.length > 0) {
-		await transaction
-			.insert(versionFiles)
-			.values(fileIds.map((fileMetadataId) => ({ fileMetadataId, versionId })));
-	}
+	return Number(row?.value ?? 0);
 }
 
 function withDerivedVersionFields(
 	version: StoredVersionRecord,
-	fileIds: readonly string[],
+	associatedFileCount: number,
 	latestActiveVersionId: string | null,
 ): VersionDetailRecord {
 	return {
 		...version,
-		fileCount: fileIds.length,
-		fileIds,
+		associatedFileCount,
+		fileCount: associatedFileCount,
 		isLatest: version.id === latestActiveVersionId,
+	};
+}
+
+function versionAuditSummary(version: VersionDetailRecord) {
+	return {
+		associatedFileCount: version.associatedFileCount,
+		expectedFileCount: version.expectedFileCount,
+		isActive: version.isActive,
+		lifecycleStatus: version.lifecycleStatus,
+		versionNumber: version.versionNumber,
 	};
 }
 
@@ -499,7 +543,7 @@ export function createVersionsRepository(
 	const resolveDatabase = () => database ?? getDatabase();
 
 	return {
-		create: (input) =>
+		createDraft: (input) =>
 			mapVersionNumberConflict(() =>
 				resolveDatabase().transaction(async (transaction) => {
 					await lockLiveProgram(transaction, input.programId);
@@ -513,7 +557,6 @@ export function createVersionsRepository(
 						input.programId,
 					);
 					assertGreaterThanHistoricalMaximum(input, maximum);
-					const fileIds = await assertLiveFileIds(transaction, input.fileIds);
 
 					const [created] = await transaction
 						.insert(applicationVersions)
@@ -521,7 +564,10 @@ export function createVersionsRepository(
 							applicationId: input.programId,
 							createdBy: input.audit.actorId,
 							description: input.description,
-							isActive: input.isActive,
+							expectedFileCount: input.expectedFileCount,
+							finalizedAt: null,
+							isActive: false,
+							lifecycleStatus: "draft",
 							updatedBy: input.audit.actorId,
 							versionMajor: input.versionMajor,
 							versionMinor: input.versionMinor,
@@ -530,23 +576,11 @@ export function createVersionsRepository(
 						})
 						.returning(VERSION_SELECTION);
 					if (!created) throw new Error("Version insert returned no row.");
-					if (fileIds.length > 0) {
-						await transaction.insert(versionFiles).values(
-							fileIds.map((fileMetadataId) => ({
-								fileMetadataId,
-								versionId: created.id,
-							})),
-						);
-					}
-					const latestId = await findLatestActiveVersionId(
-						transaction,
-						input.programId,
-					);
-					const result = withDerivedVersionFields(created, fileIds, latestId);
+					const result = withDerivedVersionFields(created, 0, null);
 					await createAuditRepository(transaction).append(
 						auditInput(input.audit, {
-							action: "version.created",
-							after: result,
+							action: "version.draft.created",
+							after: versionAuditSummary(result),
 							resourceId: created.id,
 						}),
 					);
@@ -562,17 +596,25 @@ export function createVersionsRepository(
 					input.id,
 				);
 				assertCurrentRowVersion(stored, input.expectedRowVersion);
-				const fileIds = await readRelationFileIds(transaction, input.id);
+				const associatedFileCount = await readAssociatedFileCount(
+					transaction,
+					input.id,
+				);
 				const beforeLatestId = await findLatestActiveVersionId(
 					transaction,
 					input.programId,
 				);
 				const before = withDerivedVersionFields(
 					stored,
-					fileIds,
+					associatedFileCount,
 					beforeLatestId,
 				);
 
+				if (stored.lifecycleStatus === "draft") {
+					await transaction
+						.delete(versionFiles)
+						.where(eq(versionFiles.versionId, input.id));
+				}
 				const [deleted] = await transaction
 					.update(applicationVersions)
 					.set({
@@ -596,14 +638,97 @@ export function createVersionsRepository(
 					auditInput(input.audit, {
 						action: "version.deleted",
 						after: {
-							...withDerivedVersionFields(deleted, fileIds, null),
-							deletedAt: input.now,
-							deletedBy: input.audit.actorId,
+							associatedFileCount:
+								stored.lifecycleStatus === "draft" ? 0 : associatedFileCount,
+							deleted: true,
+							lifecycleStatus: stored.lifecycleStatus,
 						},
-						before,
+						before: versionAuditSummary(before),
 						resourceId: input.id,
 					}),
 				);
+			});
+		},
+		async finalize(input) {
+			return resolveDatabase().transaction(async (transaction) => {
+				await lockLiveProgram(transaction, input.programId);
+				const stored = await lockLiveVersion(
+					transaction,
+					input.programId,
+					input.id,
+				);
+				assertCurrentRowVersion(stored, input.expectedRowVersion);
+				if (stored.lifecycleStatus !== "draft") {
+					throw new VersionDraftRequiredRepositoryError();
+				}
+				if (stored.expectedFileCount === null) {
+					throw new Error("Draft expected file count invariant was violated.");
+				}
+				const [counts] = await transaction
+					.select({
+						associated: count(),
+						uniquePaths: countDistinct(fileMetadata.path),
+					})
+					.from(versionFiles)
+					.innerJoin(
+						fileMetadata,
+						eq(fileMetadata.id, versionFiles.fileMetadataId),
+					)
+					.where(
+						and(
+							eq(versionFiles.versionId, input.id),
+							isNull(fileMetadata.deletedAt),
+						),
+					);
+				const associated = Number(counts?.associated ?? 0);
+				const uniquePaths = Number(counts?.uniquePaths ?? 0);
+				if (associated < stored.expectedFileCount) {
+					throw new DraftIncompleteRepositoryError(
+						stored.expectedFileCount,
+						associated,
+					);
+				}
+				if (associated > stored.expectedFileCount) {
+					throw new DraftFileCountConflictRepositoryError(
+						stored.expectedFileCount,
+						associated,
+					);
+				}
+				if (uniquePaths !== associated) {
+					throw new DraftPathConflictRepositoryError();
+				}
+
+				const before = withDerivedVersionFields(stored, associated, null);
+				const [finalized] = await transaction
+					.update(applicationVersions)
+					.set({
+						finalizedAt: input.now,
+						lifecycleStatus: "finalized",
+						rowVersion: sql`${applicationVersions.rowVersion} + 1`,
+						updatedAt: input.now,
+						updatedBy: input.audit.actorId,
+					})
+					.where(
+						and(
+							eq(applicationVersions.id, input.id),
+							eq(applicationVersions.applicationId, input.programId),
+							eq(applicationVersions.lifecycleStatus, "draft"),
+							isNull(applicationVersions.deletedAt),
+							eq(applicationVersions.rowVersion, input.expectedRowVersion),
+						),
+					)
+					.returning(VERSION_SELECTION);
+				if (!finalized) throw new VersionStaleWriteRepositoryError();
+				const result = withDerivedVersionFields(finalized, associated, null);
+				await createAuditRepository(transaction).append(
+					auditInput(input.audit, {
+						action: "version.finalized",
+						after: versionAuditSummary(result),
+						before: versionAuditSummary(before),
+						resourceId: input.id,
+					}),
+				);
+				return result;
 			});
 		},
 		async findById(programId, id) {
@@ -621,12 +746,11 @@ export function createVersionsRepository(
 				)
 				.limit(1);
 			if (!version) return null;
-			const fileIds = await readRelationFileIds(databaseClient, version.id);
-			const latestId = await findLatestActiveVersionId(
-				databaseClient,
-				programId,
-			);
-			return withDerivedVersionFields(version, fileIds, latestId);
+			const [associatedFileCount, latestId] = await Promise.all([
+				readAssociatedFileCount(databaseClient, version.id),
+				findLatestActiveVersionId(databaseClient, programId),
+			]);
+			return withDerivedVersionFields(version, associatedFileCount, latestId);
 		},
 		async list(input) {
 			const databaseClient = resolveDatabase();
@@ -656,6 +780,7 @@ export function createVersionsRepository(
 			return {
 				items: items.map((version) => ({
 					...version,
+					fileCount: version.associatedFileCount,
 					isLatest: version.id === latestId,
 				})),
 				total: Number(totalRows[0]?.value ?? 0),
@@ -670,14 +795,20 @@ export function createVersionsRepository(
 					input.id,
 				);
 				assertCurrentRowVersion(stored, input.expectedRowVersion);
-				const fileIds = await readRelationFileIds(transaction, input.id);
+				if (stored.lifecycleStatus !== "finalized") {
+					throw new VersionFinalizedRequiredRepositoryError();
+				}
+				const associatedFileCount = await readAssociatedFileCount(
+					transaction,
+					input.id,
+				);
 				const beforeLatestId = await findLatestActiveVersionId(
 					transaction,
 					input.programId,
 				);
 				const before = withDerivedVersionFields(
 					stored,
-					fileIds,
+					associatedFileCount,
 					beforeLatestId,
 				);
 
@@ -695,6 +826,7 @@ export function createVersionsRepository(
 							and(
 								eq(applicationVersions.id, input.id),
 								eq(applicationVersions.applicationId, input.programId),
+								eq(applicationVersions.lifecycleStatus, "finalized"),
 								isNull(applicationVersions.deletedAt),
 								eq(applicationVersions.rowVersion, input.expectedRowVersion),
 							),
@@ -707,12 +839,16 @@ export function createVersionsRepository(
 					transaction,
 					input.programId,
 				);
-				const result = withDerivedVersionFields(updated, fileIds, latestId);
+				const result = withDerivedVersionFields(
+					updated,
+					associatedFileCount,
+					latestId,
+				);
 				await createAuditRepository(transaction).append(
 					auditInput(input.audit, {
 						action: "version.activation.updated",
-						after: result,
-						before,
+						after: versionAuditSummary(result),
+						before: versionAuditSummary(before),
 						resourceId: input.id,
 					}),
 				);
@@ -729,7 +865,7 @@ export function createVersionsRepository(
 						input.id,
 					);
 					assertCurrentRowVersion(stored, input.expectedRowVersion);
-					const beforeFileIds = await readRelationFileIds(
+					const associatedFileCount = await readAssociatedFileCount(
 						transaction,
 						input.id,
 					);
@@ -739,7 +875,7 @@ export function createVersionsRepository(
 					);
 					const before = withDerivedVersionFields(
 						stored,
-						beforeFileIds,
+						associatedFileCount,
 						beforeLatestId,
 					);
 
@@ -756,13 +892,6 @@ export function createVersionsRepository(
 							input.programId,
 						);
 						assertGreaterThanHistoricalMaximum(nextNumber, maximum);
-					}
-					const afterFileIds =
-						input.fileIds === undefined
-							? beforeFileIds
-							: await assertLiveFileIds(transaction, input.fileIds);
-					if (input.fileIds !== undefined) {
-						await replaceRelationFileIds(transaction, input.id, afterFileIds);
 					}
 
 					const [updated] = await transaction
@@ -792,14 +921,14 @@ export function createVersionsRepository(
 					);
 					const result = withDerivedVersionFields(
 						updated,
-						afterFileIds,
+						associatedFileCount,
 						latestId,
 					);
 					await createAuditRepository(transaction).append(
 						auditInput(input.audit, {
 							action: "version.updated",
-							after: result,
-							before,
+							after: versionAuditSummary(result),
+							before: versionAuditSummary(before),
 							resourceId: input.id,
 						}),
 					);

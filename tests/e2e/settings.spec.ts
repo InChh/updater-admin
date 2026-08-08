@@ -47,7 +47,7 @@ test.describe("profile and system settings", () => {
 				return;
 			}
 			patchBodies.push(parseRequestBody(request.postData()));
-			observedIfMatch = request.headers()["if-match"];
+			observedIfMatch = request.headers()["x-updater-if-match"];
 			await fulfillJson(
 				route,
 				{ ...profile, locale: targetLocale },
@@ -97,7 +97,7 @@ test.describe("profile and system settings", () => {
 			}
 			if (request.method() === "PATCH") {
 				patchBodies.push(parseRequestBody(request.postData()));
-				observedIfMatch = request.headers()["if-match"];
+				observedIfMatch = request.headers()["x-updater-if-match"];
 				staleWriteReturned = true;
 				await fulfillJson(
 					route,

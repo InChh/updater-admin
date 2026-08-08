@@ -25,6 +25,37 @@ async function submitValidCredentials() {
 }
 
 describe("LoginForm", () => {
+	it("uses a POST fallback before client hydration", () => {
+		render(() => (
+			<LoginForm labels={labels} onSubmit={async () => undefined} />
+		));
+
+		expect(
+			screen
+				.getByRole("button", { name: "Sign in" })
+				.closest("form")
+				?.getAttribute("method"),
+		).toBe("post");
+	});
+
+	it("keeps each input mounted and focused while its value changes", () => {
+		render(() => (
+			<LoginForm labels={labels} onSubmit={async () => undefined} />
+		));
+
+		const email = screen.getByLabelText(/Email/);
+		email.focus();
+		fireEvent.input(email, { target: { value: "a" } });
+		expect(screen.getByLabelText(/Email/)).toBe(email);
+		expect(document.activeElement).toBe(email);
+
+		const password = screen.getByLabelText(/Password/);
+		password.focus();
+		fireEvent.input(password, { target: { value: "1" } });
+		expect(screen.getByLabelText(/Password/)).toBe(password);
+		expect(document.activeElement).toBe(password);
+	});
+
 	it("renders a caller-formatted authentication error", async () => {
 		const failure = new Error("INVALID_CREDENTIALS");
 		const formatError = vi.fn(() => "The email or password is incorrect.");

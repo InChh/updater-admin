@@ -361,7 +361,10 @@ export const zhCN = {
 	"versions.actions.disable": "停用版本 {version}",
 	"versions.actions.edit": "编辑版本 {version}",
 	"versions.actions.enable": "启用版本 {version}",
+	"versions.actions.finalize": "完成版本",
 	"versions.actions.refresh": "刷新版本列表",
+	"versions.actions.resume": "继续上传",
+	"versions.actions.resumeWithVersion": "继续上传版本 {version}",
 	"versions.copy.action": "复制 ID",
 	"versions.copy.actionWithId": "复制版本 ID {id}",
 	"versions.copy.copied": "已复制",
@@ -375,11 +378,17 @@ export const zhCN = {
 	"versions.dialog.deleteTitle": "删除版本",
 	"versions.dialog.deleteWarning": "文件元数据和 OSS 对象不会被删除。",
 	"versions.dialog.editDescription":
-		"修改描述或使用更高版本号；选择新文件夹会完整替换文件关联。",
+		"修改描述或使用更高版本号。已完成版本的文件清单不可修改。",
 	"versions.dialog.editTitle": "编辑版本",
 	"versions.dialog.loadDescription": "加载版本详情后继续操作。",
+	"versions.dialog.resumeDescription":
+		"重新选择原程序文件夹；已关联或可复用的文件会自动跳过。",
+	"versions.dialog.resumeTitle": "继续上传草稿",
+	"versions.draft": "草稿",
 	"versions.empty": "还没有版本，创建第一个版本。",
 	"versions.errors.descriptionTooLong": "描述不能超过 1024 个字符。",
+	"versions.errors.filesExpected":
+		"重新选择的文件夹必须与草稿的预期文件数量一致。",
 	"versions.errors.filesRequired": "请选择并完成上传至少一个文件。",
 	"versions.errors.uploadFailed": "部分文件上传失败，请重试或移除失败文件。",
 	"versions.errors.uploadIncomplete": "请等待所有文件上传并登记完成。",
@@ -392,12 +401,9 @@ export const zhCN = {
 		"请输入无前导零的 major.minor.patch，例如 1.2.0。",
 	"versions.form.clearFolder": "清空已选择文件",
 	"versions.form.description": "描述",
+	"versions.form.finalizedFilesImmutable":
+		"已完成版本的文件清单不可修改；如需更换文件，请创建新版本。",
 	"versions.form.folder": "程序文件夹",
-	"versions.form.preserveFiles": "未选择新文件夹，将保留现有关联文件。",
-	"versions.form.removeAllFiles": "移除全部文件关联",
-	"versions.form.removeAllFilesConfirm":
-		"确认将此版本的文件关联替换为空？OSS 对象不会被删除。",
-	"versions.form.replaceFiles": "选择新文件夹以完整替换现有关联文件",
 	"versions.form.versionNumber": "版本号",
 	"versions.latest": "最新",
 	"versions.notifications.activationFailed": "状态更新失败，已恢复原状态。",
@@ -405,6 +411,7 @@ export const zhCN = {
 	"versions.notifications.deleted": "版本已删除。",
 	"versions.notifications.disabled": "版本已停用。",
 	"versions.notifications.enabled": "版本已启用。",
+	"versions.notifications.finalized": "草稿已完成并创建版本。",
 	"versions.notifications.updated": "版本已更新。",
 	"versions.sort.ascending": "升序",
 	"versions.sort.createdAt": "创建时间，切换为{direction}",
@@ -417,13 +424,19 @@ export const zhCN = {
 	"versions.upload.cancel": "取消",
 	"versions.upload.choose": "选择程序文件夹",
 	"versions.upload.clearCompleted": "清除已完成",
+	"versions.upload.count.associated": "已关联 {count}",
+	"versions.upload.count.failed": "失败 {count}",
+	"versions.upload.count.hashed": "已哈希 {count}",
+	"versions.upload.count.reused": "已复用 {count}",
+	"versions.upload.count.uploaded": "已上传 {count}",
+	"versions.upload.count.uploadRequired": "需上传 {count}",
 	"versions.upload.description":
 		"保留文件夹内的相对路径，文件将从浏览器直接上传到对象存储。",
+	"versions.upload.draftReady": "草稿已保留；关闭后可从版本列表继续上传。",
 	"versions.upload.empty": "尚未选择程序文件夹",
 	"versions.upload.error.fileTooLarge":
 		"文件超过约 39.1 GiB 的浏览器上传上限。",
 	"versions.upload.error.invalidPath": "文件夹中包含不支持的相对路径。",
-	"versions.upload.error.tooManyFiles": "一次最多选择 1000 个文件。",
 	"versions.upload.files": "{count} 个文件",
 	"versions.upload.hashing": "正在计算校验值",
 	"versions.upload.hideCompleted": "隐藏已完成文件",
@@ -441,9 +454,13 @@ export const zhCN = {
 	"versions.upload.status.queued": "等待处理",
 	"versions.upload.status.ready": "等待上传",
 	"versions.upload.status.registering": "正在登记",
+	"versions.upload.status.resolving": "正在检查复用",
 	"versions.upload.status.uploaded": "已上传",
 	"versions.upload.status.uploading": "正在上传",
 	"versions.upload.totalSize": "总计 {size}",
+	"versions.upload.window.next": "下一批文件",
+	"versions.upload.window.previous": "上一批文件",
+	"versions.upload.window.summary": "显示第 {from}–{to} 个，共 {total} 个",
 	"versions.upload.uploading": "正在上传",
 	"routes.accountSettings.pageTitle": "账户设置",
 	"routes.accountSettings.tabTitle": "账户设置",
@@ -866,7 +883,10 @@ export const en = {
 	"versions.actions.disable": "Disable version {version}",
 	"versions.actions.edit": "Edit version {version}",
 	"versions.actions.enable": "Enable version {version}",
+	"versions.actions.finalize": "Finalize version",
 	"versions.actions.refresh": "Refresh versions",
+	"versions.actions.resume": "Resume upload",
+	"versions.actions.resumeWithVersion": "Resume upload for version {version}",
 	"versions.copy.action": "Copy ID",
 	"versions.copy.actionWithId": "Copy version ID {id}",
 	"versions.copy.copied": "Copied",
@@ -883,12 +903,18 @@ export const en = {
 	"versions.dialog.deleteWarning":
 		"File metadata and OSS objects will not be deleted.",
 	"versions.dialog.editDescription":
-		"Change the description or use a higher version number. Selecting a folder replaces every file relation.",
+		"Change the description or use a higher version number. Finalized file manifests are immutable.",
 	"versions.dialog.editTitle": "Edit version",
 	"versions.dialog.loadDescription": "Load the version details to continue.",
+	"versions.dialog.resumeDescription":
+		"Reselect the original program folder. Associated and reusable files are skipped.",
+	"versions.dialog.resumeTitle": "Resume draft upload",
+	"versions.draft": "Draft",
 	"versions.empty": "No versions yet. Create the first version.",
 	"versions.errors.descriptionTooLong":
 		"The description cannot exceed 1,024 characters.",
+	"versions.errors.filesExpected":
+		"The reselected folder must contain the draft's expected number of files.",
 	"versions.errors.filesRequired":
 		"Select and finish uploading at least one file.",
 	"versions.errors.uploadFailed":
@@ -904,14 +930,9 @@ export const en = {
 		"Use major.minor.patch without leading zeros, such as 1.2.0.",
 	"versions.form.clearFolder": "Clear selected files",
 	"versions.form.description": "Description",
+	"versions.form.finalizedFilesImmutable":
+		"A finalized version's files are immutable. Create a new version to change files.",
 	"versions.form.folder": "Program folder",
-	"versions.form.preserveFiles":
-		"No new folder selected; existing file relations will be preserved.",
-	"versions.form.removeAllFiles": "Remove every file relation",
-	"versions.form.removeAllFilesConfirm":
-		"Replace this version's file relations with an empty set? OSS objects will not be deleted.",
-	"versions.form.replaceFiles":
-		"Select a new folder to replace every existing file relation",
 	"versions.form.versionNumber": "Version number",
 	"versions.latest": "Latest",
 	"versions.notifications.activationFailed":
@@ -920,6 +941,7 @@ export const en = {
 	"versions.notifications.deleted": "Version deleted.",
 	"versions.notifications.disabled": "Version disabled.",
 	"versions.notifications.enabled": "Version enabled.",
+	"versions.notifications.finalized": "Draft finalized and version created.",
 	"versions.notifications.updated": "Version updated.",
 	"versions.sort.ascending": "ascending",
 	"versions.sort.createdAt": "Created time, switch to {direction}",
@@ -932,15 +954,21 @@ export const en = {
 	"versions.upload.cancel": "Cancel",
 	"versions.upload.choose": "Choose program folder",
 	"versions.upload.clearCompleted": "Clear completed",
+	"versions.upload.count.associated": "Associated {count}",
+	"versions.upload.count.failed": "Failed {count}",
+	"versions.upload.count.hashed": "Hashed {count}",
+	"versions.upload.count.reused": "Reused {count}",
+	"versions.upload.count.uploaded": "Uploaded {count}",
+	"versions.upload.count.uploadRequired": "Upload required {count}",
 	"versions.upload.description":
 		"Relative paths are preserved and files upload directly from the browser to object storage.",
+	"versions.upload.draftReady":
+		"The draft is saved. Close this dialog and resume it from the version list.",
 	"versions.upload.empty": "No program folder selected",
 	"versions.upload.error.fileTooLarge":
 		"A file exceeds the approximately 39.1 GiB browser upload limit.",
 	"versions.upload.error.invalidPath":
 		"The folder contains an unsupported relative path.",
-	"versions.upload.error.tooManyFiles":
-		"Select no more than 1,000 files at a time.",
 	"versions.upload.files": "{count} files",
 	"versions.upload.hashing": "Calculating checksums",
 	"versions.upload.hideCompleted": "Hide completed files",
@@ -958,9 +986,13 @@ export const en = {
 	"versions.upload.status.queued": "Waiting",
 	"versions.upload.status.ready": "Ready to upload",
 	"versions.upload.status.registering": "Registering",
+	"versions.upload.status.resolving": "Checking reuse",
 	"versions.upload.status.uploaded": "Uploaded",
 	"versions.upload.status.uploading": "Uploading",
 	"versions.upload.totalSize": "Total {size}",
+	"versions.upload.window.next": "Next files",
+	"versions.upload.window.previous": "Previous files",
+	"versions.upload.window.summary": "Showing {from}–{to} of {total}",
 	"versions.upload.uploading": "Uploading",
 	"routes.accountSettings.pageTitle": "Account settings",
 	"routes.accountSettings.tabTitle": "Account settings",

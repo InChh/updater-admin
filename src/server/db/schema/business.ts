@@ -53,6 +53,12 @@ export const applicationVersions = pgTable(
 		versionMinor: integer("version_minor").notNull(),
 		versionPatch: integer("version_patch").notNull(),
 		description: varchar("description", { length: 1024 }).notNull(),
+		lifecycleStatus: varchar("lifecycle_status", { length: 16 })
+			.$type<"draft" | "finalized">()
+			.default("draft")
+			.notNull(),
+		expectedFileCount: integer("expected_file_count"),
+		finalizedAt: timestamptz("finalized_at"),
 		isActive: boolean("is_active").default(false).notNull(),
 		createdAt: timestamptz("created_at").defaultNow().notNull(),
 		createdBy: uuid("created_by").notNull(),
@@ -85,6 +91,22 @@ export const applicationVersions = pgTable(
 			"application_versions_row_version_positive",
 			sql`${table.rowVersion} >= 1`,
 		),
+		check(
+			"application_versions_lifecycle_status_supported",
+			sql`${table.lifecycleStatus} in ('draft', 'finalized')`,
+		),
+		check(
+			"application_versions_expected_file_count_nonnegative",
+			sql`${table.expectedFileCount} is null or ${table.expectedFileCount} >= 0`,
+		),
+		check(
+			"application_versions_draft_consistent",
+			sql`${table.lifecycleStatus} <> 'draft' or (${table.expectedFileCount} is not null and ${table.expectedFileCount} > 0 and ${table.isActive} = false and ${table.finalizedAt} is null)`,
+		),
+		check(
+			"application_versions_finalized_consistent",
+			sql`${table.lifecycleStatus} <> 'finalized' or ${table.finalizedAt} is not null`,
+		),
 		uniqueIndex("application_versions_live_number_unique")
 			.on(
 				table.applicationId,
@@ -96,6 +118,7 @@ export const applicationVersions = pgTable(
 		index("application_versions_latest_idx")
 			.on(
 				table.applicationId,
+				table.lifecycleStatus,
 				table.isActive,
 				table.versionMajor.desc(),
 				table.versionMinor.desc(),
@@ -114,7 +137,6 @@ export const fileMetadata = pgTable(
 		size: bigint("size", { mode: "bigint" }).notNull(),
 		objectKey: varchar("object_key", { length: 1024 }).notNull(),
 		mimeType: varchar("mime_type", { length: 255 }).notNull(),
-		etag: varchar("etag", { length: 255 }),
 		checksumAlgorithm: varchar("checksum_algorithm", { length: 16 })
 			.default("sha256")
 			.notNull(),

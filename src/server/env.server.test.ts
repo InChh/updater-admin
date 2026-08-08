@@ -6,6 +6,7 @@ import {
 	readBootstrapAdminEnvironment,
 	readDatabaseEnvironment,
 	readOssEnvironment,
+	readPublicApiEnvironment,
 	readSentryRuntimeEnvironment,
 	readSentrySourceMapEnvironment,
 } from "./env.server";
@@ -103,6 +104,75 @@ describe("readAuthEnvironment", () => {
 
 		expect(error.variableNames).toEqual(["BETTER_AUTH_URL"]);
 		expect(error.message).not.toContain(invalidOrigin);
+	});
+});
+
+describe("readPublicApiEnvironment", () => {
+	it("accepts an empty native/server allowlist", () => {
+		expect(readPublicApiEnvironment({})).toEqual({ allowedOrigins: [] });
+		expect(
+			readPublicApiEnvironment({ PUBLIC_API_ALLOWED_ORIGINS: "   " }),
+		).toEqual({ allowedOrigins: [] });
+	});
+
+	it("canonicalizes, trims, and deduplicates HTTPS origins", () => {
+		expect(
+			readPublicApiEnvironment({
+				CONTEXT: "production",
+				PUBLIC_API_ALLOWED_ORIGINS:
+					" https://downloads.example.com/, https://EXAMPLE.com:443,https://downloads.example.com ",
+			}),
+		).toEqual({
+			allowedOrigins: ["https://downloads.example.com", "https://example.com"],
+		});
+	});
+
+	it("allows localhost HTTP only outside production", () => {
+		expect(
+			readPublicApiEnvironment({
+				NODE_ENV: "development",
+				PUBLIC_API_ALLOWED_ORIGINS:
+					"http://localhost:3000,http://127.0.0.1:4173,http://[::1]:8080",
+			}),
+		).toEqual({
+			allowedOrigins: [
+				"http://localhost:3000",
+				"http://127.0.0.1:4173",
+				"http://[::1]:8080",
+			],
+		});
+
+		for (const production of [
+			{ NODE_ENV: "production" },
+			{ CONTEXT: "production" },
+		]) {
+			const error = getValidationError(() =>
+				readPublicApiEnvironment({
+					...production,
+					PUBLIC_API_ALLOWED_ORIGINS: "http://localhost:3000",
+				}),
+			);
+			expect(error.variableNames).toEqual(["PUBLIC_API_ALLOWED_ORIGINS"]);
+		}
+	});
+
+	it.each([
+		"http://downloads.example.com",
+		"https://user:secret@downloads.example.com",
+		"https://downloads.example.com/files",
+		"https://downloads.example.com?tenant=one",
+		"https://downloads.example.com#fragment",
+		"ftp://downloads.example.com",
+		"null",
+		"*",
+		"https://one.example,,https://two.example",
+		"https://one.example,",
+	])("rejects and redacts an invalid origin list: %s", (value) => {
+		const error = getValidationError(() =>
+			readPublicApiEnvironment({ PUBLIC_API_ALLOWED_ORIGINS: value }),
+		);
+		expect(error.variableNames).toEqual(["PUBLIC_API_ALLOWED_ORIGINS"]);
+		expect(error.message).not.toContain(value);
 	});
 });
 

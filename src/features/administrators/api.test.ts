@@ -56,7 +56,7 @@ describe("administrator API", () => {
 		const [, init] = fetcher.mock.calls[0] ?? [];
 		const headers = new Headers(init?.headers);
 		expect(init?.method).toBe("PATCH");
-		expect(headers.get("if-match")).toBe('W/"1"');
+		expect(headers.get("x-updater-if-match")).toBe('W/"1"');
 		expect(JSON.parse(String(init?.body))).toEqual({ enabled: false });
 	});
 });

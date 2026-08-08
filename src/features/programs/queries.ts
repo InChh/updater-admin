@@ -15,7 +15,8 @@ export function programDetailQueryOptions(programId: string) {
 	return queryOptions({
 		queryFn: ({ signal }) => getProgram(programId, signal),
 		queryKey: programQueryKeys.detail(programId),
+		refetchOnMount: "always",
 		refetchOnWindowFocus: false,
-		staleTime: 30_000,
+		staleTime: 0,
 	});
 }

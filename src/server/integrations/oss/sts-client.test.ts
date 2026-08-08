@@ -2,12 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	createOssMetadataClient,
+	OSS_METADATA_RETRY_MAX,
+	OSS_METADATA_TIMEOUT_MS,
 	type OssMetadataError,
+	resolveAliOssClientConstructor,
 } from "./client.server";
 import {
 	createUploadRoleSessionName,
 	createUploadStsPolicy,
 	createUploadStsService,
+	resolveAliyunStsClientConstructor,
 	type UploadAssumeRoleRequest,
 	type UploadStsError,
 } from "./sts.server";
@@ -53,17 +57,13 @@ function expectMetadataError(
 }
 
 describe("upload STS policy", () => {
-	it("allows only direct object upload and multipart recovery under one prefix", () => {
+	it("allows only direct object upload and known-ID multipart abort under one prefix", () => {
 		const policy = createUploadStsPolicy(CONFIGURATION);
 
 		expect(policy).toEqual({
 			Statement: [
 				{
-					Action: [
-						"oss:PutObject",
-						"oss:AbortMultipartUpload",
-						"oss:ListParts",
-					],
+					Action: ["oss:PutObject", "oss:AbortMultipartUpload"],
 					Effect: "Allow",
 					Resource: ["acs:oss:*:*:updater-artifacts/updater-admin/releases/*"],
 				},
@@ -121,6 +121,24 @@ describe("upload STS policy", () => {
 });
 
 describe("upload STS service", () => {
+	it("resolves both Vite and native Node ESM CommonJS constructor shapes", () => {
+		class StubStsClient {
+			async assumeRole() {
+				return { statusCode: 200 };
+			}
+		}
+
+		expect(resolveAliyunStsClientConstructor(StubStsClient)).toBe(
+			StubStsClient,
+		);
+		expect(resolveAliyunStsClientConstructor({ default: StubStsClient })).toBe(
+			StubStsClient,
+		);
+		expect(() => resolveAliyunStsClientConstructor({})).toThrowError(
+			expect.objectContaining({ code: "INVALID_CONFIGURATION" }),
+		);
+	});
+
 	it("lazily issues a 900-second AssumeRole request and canonical credentials", async () => {
 		const captured: UploadAssumeRoleRequest[] = [];
 		const client = successfulStsClient(captured);
@@ -218,6 +236,20 @@ describe("upload STS service", () => {
 });
 
 describe("OSS HEAD metadata adapter", () => {
+	it("resolves ali-oss constructor interop shapes and rejects malformed modules", () => {
+		class DirectClient {
+			getObjectMeta = async () => ({ status: 200 });
+		}
+
+		expect(resolveAliOssClientConstructor(DirectClient)).toBe(DirectClient);
+		expect(resolveAliOssClientConstructor({ default: DirectClient })).toBe(
+			DirectClient,
+		);
+		expect(() => resolveAliOssClientConstructor({ default: {} })).toThrowError(
+			expect.objectContaining({ code: "HEAD_FAILED" }),
+		);
+	});
+
 	it("returns exact byte size and a normalized quoted ETag", async () => {
 		const getObjectMeta = vi.fn(async () => ({
 			res: {
@@ -329,7 +361,9 @@ describe("OSS HEAD metadata adapter", () => {
 			accessKeySecret: "permanent-secret",
 			bucket: "updater-artifacts",
 			region: "oss-cn-hangzhou",
+			retryMax: OSS_METADATA_RETRY_MAX,
 			secure: true,
+			timeout: OSS_METADATA_TIMEOUT_MS,
 		});
 		expect(clientFactory).toHaveBeenCalledOnce();
 	});

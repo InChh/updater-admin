@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	MAX_UPLOAD_FILES,
-	MAX_UPLOAD_SIZE_BYTES,
-} from "../../shared/api/uploads";
+import { MAX_UPLOAD_SIZE_BYTES } from "../../shared/api/uploads";
 import {
 	createFolderSelections,
 	type FolderSelectionError,
@@ -19,17 +16,41 @@ function folderFile(path: string, contents = "release"): File {
 }
 
 describe("folder picker selection", () => {
-	it("preserves File identity while normalizing and sorting relative paths", () => {
+	it("preserves File identity while stripping the selected root directory", () => {
 		const second = folderFile("release/z.bin");
 		const first = folderFile("release/cafe\u0301.bin");
 
 		expect(createFolderSelections([second, first])).toEqual([
-			{ file: first, path: "release/café.bin" },
-			{ file: second, path: "release/z.bin" },
+			{ file: first, path: "café.bin" },
+			{ file: second, path: "z.bin" },
 		]);
 	});
 
-	it("rejects normalized collisions, unsafe paths, count overflow, and size overflow", () => {
+	it("keeps nested paths relative to the selected root", () => {
+		const file = folderFile("selected-root/group/nested/file.bin");
+
+		expect(createFolderSelections([file])).toEqual([
+			{ file, path: "group/nested/file.bin" },
+		]);
+	});
+
+	it("keeps plain file names when directory metadata is unavailable", () => {
+		const file = new File(["release"], "file.bin");
+
+		expect(createFolderSelections([file])).toEqual([
+			{ file, path: "file.bin" },
+		]);
+	});
+
+	it("accepts 10,001 files without a product-level total cap", () => {
+		const files = Array.from({ length: 10_001 }, (_, index) =>
+			folderFile(`release/${index}.bin`),
+		);
+
+		expect(createFolderSelections(files)).toHaveLength(files.length);
+	});
+
+	it("rejects normalized collisions, unsafe paths, and size overflow", () => {
 		for (const files of [
 			[folderFile("release/e\u0301.bin"), folderFile("release/é.bin")],
 			[folderFile("release/../escape.bin")],
@@ -40,13 +61,6 @@ describe("folder picker selection", () => {
 				}),
 			);
 		}
-
-		const tooMany = Array.from({ length: MAX_UPLOAD_FILES + 1 }, (_, index) =>
-			folderFile(`release/${index}.bin`),
-		);
-		expect(() => createFolderSelections(tooMany)).toThrowError(
-			expect.objectContaining({ code: "TOO_MANY_FILES" }),
-		);
 
 		const tooLarge = folderFile("release/large.bin");
 		Object.defineProperty(tooLarge, "size", {

@@ -35,9 +35,11 @@ interface ObservedRequests {
 	readonly completions: unknown[];
 	readonly creates: unknown[];
 	readonly deletes: string[];
+	readonly finalizations: unknown[];
 	readonly ossCompletions: string[];
 	readonly ossInitializations: string[];
 	readonly ossPuts: string[];
+	readonly resolves: unknown[];
 	readonly unexpected: string[];
 	readonly updates: unknown[];
 	readonly uploadCredentials: unknown[];
@@ -75,13 +77,17 @@ async function fulfillJson(
 
 function listItem(version: MockVersion): VersionListItemDto {
 	return {
+		associatedFileCount: version.associatedFileCount,
 		createdAt: version.createdAt,
 		description: version.description,
 		etag: version.etag,
-		fileCount: version.fileIds.length,
+		expectedFileCount: version.expectedFileCount,
+		fileCount: version.fileCount,
+		finalizedAt: version.finalizedAt,
 		id: version.id,
 		isActive: version.isActive,
 		isLatest: version.isLatest,
+		lifecycleStatus: version.lifecycleStatus,
 		programId: version.programId,
 		updatedAt: version.updatedAt,
 		versionNumber: version.versionNumber,
@@ -115,7 +121,7 @@ test.describe("nested version management", () => {
 		"E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD are required for the authenticated version journey.",
 	);
 
-	test("opens a program tab and uploads, creates, activates, edits, and deletes a version", async ({
+	test("opens a program tab and uploads, finalizes, activates, edits, and deletes a version", async ({
 		page,
 	}, testInfo) => {
 		const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -125,15 +131,16 @@ test.describe("nested version management", () => {
 		let programVersionCount = 0;
 		let versionRevision = 1;
 		let version: MockVersion | null = null;
-		let authorizedFiles: readonly UploadFileMetadataInput[] = [];
 		const observed: ObservedRequests = {
 			activations: [],
 			completions: [],
 			creates: [],
 			deletes: [],
+			finalizations: [],
 			ossCompletions: [],
 			ossInitializations: [],
 			ossPuts: [],
+			resolves: [],
 			unexpected: [],
 			updates: [],
 			uploadCredentials: [],
@@ -204,59 +211,25 @@ test.describe("nested version management", () => {
 				return;
 			}
 
-			if (method === "POST" && pathname === "/api/v1/uploads/credentials") {
-				const body = parseJsonRecord(request.postData());
-				observed.uploadCredentials.push(body);
-				authorizedFiles = uploadFilesFromBody(body);
-				await fulfillJson(route, {
-					bucket: "updater-e2e",
-					credentials: {
-						accessKeyId: "e2e-temporary-access-key",
-						accessKeySecret: "e2e-temporary-secret",
-						expiration: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
-						securityToken: "e2e-temporary-security-token",
-					},
-					objects: authorizedFiles.map((file, index) => ({
-						objectKey: `e2e/${nonce}/${index}-${file.path}`,
-						path: file.path,
-					})),
-					region: "oss-cn-hangzhou",
-				});
-				return;
-			}
-
-			if (method === "POST" && pathname === "/api/v1/uploads/complete") {
-				const body = parseJsonRecord(request.postData());
-				observed.completions.push(body);
-				const files = completedUploadFilesFromBody(body);
-				const completedFiles: FileMetadataDto[] = files.map((file) => ({
-					checksumAlgorithm: "sha256",
-					createdAt: CREATED_AT,
-					id: FILE_ID,
-					mimeType: file.mimeType,
-					objectEtag: file.objectEtag ?? "e2e-object-etag",
-					path: file.path,
-					sha256: file.sha256,
-					size: file.size,
-					updatedAt: CREATED_AT,
-				}));
-				await fulfillJson(route, { files: completedFiles });
-				return;
-			}
-
-			if (method === "POST" && pathname === versionsPath) {
+			if (method === "POST" && pathname === `${versionsPath}/drafts`) {
 				const body = parseJsonRecord(request.postData());
 				observed.creates.push(body);
 				version = {
+					associatedFileCount: 0,
 					createdAt: CREATED_AT,
 					description:
 						typeof body.description === "string" ? body.description : "",
 					etag: weakEtag(versionRevision),
-					fileCount: 1,
-					fileIds: [FILE_ID],
+					expectedFileCount:
+						typeof body.expectedFileCount === "number"
+							? body.expectedFileCount
+							: 1,
+					fileCount: 0,
+					finalizedAt: null,
 					id: VERSION_ID,
 					isActive: false,
 					isLatest: false,
+					lifecycleStatus: "draft",
 					programId: PROGRAM_ID,
 					updatedAt: CREATED_AT,
 					versionNumber:
@@ -265,6 +238,85 @@ test.describe("nested version management", () => {
 							: initialVersion,
 				};
 				programVersionCount = 1;
+				await fulfillJson(route, detail(version), { etag: version.etag });
+				return;
+			}
+
+			if (
+				method === "POST" &&
+				pathname === `${versionsPath}/${VERSION_ID}/files/resolve` &&
+				version
+			) {
+				const body = parseJsonRecord(request.postData());
+				observed.resolves.push(body);
+				await fulfillJson(route, {
+					files: uploadFilesFromBody(body).map(({ path }) => ({
+						path,
+						status: "uploadRequired",
+					})),
+				});
+				return;
+			}
+
+			if (method === "POST" && pathname === "/api/v1/uploads/credentials") {
+				const body = parseJsonRecord(request.postData());
+				observed.uploadCredentials.push(body);
+				await fulfillJson(route, {
+					bucket: "updater-e2e",
+					credentials: {
+						accessKeyId: "e2e-temporary-access-key",
+						accessKeySecret: "e2e-temporary-secret",
+						expiration: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+						securityToken: "e2e-temporary-security-token",
+					},
+					region: "oss-cn-hangzhou",
+					uploadPrefix: `e2e/${nonce}/`,
+				});
+				return;
+			}
+
+			if (
+				method === "POST" &&
+				pathname === `${versionsPath}/${VERSION_ID}/files/complete` &&
+				version
+			) {
+				const body = parseJsonRecord(request.postData());
+				observed.completions.push(body);
+				const files = completedUploadFilesFromBody(body);
+				const completedFiles: FileMetadataDto[] = files.map((file) => ({
+					checksumAlgorithm: "sha256",
+					createdAt: CREATED_AT,
+					id: FILE_ID,
+					mimeType: file.mimeType,
+					path: file.path,
+					sha256: file.sha256,
+					size: file.size,
+					updatedAt: CREATED_AT,
+				}));
+				version = {
+					...version,
+					associatedFileCount: completedFiles.length,
+					fileCount: completedFiles.length,
+				};
+				await fulfillJson(route, { files: completedFiles });
+				return;
+			}
+
+			if (
+				method === "POST" &&
+				pathname === `${versionsPath}/${VERSION_ID}/finalize` &&
+				version
+			) {
+				const body = parseJsonRecord(request.postData());
+				observed.finalizations.push(body);
+				versionRevision += 1;
+				version = {
+					...version,
+					etag: weakEtag(versionRevision),
+					finalizedAt: new Date().toISOString(),
+					lifecycleStatus: "finalized",
+					updatedAt: new Date().toISOString(),
+				};
 				await fulfillJson(route, detail(version), { etag: version.etag });
 				return;
 			}
@@ -473,7 +525,7 @@ test.describe("nested version management", () => {
 		).toBeVisible();
 		await captureScreenshot(page, testInfo, "version-create-dialog.png");
 		const createVersionButton = createDialog.getByRole("button", {
-			name: /^(创建|Create)$/,
+			name: /完成版本|Finalize version/,
 		});
 		await expect(createVersionButton).toBeEnabled();
 		await createVersionButton.click();
@@ -539,10 +591,13 @@ test.describe("nested version management", () => {
 		expect(observed.completions).toHaveLength(1);
 		expect(observed.creates).toEqual([
 			expect.objectContaining({
-				fileIds: [FILE_ID],
+				expectedFileCount: 1,
 				versionNumber: initialVersion,
 			}),
 		]);
+		expect(observed.resolves).toHaveLength(1);
+		expect(observed.uploadCredentials).toEqual([{}]);
+		expect(observed.finalizations).toEqual([{}]);
 		expect(observed.activations).toEqual([{ isActive: true }]);
 		expect(observed.updates).toEqual([
 			expect.objectContaining({ versionNumber: updatedVersion }),

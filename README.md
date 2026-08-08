@@ -46,6 +46,16 @@ seeded `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD`. Playwright owns isolated port
 `3187` by default and refuses to reuse an existing listener; set `E2E_PORT` in
 the command environment if that port is unavailable.
 
+For the 2026-08-07 unlimited-release implementation, the restricted local
+production build exited 0, but Sentry source-map upload could not resolve its
+remote host (DNS failure). That is build evidence only, not a successful Sentry
+upload. The disposable database suite still requires the guarded variables
+above; Playwright still requires a host that permits the loopback listener plus
+the seeded administrator for authenticated journeys; and real OSS, Netlify
+Preview browser, and Sentry event/source-map checks still require their isolated
+configured environments and explicit authorization. None of those external
+checks is implied by mocked route coverage.
+
 ## Production build
 
 Builds produce the browser artifact and Netlify SSR function:
@@ -57,8 +67,11 @@ pnpm build
 Sentry is optional. Browser and server reporting stay disabled when their DSNs
 are absent, and a build without Sentry upload credentials does not emit source
 maps. When `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are all set,
-the final Vite plugin uploads hidden source maps and deletes local `.map` files
-after the upload.
+each TanStack/Netlify Vite environment uploads hidden source maps. `pnpm build`
+keeps them until every environment has completed, then
+`scripts/remove-source-maps.mjs` removes local `.map` files. Do not move deletion
+back into the Sentry plugin: an earlier Vite environment can otherwise delete
+maps before the final debug-ID bundle is uploaded.
 
 ## Environment variables
 
@@ -69,6 +82,7 @@ All values are server-only except `VITE_SENTRY_DSN`:
 | `DATABASE_URL` | yes | Neon/Postgres application connection |
 | `BETTER_AUTH_URL` | yes | Exact canonical origin, HTTPS in production |
 | `BETTER_AUTH_SECRET` | yes | Strong Better Auth signing secret |
+| `PUBLIC_API_ALLOWED_ORIGINS` | browser consumers | Comma-separated canonical origins allowed to read `/api/public/v1` and `/api/public/v2`; native/server requests do not need an Origin |
 | `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` | one-time | Creates the first administrator; remove the password immediately afterward |
 | `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET` | yes for uploads | Permanent server RAM principal; never exposed to the browser |
 | `OSS_UPLOAD_RAM_ROLE_ARN`, `OSS_STS_ENDPOINT`, `OSS_BUCKET`, `OSS_REGION`, `OSS_UPLOAD_PREFIX` | yes for uploads | Prefix-scoped browser upload sessions and object verification |
@@ -76,7 +90,7 @@ All values are server-only except `VITE_SENTRY_DSN`:
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT` | optional pair | Enables scrubbed server error reporting |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | optional group | Enables build-time source-map upload |
 | `SENTRY_RELEASE` | optional/local | Local release override; Netlify uses `COMMIT_REF` |
-| `APP_VERSION` | optional | Release label shown in authenticated monitoring; Netlify supplies deploy, commit, and context metadata |
+| `APP_VERSION` | optional | Release label shown in authenticated monitoring; Git builds normally supply deploy, commit, and context metadata, while prebuilt manual deploys may leave those optional fields empty |
 | `TEST_DATABASE_URL`, `TEST_DATABASE_CONFIRM_DISPOSABLE` | tests only | Guarded destructive database suite |
 | `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` | tests only | Seeded administrator for authenticated Playwright suites |
 
@@ -87,6 +101,20 @@ bootstrap passwords, or Sentry auth tokens into a `VITE_*` variable.
 ## Deploy to Netlify
 
 This project ships with `netlify.toml` configured for a Netlify site:
+
+As of 2026-08-06, formal Site `180cc440-4b2f-4313-867d-d33146376287`
+is live at `https://updater-admin-019f5bdd32ab7261.netlify.app` on production
+deploy `6a73ec801b96527dc4878d85`. The exact E2E cleanup, production administrator
+bootstrap, migrations, Sentry source-map upload, anonymous public release API,
+signed OSS download, and actual in-app-browser acceptance all passed. The
+cleanup authority and execution record are documented in
+[`docs/aegis/plans/2026-07-20-production-e2e-cleanup-manifest.md`](docs/aegis/plans/2026-07-20-production-e2e-cleanup-manifest.md).
+
+The Site's Free account supports Secrets Controller: secret values are masked
+and write-only even though granular per-variable scope selection is a paid-plan
+feature. Keep production variables in the Production deploy context, mark
+credentials as secrets, and never deploy bootstrap, disposable-test, or
+Netlify access credentials.
 
 1. Create separate Neon branches and OSS prefixes for Production and Preview.
 2. Import the repository in Netlify and configure the variables above for each
@@ -104,9 +132,17 @@ This project ships with `netlify.toml` configured for a Netlify site:
 7. If Sentry is enabled, create browser/server DSNs and an org-scoped source-map
    token, then verify one scrubbed test event and its release mapping.
 
-Before go-live, verify `/health`, protected redirects, an unauthenticated
+For every later release, verify `/health`, protected redirects, an unauthenticated
 `/api/v1` response, login/session cookies, Neon readiness, OSS STS readiness,
-and the authenticated monitoring page on an authorized Preview deployment.
+the authenticated monitoring page, the anonymous public latest/specified
+release manifests, an allowed browser origin, and a rejected browser origin on
+an authorized Preview deployment before production promotion. Public v2 has no
+product total file-count cap: clients traverse checksum metadata with bounded
+path cursors and request 300-second signed GET URLs for at most 100 selected
+changed paths per call. Public v1 remains available unchanged during the client
+migration; ship v2-capable updater clients before activating a release that is
+not safely consumable through v1. Both namespaces use `Cache-Control: no-store`,
+and the application does not issue download STS.
 `netlify.toml` applies the baseline security headers to static assets;
 TanStack Start global request middleware applies the same headers to SSR and
 Function responses.
@@ -114,9 +150,30 @@ Function responses.
 ## Aliyun OSS direct-upload setup
 
 Release file bodies move directly from the browser to OSS. Netlify receives
-only path, SHA-256, byte size, MIME type, deterministic object key and ETag
-metadata. Configure a dedicated bucket prefix per environment and do not grant
-automatic object deletion.
+only path, SHA-256, byte size, MIME type, deterministic object key, and an
+optional ambiguous-upload verification marker. Configure a dedicated bucket
+prefix per environment and do not grant automatic object deletion.
+
+There is no product-level total file-count cap for a selected folder or a
+version. Creation reserves a draft version, resolve checks metadata in batches
+of 100, direct upload completion registers at most 25 files per request, and
+finalization atomically publishes only after the draft's complete expected
+manifest is associated. Drafts can be resumed by reselecting the same complete
+folder; finalized manifests are self-contained and never depend on walking a
+history/delta chain.
+
+Resolve reuses any live metadata row globally when canonical relative path,
+SHA-256, and byte size match. Resolution and association occur in one database
+transaction and issue no OSS request. A successful browser upload registers
+directly; only an ambiguous recovery (for example, OSS reports that the
+deterministic object already exists after a previous attempt) performs a
+server-side HEAD and verifies the byte size before registration.
+Changed content at the same path and new paths upload; removed paths are absent
+from the new complete manifest. The credential endpoint is file-agnostic and
+returns one prefix-scoped STS set. One in-memory workflow credential manager
+shares it across files for its validity window and coalesces expiration-aware
+refreshes into a single flight; all-reused drafts make no OSS, STS, or PUT
+requests.
 
 The permanent RAM principal stored in Netlify needs two separate, narrowly
 scoped grants:
@@ -124,8 +181,8 @@ scoped grants:
 - `sts:AssumeRole` on `OSS_UPLOAD_RAM_ROLE_ARN`, so the API can create browser
   upload sessions.
 - `oss:GetObject` on
-  `acs:oss:*:*:<OSS_BUCKET>/<OSS_UPLOAD_PREFIX>*`, so the server can perform a
-  metadata-only HEAD verification before registering an upload.
+  `acs:oss:*:*:<OSS_BUCKET>/<OSS_UPLOAD_PREFIX>*`, so the server can reconcile
+  an ambiguous upload with a metadata-only HEAD.
 
 The second grant belongs only to the permanent server principal and is never
 included in browser credentials. The assumed upload role's inline/base
@@ -134,11 +191,18 @@ permission must allow only these actions under
 
 - `oss:PutObject`
 - `oss:AbortMultipartUpload`
-- `oss:ListParts`
 
 The API further supplies a short-lived 900-second session policy with the same
 scope. Permanent access keys stay server-only; the browser receives only the
 temporary AccessKey ID, secret, security token and expiration.
+
+Files through 8 MiB use one simple PUT. Aliyun supports a much higher simple
+upload ceiling, but ali-oss buffers the browser file and exposes no intermediate
+progress, so this application keeps the simple path within its existing 8 MiB
+raw per-file memory budget. Larger files use multipart upload. Retry and resume
+of multipart files use the browser's in-memory ali-oss checkpoint; the
+application never queries OSS for remote part state. Do not add remote-part
+reconciliation or `GET` to bucket CORS for this workflow.
 
 Multipart requests send `x-oss-forbid-overwrite: true`, but this is only
 defense-in-depth because the browser controls its own requests. Production must
@@ -164,12 +228,22 @@ does not change the application's no-automatic-object-deletion rule. See the
 official guidance for [incomplete multipart cleanup](https://www.alibabacloud.com/help/en/oss/user-guide/delete-parts)
 and [bucket lifecycle configuration](https://www.alibabacloud.com/help/en/oss/developer-reference/putbucketlifecycle).
 
-The browser uploader fixes each part at 4 MiB with two parts in flight per file,
-so ali-oss cannot silently enlarge part buffers. Its corresponding 10,000-part
-limit is 41,943,040,000 bytes per file. Keep shared API/server size validation
-at or below that limit; raising it requires a reviewed client memory budget and
-part-size change. File-level upload concurrency multiplies the 8 MiB in-flight
-part payload budget, and browser/SDK copies add overhead beyond that payload.
+If an authorized sandbox smoke completes an object and must then remove that
+test artifact, use a separate, explicitly authorized test identity with only
+the required `oss:DeleteObject` access on the dedicated sandbox test prefix.
+Do not add completed-object deletion, bucket-listing, or lifecycle-management
+permissions to either the permanent application principal or the temporary
+browser upload role. The permanent principal remains limited to
+`sts:AssumeRole` plus prefix-scoped `oss:GetObject`; the bucket lifecycle rule,
+not an application identity, owns incomplete multipart cleanup.
+
+For files above 8 MiB, the browser uploader fixes each part at 4 MiB with two
+parts in flight per file, so ali-oss cannot silently enlarge part buffers. Its
+corresponding 10,000-part limit is 41,943,040,000 bytes per file.
+Keep shared API/server size validation at or below that limit; raising it
+requires a reviewed client memory budget and part-size change. File-level
+upload concurrency multiplies the 8 MiB in-flight part payload budget, and
+browser/SDK copies add overhead beyond that payload.
 
 Configure OSS bucket CORS for each exact local, Netlify Production and Preview
 origin that may upload:
@@ -181,9 +255,10 @@ origin that may upload:
 - exposed response headers: `ETag`
 - cache/preflight max age: a bounded value such as `600`
 
-Without exposed `ETag`, the client deliberately rejects completion because the
-server cannot bind registered metadata to the uploaded object proof. Preview
-deployments must use a separate Neon branch and a separate OSS prefix.
+Multipart upload cannot complete without exposed `ETag` because the browser SDK
+must read every part ETag before it can assemble the object. The application
+does not otherwise require or persist the final object ETag.
+Preview deployments must use a separate Neon branch and a separate OSS prefix.
 
 
 

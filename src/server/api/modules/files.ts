@@ -19,7 +19,6 @@ import type { ExactWireShape } from "../schemas/alignment";
 
 const FILE_PATH_TRANSPORT_MAX_LENGTH = 1024 * 2;
 const FILE_MIME_TRANSPORT_MAX_LENGTH = 255 * 2;
-const FILE_ETAG_TRANSPORT_MAX_LENGTH = 255 * 2;
 
 export const fileMetadataSchema = t.Object(
 	{
@@ -27,10 +26,6 @@ export const fileMetadataSchema = t.Object(
 		createdAt: t.String({ format: "date-time" }),
 		id: t.String({ format: "uuid" }),
 		mimeType: t.String({ maxLength: FILE_MIME_TRANSPORT_MAX_LENGTH }),
-		objectEtag: t.Union([
-			t.String({ maxLength: FILE_ETAG_TRANSPORT_MAX_LENGTH }),
-			t.Null(),
-		]),
 		path: t.String({ maxLength: FILE_PATH_TRANSPORT_MAX_LENGTH, minLength: 1 }),
 		sha256: t.String({ pattern: "^[0-9a-f]{64}$" }),
 		size: t.String({ pattern: "^(0|[1-9][0-9]{0,18})$" }),

@@ -23,13 +23,17 @@ function toVersionListItem(
 ): VersionListItemDto {
 	const { data, etag } = version;
 	return {
+		associatedFileCount: data.associatedFileCount,
 		createdAt: data.createdAt,
 		description: data.description,
 		etag,
+		expectedFileCount: data.expectedFileCount,
 		fileCount: data.fileCount,
+		finalizedAt: data.finalizedAt,
 		id: data.id,
 		isActive: data.isActive,
 		isLatest: data.isLatest,
+		lifecycleStatus: data.lifecycleStatus,
 		programId: data.programId,
 		updatedAt: data.updatedAt,
 		versionNumber: data.versionNumber,
