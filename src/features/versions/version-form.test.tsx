@@ -22,6 +22,9 @@ const labels: VersionFormLabels = {
 	description: "Description",
 	descriptionTooLong: "Description is too long",
 	draftReady: "Draft saved",
+	exclusions: "Exclude files or directories",
+	exclusionsDescription: "One GitIgnore rule per line",
+	exclusionsInvalid: "Invalid exclusion rules",
 	filesExpected: "Folder does not match draft",
 	filesRequired: "Files are required",
 	finalizedFilesImmutable: "Finalized files are immutable",
@@ -30,10 +33,12 @@ const labels: VersionFormLabels = {
 		choose: "Choose folder",
 		description: "Choose a release folder",
 		errors: {
+			ALL_FILES_EXCLUDED: "All files excluded",
 			FILE_TOO_LARGE: "File too large",
 			INVALID_PATH: "Invalid path",
 		},
-		selected: (count) => `${count} selected`,
+		selected: (count, excludedCount) =>
+			`${count} selected, ${excludedCount} excluded`,
 	},
 	pending: "Saving",
 	retry: "Retry",
@@ -195,6 +200,54 @@ describe("VersionForm", () => {
 			"Folder does not match draft",
 		);
 		expect(session.start).not.toHaveBeenCalled();
+		session.queue.dispose();
+	});
+
+	it("applies editable GitIgnore rules before draft creation and hashing", async () => {
+		const session = createSession();
+		const onPrepareDraft = vi.fn(async () => draft(2));
+		render(() => (
+			<VersionForm
+				labels={labels}
+				mode="create"
+				onCancel={vi.fn()}
+				onPrepareDraft={onPrepareDraft}
+				onSubmit={vi.fn(async () => undefined)}
+				queue={session.queue}
+				workflow={session.workflow}
+			/>
+		));
+
+		fireEvent.input(screen.getByLabelText(/Version number/), {
+			target: { value: "1.0.0" },
+		});
+		fireEvent.input(screen.getByLabelText("Exclude files or directories"), {
+			target: { value: "logs/\n**/*.tmp\n!important.tmp" },
+		});
+		selectFolder([
+			folderFile("release/logs/debug.log"),
+			folderFile("release/cache/generated.tmp"),
+			folderFile("release/important.tmp"),
+			folderFile("release/bin/app.exe"),
+		]);
+
+		expect(screen.getByText("2 selected, 2 excluded")).toBeTruthy();
+		expect(session.queue.getState().items.map(({ path }) => path)).toEqual([
+			"bin/app.exe",
+			"important.tmp",
+		]);
+		expect(
+			screen
+				.getByLabelText("Exclude files or directories")
+				.hasAttribute("disabled"),
+		).toBe(true);
+
+		fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+		await waitFor(() => expect(session.start).toHaveBeenCalledOnce());
+		expect(onPrepareDraft).toHaveBeenCalledWith(
+			{ description: "", versionNumber: "1.0.0" },
+			2,
+		);
 		session.queue.dispose();
 	});
 

@@ -8,6 +8,7 @@ import { I18nProvider } from "../../lib/i18n/i18n";
 import type { EntityResult } from "../../shared/api/common";
 import type { VersionDetailDto } from "../../shared/api/versions";
 import type { VersionDialog } from "./search";
+import { createUploadExclusionConfig } from "./upload-exclusions";
 import { createUploadQueueController } from "./upload-store";
 import type {
 	UploadDraftContext,
@@ -60,6 +61,7 @@ function jsonResponse(
 }
 
 function createImmediateUploadSession(): VersionUploadSession {
+	const exclusionConfig = createUploadExclusionConfig();
 	const queue = createUploadQueueController({ storage: null });
 	let currentDraft: UploadDraftContext | null = null;
 	const workflow: UploadWorkflow = {
@@ -83,7 +85,7 @@ function createImmediateUploadSession(): VersionUploadSession {
 			}
 		},
 	};
-	return { queue, workflow };
+	return { exclusionConfig, queue, workflow };
 }
 
 function testQueryClient(): QueryClient {
@@ -250,6 +252,7 @@ describe("VersionDialogs", () => {
 			versionEntity("draft"),
 		);
 		const session = createImmediateUploadSession();
+		session.exclusionConfig.setValue("dist/**\n*.map");
 		session.queue.addFiles([
 			{
 				file: new File(["release"], "app.bin"),
@@ -277,6 +280,13 @@ describe("VersionDialogs", () => {
 			await screen.findByRole("heading", { name: "Resume draft upload" }),
 		).toBeTruthy();
 		expect(screen.getByText(/^1 file/)).toBeTruthy();
+		expect(
+			(
+				screen.getByLabelText(
+					"Exclude files or directories",
+				) as HTMLTextAreaElement
+			).value,
+		).toBe("dist/**\n*.map");
 		const itemId = session.queue.getState().items[0]?.id;
 		if (!itemId) throw new Error("Missing retained upload item.");
 		setDialog(undefined);
@@ -292,6 +302,13 @@ describe("VersionDialogs", () => {
 			await screen.findByRole("heading", { name: "Resume draft upload" }),
 		).toBeTruthy();
 		expect(screen.getByText(/^1 file/)).toBeTruthy();
+		expect(
+			(
+				screen.getByLabelText(
+					"Exclude files or directories",
+				) as HTMLTextAreaElement
+			).value,
+		).toBe("dist/**\n*.map");
 		expect(
 			(
 				screen.getByRole("progressbar", {

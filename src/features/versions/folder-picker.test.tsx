@@ -5,6 +5,10 @@ import {
 	createFolderSelections,
 	type FolderSelectionError,
 } from "./folder-picker";
+import {
+	DEFAULT_UPLOAD_EXCLUSIONS,
+	parseUploadExclusions,
+} from "./upload-exclusions";
 
 function folderFile(path: string, contents = "release"): File {
 	const file = new File([contents], path.split("/").at(-1) ?? "file.bin");
@@ -48,6 +52,45 @@ describe("folder picker selection", () => {
 		);
 
 		expect(createFolderSelections(files)).toHaveLength(files.length);
+	});
+
+	it("filters default and wildcard exclusions before upload validation", () => {
+		const oversizedExcludedFile = folderFile("release/logs/oversized.log");
+		Object.defineProperty(oversizedExcludedFile, "size", {
+			configurable: true,
+			value: Number(MAX_UPLOAD_SIZE_BYTES + 1n),
+		});
+		const matcher = parseUploadExclusions(
+			`${DEFAULT_UPLOAD_EXCLUSIONS}\n**/*.tmp`,
+		);
+		const app = folderFile("release/bin/app.exe");
+
+		expect(
+			createFolderSelections(
+				[
+					folderFile("release/lib/acad.dat"),
+					folderFile("release/UpdaterTemp/cache.bin"),
+					oversizedExcludedFile,
+					folderFile("release/nested/workdir/state.bin"),
+					folderFile("release/cache/generated.tmp"),
+					app,
+				],
+				matcher,
+			),
+		).toEqual([{ file: app, path: "bin/app.exe" }]);
+	});
+
+	it("reports when every selected file is excluded", () => {
+		expect(() =>
+			createFolderSelections(
+				[folderFile("release/logs/debug.log")],
+				parseUploadExclusions("logs/"),
+			),
+		).toThrowError(
+			expect.objectContaining<Partial<FolderSelectionError>>({
+				code: "ALL_FILES_EXCLUDED",
+			}),
+		);
 	});
 
 	it("rejects normalized collisions, unsafe paths, and size overflow", () => {

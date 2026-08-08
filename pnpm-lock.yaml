@@ -92,6 +92,9 @@ importers:
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
+      ignore:
+        specifier: 7.0.6
+        version: 7.0.6
       lucide-solid:
         specifier: ^1.24.0
         version: 1.24.0(solid-js@1.9.14)

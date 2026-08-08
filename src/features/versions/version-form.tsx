@@ -1,6 +1,6 @@
 import { createForm } from "@tanstack/solid-form";
 import { useSelector } from "@tanstack/solid-store";
-import { createEffect, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
 
 import { Button } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
@@ -8,6 +8,12 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import type { WeakEntityTag } from "../../shared/api/common";
 import { FolderPicker, type FolderPickerLabels } from "./folder-picker";
+import {
+	createUploadExclusionConfig,
+	parseUploadExclusions,
+	type UploadExclusionConfig,
+	type UploadExclusionMatcher,
+} from "./upload-exclusions";
 import { UploadQueue, type UploadQueueLabels } from "./upload-queue";
 import type {
 	UploadFileSelection,
@@ -42,6 +48,9 @@ export interface VersionFormLabels {
 	readonly description: string;
 	readonly descriptionTooLong: string;
 	readonly draftReady: string;
+	readonly exclusions: string;
+	readonly exclusionsDescription: string;
+	readonly exclusionsInvalid: string;
 	readonly filesExpected: string;
 	readonly filesRequired: string;
 	readonly finalizedFilesImmutable: string;
@@ -59,6 +68,7 @@ export interface VersionFormLabels {
 }
 
 export interface VersionFormProps {
+	readonly exclusionConfig?: UploadExclusionConfig;
 	readonly initialDraft?: VersionFormDraft;
 	readonly initialRevision?: string;
 	readonly initialValue?: Pick<
@@ -106,9 +116,29 @@ function isQueueBusy(status: UploadQueueStatus): boolean {
 	);
 }
 
+const NO_UPLOAD_EXCLUSIONS = parseUploadExclusions("");
+
 export function VersionForm(props: VersionFormProps) {
 	const queueState = useSelector(props.queue.store, (state) => state);
 	const initialFields = defaultValue(props.initialValue);
+	const exclusionConfig =
+		props.exclusionConfig ?? createUploadExclusionConfig();
+	const [exclusionValue, setExclusionValue] = createSignal(
+		exclusionConfig.getValue(),
+	);
+	const exclusionState = createMemo<{
+		readonly error?: string;
+		readonly matcher: UploadExclusionMatcher;
+	}>(() => {
+		try {
+			return { matcher: parseUploadExclusions(exclusionValue()) };
+		} catch {
+			return {
+				error: props.labels.exclusionsInvalid,
+				matcher: NO_UPLOAD_EXCLUSIONS,
+			};
+		}
+	});
 	const [draft, setDraft] = createSignal<VersionFormDraft | undefined>(
 		props.initialDraft,
 	);
@@ -151,7 +181,8 @@ export function VersionForm(props: VersionFormProps) {
 	});
 	const formFieldsValid = () =>
 		CANONICAL_VERSION_NUMBER_PATTERN.test(versionNumberValue().trim()) &&
-		codePointLength(descriptionValue().trim()) <= 1024;
+		codePointLength(descriptionValue().trim()) <= 1024 &&
+		!exclusionState().error;
 
 	const form = createForm(() => ({
 		defaultValues: defaultValue(props.initialValue),
@@ -203,6 +234,8 @@ export function VersionForm(props: VersionFormProps) {
 					({ resolutionStatus }) => resolutionStatus !== null,
 				),
 		);
+	const exclusionLocked = () =>
+		queueState().items.length > 0 || selectionLocked();
 	const canStartUpload = () => {
 		const items = queueState().items;
 		return (
@@ -429,10 +462,41 @@ export function VersionForm(props: VersionFormProps) {
 							{props.labels.draftReady}
 						</p>
 					</Show>
+					<Field
+						description={props.labels.exclusionsDescription}
+						error={exclusionState().error}
+						label={props.labels.exclusions}
+						name="version-upload-exclusions"
+					>
+						{(controlProps) => (
+							<Textarea
+								{...controlProps}
+								disabled={
+									submitting() ||
+									preparing() ||
+									queueBusy() ||
+									exclusionLocked()
+								}
+								onInput={(event) => {
+									const value = event.currentTarget.value;
+									setExclusionValue(value);
+									exclusionConfig.setValue(value);
+								}}
+								rows={6}
+								value={exclusionValue()}
+							/>
+						)}
+					</Field>
 					<Show keyed when={pickerRevision()}>
 						{(revision) => (
 							<FolderPicker
-								disabled={submitting() || queueBusy() || selectionLocked()}
+								disabled={
+									submitting() ||
+									queueBusy() ||
+									selectionLocked() ||
+									Boolean(exclusionState().error)
+								}
+								exclusions={exclusionState().matcher}
 								id={`version-release-folder-${revision}`}
 								labels={props.labels.folderPicker}
 								onError={rejectFiles}

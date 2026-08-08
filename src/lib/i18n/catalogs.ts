@@ -434,6 +434,12 @@ export const zhCN = {
 		"保留文件夹内的相对路径，文件将从浏览器直接上传到对象存储。",
 	"versions.upload.draftReady": "草稿已保留；关闭后可从版本列表继续上传。",
 	"versions.upload.empty": "尚未选择程序文件夹",
+	"versions.upload.exclusions.description":
+		"每行一条相对于上传根目录的 GitIgnore 规则；支持文件、目录、*、**、?、# 注释和 ! 反向包含。选择文件夹后需先清空文件才能修改。",
+	"versions.upload.exclusions.invalid": "排除规则格式无效，请检查后重试。",
+	"versions.upload.exclusions.label": "排除文件或目录",
+	"versions.upload.error.allFilesExcluded":
+		"所选文件夹中的文件均已被排除规则过滤。",
 	"versions.upload.error.fileTooLarge":
 		"文件超过约 39.1 GiB 的浏览器上传上限。",
 	"versions.upload.error.invalidPath": "文件夹中包含不支持的相对路径。",
@@ -445,6 +451,8 @@ export const zhCN = {
 	"versions.upload.remove": "移除",
 	"versions.upload.retry": "重试上传",
 	"versions.upload.selected": "已选择 {count} 个文件",
+	"versions.upload.selectedWithExcluded":
+		"已选择 {count} 个文件，已排除 {excluded} 个",
 	"versions.upload.showCompleted": "显示已完成文件",
 	"versions.upload.start": "上传",
 	"versions.upload.status.cancelled": "已取消",
@@ -965,6 +973,13 @@ export const en = {
 	"versions.upload.draftReady":
 		"The draft is saved. Close this dialog and resume it from the version list.",
 	"versions.upload.empty": "No program folder selected",
+	"versions.upload.exclusions.description":
+		"Enter one root-relative GitIgnore rule per line. Files, directories, *, **, ?, # comments, and ! negation are supported. Clear selected files before editing the rules.",
+	"versions.upload.exclusions.invalid":
+		"The exclusion rules are invalid. Review them and try again.",
+	"versions.upload.exclusions.label": "Exclude files or directories",
+	"versions.upload.error.allFilesExcluded":
+		"Every file in the selected folder was filtered by the exclusion rules.",
 	"versions.upload.error.fileTooLarge":
 		"A file exceeds the approximately 39.1 GiB browser upload limit.",
 	"versions.upload.error.invalidPath":
@@ -977,6 +992,8 @@ export const en = {
 	"versions.upload.remove": "Remove",
 	"versions.upload.retry": "Retry upload",
 	"versions.upload.selected": "{count} files selected",
+	"versions.upload.selectedWithExcluded":
+		"{count} files selected, {excluded} excluded",
 	"versions.upload.showCompleted": "Show completed files",
 	"versions.upload.start": "Upload",
 	"versions.upload.status.cancelled": "Cancelled",

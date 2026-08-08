@@ -6,9 +6,17 @@ import {
 	normalizeUploadPaths,
 	UploadPathValidationError,
 } from "../../shared/uploads/path";
+import {
+	parseUploadExclusions,
+	type UploadExclusionMatcher,
+	uploadPathMatchesExclusion,
+} from "./upload-exclusions";
 import type { UploadFileSelection } from "./upload-store";
 
-export type FolderSelectionErrorCode = "INVALID_PATH" | "FILE_TOO_LARGE";
+export type FolderSelectionErrorCode =
+	| "ALL_FILES_EXCLUDED"
+	| "INVALID_PATH"
+	| "FILE_TOO_LARGE";
 
 export class FolderSelectionError extends Error {
 	readonly code: FolderSelectionErrorCode;
@@ -26,12 +34,13 @@ export interface FolderPickerLabels {
 	readonly choose: string;
 	readonly description: string;
 	readonly errors: Readonly<Record<FolderSelectionErrorCode, string>>;
-	readonly selected: (count: number) => string;
+	readonly selected: (count: number, excludedCount: number) => string;
 }
 
 export interface FolderPickerProps {
 	readonly accept?: string;
 	readonly disabled?: boolean;
+	readonly exclusions?: UploadExclusionMatcher;
 	readonly id?: string;
 	readonly labels?: Partial<FolderPickerLabels>;
 	readonly onError?: (error: FolderSelectionError) => void;
@@ -42,11 +51,17 @@ const DEFAULT_LABELS: FolderPickerLabels = {
 	choose: "选择程序文件夹",
 	description: "保留文件夹内的相对路径，文件将从浏览器直接上传到对象存储。",
 	errors: {
+		ALL_FILES_EXCLUDED: "选择的文件夹没有需要上传的文件。",
 		FILE_TOO_LARGE: "文件超过约 39.1 GiB 的浏览器上传上限。",
 		INVALID_PATH: "文件夹中包含不支持的相对路径。",
 	},
-	selected: (count) => `已选择 ${count} 个文件`,
+	selected: (count, excludedCount) =>
+		excludedCount > 0
+			? `已选择 ${count} 个文件，已排除 ${excludedCount} 个`
+			: `已选择 ${count} 个文件`,
 };
+
+const NO_UPLOAD_EXCLUSIONS = parseUploadExclusions("");
 
 function rawRelativePath(file: File): string {
 	return file.webkitRelativePath || file.name;
@@ -77,23 +92,27 @@ function pathsRelativeToSelectedRoot(
 
 export function createFolderSelections(
 	files: readonly File[],
+	exclusions: UploadExclusionMatcher = NO_UPLOAD_EXCLUSIONS,
 ): readonly UploadFileSelection[] {
-	for (const file of files) {
-		if (BigInt(file.size) > MAX_UPLOAD_SIZE_BYTES) {
-			throw new FolderSelectionError("FILE_TOO_LARGE", rawRelativePath(file));
-		}
-	}
-
 	try {
 		const paths = pathsRelativeToSelectedRoot(files);
-		return files
+		const selections = files
 			.map((file, index) => ({
 				file,
 				path: paths[index] ?? rawRelativePath(file),
 			}))
-			.sort((left, right) =>
-				left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
-			);
+			.filter(({ path }) => !uploadPathMatchesExclusion(path, exclusions));
+		if (files.length > 0 && selections.length === 0) {
+			throw new FolderSelectionError("ALL_FILES_EXCLUDED");
+		}
+		for (const selection of selections) {
+			if (BigInt(selection.file.size) > MAX_UPLOAD_SIZE_BYTES) {
+				throw new FolderSelectionError("FILE_TOO_LARGE", selection.path);
+			}
+		}
+		return selections.sort((left, right) =>
+			left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+		);
 	} catch (error) {
 		if (error instanceof UploadPathValidationError) {
 			throw new FolderSelectionError("INVALID_PATH", error.path, error);
@@ -105,6 +124,7 @@ export function createFolderSelections(
 export function FolderPicker(props: FolderPickerProps) {
 	const inputId = () => props.id ?? "release-folder";
 	const [selectedCount, setSelectedCount] = createSignal(0);
+	const [excludedCount, setExcludedCount] = createSignal(0);
 	const [error, setError] = createSignal<FolderSelectionError | null>(null);
 	const labels = (): FolderPickerLabels => ({
 		...DEFAULT_LABELS,
@@ -134,7 +154,10 @@ export function FolderPicker(props: FolderPickerProps) {
 					if (files.length === 0) return;
 					let selections: readonly UploadFileSelection[];
 					try {
-						selections = createFolderSelections(files);
+						selections = createFolderSelections(
+							files,
+							props.exclusions ?? NO_UPLOAD_EXCLUSIONS,
+						);
 					} catch (selectionError) {
 						const nextError =
 							selectionError instanceof FolderSelectionError
@@ -146,11 +169,13 @@ export function FolderPicker(props: FolderPickerProps) {
 									);
 						setError(nextError);
 						setSelectedCount(0);
+						setExcludedCount(0);
 						props.onError?.(nextError);
 						return;
 					}
 					setError(null);
 					setSelectedCount(selections.length);
+					setExcludedCount(files.length - selections.length);
 					props.onFiles(selections);
 				}}
 				ref={(element) => {
@@ -172,7 +197,7 @@ export function FolderPicker(props: FolderPickerProps) {
 					<span>{labels().choose}</span>
 					<span class="text-xs font-normal text-muted">
 						{selectedCount() > 0
-							? labels().selected(selectedCount())
+							? labels().selected(selectedCount(), excludedCount())
 							: labels().description}
 					</span>
 				</span>

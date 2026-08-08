@@ -35,6 +35,10 @@ import {
 import { invalidateVersionDetails } from "./cache";
 import { versionDetailQueryOptions } from "./queries";
 import type { VersionDialog } from "./search";
+import {
+	createUploadExclusionConfig,
+	type UploadExclusionConfig,
+} from "./upload-exclusions";
 import { formatUploadBytes } from "./upload-queue";
 import { createUploadQueueController } from "./upload-store";
 import {
@@ -52,6 +56,7 @@ import {
 const DISABLED_VERSION_ID = "00000000-0000-0000-0000-000000000000";
 
 export interface VersionUploadSession {
+	readonly exclusionConfig: UploadExclusionConfig;
 	readonly queue: ReturnType<typeof createUploadQueueController>;
 	readonly workflow: UploadWorkflow;
 }
@@ -90,6 +95,7 @@ function formDraft(
 export function createDefaultVersionUploadSession(): VersionUploadSession {
 	const queue = createUploadQueueController();
 	return {
+		exclusionConfig: createUploadExclusionConfig(),
 		queue,
 		workflow: createUploadWorkflow(queue, {
 			completeUploads: (input, signal, draft) => {
@@ -143,6 +149,7 @@ function VersionFormSession(props: {
 	const session = props.factory();
 	return (
 		<VersionForm
+			exclusionConfig={session.exclusionConfig}
 			initialDraft={props.initialDraft}
 			initialRevision={props.initialRevision}
 			initialValue={props.initialValue}
@@ -297,6 +304,9 @@ export function VersionDialogs(props: VersionDialogsProps) {
 		description: i18n.t("versions.form.description"),
 		descriptionTooLong: i18n.t("versions.errors.descriptionTooLong"),
 		draftReady: i18n.t("versions.upload.draftReady"),
+		exclusions: i18n.t("versions.upload.exclusions.label"),
+		exclusionsDescription: i18n.t("versions.upload.exclusions.description"),
+		exclusionsInvalid: i18n.t("versions.upload.exclusions.invalid"),
 		filesExpected: i18n.t("versions.errors.filesExpected"),
 		filesRequired: i18n.t("versions.errors.filesRequired"),
 		finalizedFilesImmutable: i18n.t("versions.form.finalizedFilesImmutable"),
@@ -305,13 +315,19 @@ export function VersionDialogs(props: VersionDialogsProps) {
 			choose: i18n.t("versions.upload.choose"),
 			description: i18n.t("versions.upload.description"),
 			errors: {
+				ALL_FILES_EXCLUDED: i18n.t("versions.upload.error.allFilesExcluded"),
 				FILE_TOO_LARGE: i18n.t("versions.upload.error.fileTooLarge"),
 				INVALID_PATH: i18n.t("versions.upload.error.invalidPath"),
 			},
-			selected: (count) =>
-				i18n.t("versions.upload.selected", {
-					count: i18n.formatNumber(count),
-				}),
+			selected: (count, excludedCount) =>
+				excludedCount > 0
+					? i18n.t("versions.upload.selectedWithExcluded", {
+							count: i18n.formatNumber(count),
+							excluded: i18n.formatNumber(excludedCount),
+						})
+					: i18n.t("versions.upload.selected", {
+							count: i18n.formatNumber(count),
+						}),
 		},
 		pending: i18n.t("common.saving"),
 		retry: i18n.t("common.retry"),
