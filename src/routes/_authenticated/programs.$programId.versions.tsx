@@ -13,6 +13,7 @@ import {
 	shellUiController,
 	useShellUiSelector,
 } from "../../features/shell/ui-store";
+import { ProgramVersionsDataBoundary } from "../../features/versions/program-versions-data-boundary";
 import {
 	parseProgramVersionsParams,
 	validateVersionRouteSearch,
@@ -87,14 +88,13 @@ function ProgramVersionsRoute() {
 				</div>
 			}
 		>
-			<Show
-				keyed
-				when={programQuery.data}
+			<ProgramVersionsDataBoundary
 				fallback={
 					<div class="grid min-h-64 place-items-center text-sm text-muted">
 						{i18n.t("common.loading")}
 					</div>
 				}
+				program={() => programQuery.data}
 			>
 				{(program) => (
 					<VersionsPage
@@ -104,11 +104,11 @@ function ProgramVersionsRoute() {
 								search: nextSearch,
 							});
 						}}
-						program={() => program}
+						program={program}
 						search={() => ({ ...search(), pageSize: data().pageSize })}
 					/>
 				)}
-			</Show>
+			</ProgramVersionsDataBoundary>
 		</Show>
 	);
 }
