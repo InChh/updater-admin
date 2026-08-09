@@ -93,14 +93,16 @@ export function createMonitoringRepository(
 			};
 		},
 		async getReleaseCounts(input) {
-			const bucketExpression = sql<string>`to_char(${applicationVersions.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+			const bucketExpression = sql<string>`to_char(${applicationVersions.finalizedAt} at time zone 'UTC', 'YYYY-MM-DD')`;
 			const rows = await resolveDatabase()
 				.select({ bucket: bucketExpression, value: count() })
 				.from(applicationVersions)
 				.where(
 					and(
-						gte(applicationVersions.createdAt, input.from),
-						lt(applicationVersions.createdAt, input.toExclusive),
+						eq(applicationVersions.lifecycleStatus, "finalized"),
+						isNull(applicationVersions.deletedAt),
+						gte(applicationVersions.finalizedAt, input.from),
+						lt(applicationVersions.finalizedAt, input.toExclusive),
 					),
 				)
 				.groupBy(bucketExpression)

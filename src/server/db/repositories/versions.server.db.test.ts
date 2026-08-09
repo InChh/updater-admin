@@ -20,7 +20,6 @@ import {
 	createVersionsRepository,
 	DraftIncompleteRepositoryError,
 	VersionFinalizedRequiredRepositoryError,
-	VersionNotGreaterRepositoryError,
 	VersionNumberConflictRepositoryError,
 } from "./versions.server";
 
@@ -167,7 +166,7 @@ if (!testDatabaseUrl) {
 			);
 		});
 
-		it("ignores drafts in history but retains deleted finalized releases", async () => {
+		it("allows deleted draft and finalized version numbers to be reused", async () => {
 			const program = await insertProgram(`Version history ${randomUUID()}`);
 			const repository = createVersionsRepository(client.db);
 			const draft = await repository.createDraft({
@@ -233,7 +232,7 @@ if (!testDatabaseUrl) {
 			await expect(
 				repository.createDraft({
 					audit: audit(),
-					description: "Must not reuse finalized history",
+					description: "Recreated finalized version number",
 					expectedFileCount: 1,
 					programId: program.id,
 					versionMajor: 2,
@@ -241,7 +240,7 @@ if (!testDatabaseUrl) {
 					versionNumber: "2.0.0",
 					versionPatch: 0,
 				}),
-			).rejects.toBeInstanceOf(VersionNotGreaterRepositoryError);
+			).resolves.toMatchObject({ versionNumber: "2.0.0" });
 		});
 
 		it("rejects incomplete finalization then atomically finalizes exact membership", async () => {

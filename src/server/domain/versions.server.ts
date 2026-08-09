@@ -100,7 +100,9 @@ export class VersionNotGreaterError extends Error {
 	] as const;
 
 	constructor(currentMax?: string) {
-		super("The version number is not greater than the historical maximum.");
+		super(
+			"The version number is not greater than the current maximum version.",
+		);
 		this.name = "VersionNotGreaterError";
 		this.currentMax = currentMax;
 	}

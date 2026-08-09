@@ -146,7 +146,7 @@ describe("versions repository", () => {
 		expect(harness.orderings[1]).toHaveLength(4);
 	});
 
-	it("rejects a draft below the historical maximum before inserting", async () => {
+	it("rejects a draft below the highest live finalized version before inserting", async () => {
 		const harness = createSelectHarness([
 			[{ id: PROGRAM_ID }],
 			[],
@@ -176,22 +176,19 @@ describe("versions repository", () => {
 			currentMax: "2.0.0",
 		} satisfies Partial<VersionNotGreaterRepositoryError>);
 		expect(harness.insert).not.toHaveBeenCalled();
-		const historicalMaximumPredicate = new PgDialect().sqlToQuery(
+		const liveMaximumPredicate = new PgDialect().sqlToQuery(
 			harness.predicates[2] as Parameters<PgDialect["sqlToQuery"]>[0],
 		);
-		expect(historicalMaximumPredicate.sql).toContain(
+		expect(liveMaximumPredicate.sql).toContain(
 			'"application_versions"."lifecycle_status" = $2',
 		);
-		expect(historicalMaximumPredicate.sql).not.toContain(
+		expect(liveMaximumPredicate.sql).toContain(
 			'"application_versions"."deleted_at"',
 		);
-		expect(historicalMaximumPredicate.params).toEqual([
-			PROGRAM_ID,
-			"finalized",
-		]);
+		expect(liveMaximumPredicate.params).toEqual([PROGRAM_ID, "finalized"]);
 	});
 
-	it("classifies a live duplicate before historical monotonicity", async () => {
+	it("classifies a live duplicate before current-version monotonicity", async () => {
 		const harness = createSelectHarness([
 			[{ id: PROGRAM_ID }],
 			[{ id: VERSION_1_ID }],

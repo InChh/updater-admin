@@ -160,7 +160,7 @@ export class VersionNotGreaterRepositoryError extends Error {
 		super(
 			currentMax
 				? `Version number must be greater than ${currentMax}.`
-				: "Version number must be greater than every historical version.",
+				: "Version number must be greater than the current maximum version.",
 		);
 		this.name = "VersionNotGreaterRepositoryError";
 		this.currentMax = currentMax;
@@ -365,7 +365,7 @@ function assertCurrentRowVersion(
 	}
 }
 
-async function findHistoricalMaximum(
+async function findLiveFinalizedMaximum(
 	transaction: DatabaseTransaction,
 	programId: string,
 ): Promise<VersionNumberRepositoryValue | null> {
@@ -381,6 +381,7 @@ async function findHistoricalMaximum(
 			and(
 				eq(applicationVersions.applicationId, programId),
 				eq(applicationVersions.lifecycleStatus, "finalized"),
+				isNull(applicationVersions.deletedAt),
 			),
 		)
 		.orderBy(
@@ -417,7 +418,7 @@ async function assertNoLiveVersionNumberDuplicate(
 	}
 }
 
-function assertGreaterThanHistoricalMaximum(
+function assertGreaterThanLiveFinalizedMaximum(
 	version: VersionNumberRepositoryValue,
 	maximum: VersionNumberRepositoryValue | null,
 ): void {
@@ -552,11 +553,11 @@ export function createVersionsRepository(
 						input.programId,
 						input,
 					);
-					const maximum = await findHistoricalMaximum(
+					const maximum = await findLiveFinalizedMaximum(
 						transaction,
 						input.programId,
 					);
-					assertGreaterThanHistoricalMaximum(input, maximum);
+					assertGreaterThanLiveFinalizedMaximum(input, maximum);
 
 					const [created] = await transaction
 						.insert(applicationVersions)
@@ -887,11 +888,11 @@ export function createVersionsRepository(
 							nextNumber,
 							input.id,
 						);
-						const maximum = await findHistoricalMaximum(
+						const maximum = await findLiveFinalizedMaximum(
 							transaction,
 							input.programId,
 						);
-						assertGreaterThanHistoricalMaximum(nextNumber, maximum);
+						assertGreaterThanLiveFinalizedMaximum(nextNumber, maximum);
 					}
 
 					const [updated] = await transaction

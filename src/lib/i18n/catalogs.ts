@@ -396,7 +396,7 @@ export const zhCN = {
 		"版本已在其他位置更新，已刷新最新内容，请确认后重试。",
 	"versions.errors.versionConflict": "已有相同版本号。",
 	"versions.errors.versionNotGreater":
-		"版本号必须严格大于该程序的历史最高版本。",
+		"版本号必须严格大于该程序的当前最高版本。",
 	"versions.errors.versionNumberInvalid":
 		"请输入无前导零的 major.minor.patch，例如 1.2.0。",
 	"versions.form.clearFolder": "清空已选择文件",
@@ -933,7 +933,7 @@ export const en = {
 		"The version changed elsewhere. The latest data was loaded; review it and try again.",
 	"versions.errors.versionConflict": "That version number already exists.",
 	"versions.errors.versionNotGreater":
-		"The version number must be greater than the historical maximum.",
+		"The version number must be greater than the highest current version.",
 	"versions.errors.versionNumberInvalid":
 		"Use major.minor.patch without leading zeros, such as 1.2.0.",
 	"versions.form.clearFolder": "Clear selected files",

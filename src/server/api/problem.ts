@@ -41,7 +41,7 @@ const PROBLEM_TITLES: Readonly<Record<string, string>> = {
 		"Upload object verification is temporarily unavailable",
 	VALIDATION_FAILED: "One or more fields are invalid",
 	VERSION_NOT_GREATER:
-		"The version number must be greater than every prior version",
+		"The version number must be greater than the current maximum version",
 	VERSION_NUMBER_CONFLICT: "A version with this number already exists",
 };
 const MAX_FIELD_ERRORS = 100;

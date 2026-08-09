@@ -41,7 +41,7 @@ describe("monitoring repository", () => {
 		expect(select).toHaveBeenCalledTimes(4);
 	});
 
-	it("groups release creation counts by ascending UTC calendar day", async () => {
+	it("groups live finalized releases by finalization day", async () => {
 		const orderBy = vi.fn(async () => [
 			{ bucket: "2026-07-14", value: 2 },
 			{ bucket: "2026-07-15", value: 1 },
@@ -68,9 +68,15 @@ describe("monitoring repository", () => {
 		expect(where).toHaveBeenCalledOnce();
 		const predicate = where.mock.calls[0]?.[0];
 		if (!predicate) throw new Error("Expected release-count range predicate.");
-		const predicateSql = new PgDialect().sqlToQuery(predicate).sql;
-		expect(predicateSql).toContain('"application_versions"."created_at"');
-		expect(predicateSql).not.toContain('"application_versions"."deleted_at"');
+		const predicateQuery = new PgDialect().sqlToQuery(predicate);
+		expect(predicateQuery.sql).toContain(
+			'"application_versions"."finalized_at"',
+		);
+		expect(predicateQuery.sql).toContain(
+			'"application_versions"."lifecycle_status"',
+		);
+		expect(predicateQuery.sql).toContain('"application_versions"."deleted_at"');
+		expect(predicateQuery.params).toContain("finalized");
 		expect(groupBy).toHaveBeenCalledOnce();
 		expect(orderBy).toHaveBeenCalledOnce();
 	});
