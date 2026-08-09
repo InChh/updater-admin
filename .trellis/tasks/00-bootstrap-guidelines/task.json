@@ -1,0 +1,29 @@
+{
+  "id": "00-bootstrap-guidelines",
+  "name": "00-bootstrap-guidelines",
+  "title": "Bootstrap Guidelines",
+  "description": "Verify and maintain full-stack project development guidelines for AI agents",
+  "status": "in_progress",
+  "dev_type": "docs",
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "刘宏伟",
+  "assignee": "刘宏伟",
+  "createdAt": "2026-08-08",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": null,
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/frontend/",
+    ".trellis/spec/backend/"
+  ],
+  "notes": "First-time setup task expanded after repository inspection to cover the full-stack frontend and backend project. This legacy task has no implement.jsonl/check.jsonl manifests, so dispatched review uses the explicit active-task fallback until manifest curation is separately authorized.",
+  "meta": {}
+}
