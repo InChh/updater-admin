@@ -1,0 +1,272 @@
+{
+  "schema_version": "1.0",
+  "plan_id": "updater-admin-unlimited-incremental-upload-v1",
+  "revision": 8,
+  "storage": {
+    "mode": "filesystem",
+    "tasks_location": ".harness/019f5bdd-32ab-7261-a90b-cc4aecc09474/messy-work/tasks.json",
+    "state_location": ".harness/019f5bdd-32ab-7261-a90b-cc4aecc09474/messy-work/state.json"
+  },
+  "title": "Unlimited release folders with incremental OSS reuse",
+  "goal": "Implement the approved draft-version upload architecture with no product-level total file-count cap, program-scoped reuse, one STS credential set per validity window, bounded metadata operations, atomic finalization, and scalable public v2 manifests.",
+  "source": {
+    "request_or_artifact": ".harness/019f5bdd-32ab-7261-a90b-cc4aecc09474/tech/tech.md",
+    "repository_root": ".",
+    "session_id": "019f5bdd-32ab-7261-a90b-cc4aecc09474"
+  },
+  "global_constraints": [
+    "Treat tech.md, explored.md, user-intent.md, and the user's implementation approval as scope.",
+    "Preserve existing changes in the dirty shared worktree and edit only owned files.",
+    "Implementation and tests stay in the same task; never weaken failing tests.",
+    "Do not commit, push, publish, deploy, open an MR, or mutate production data.",
+    "Do not persist browser File objects, multipart checkpoints, or temporary credentials.",
+    "Do not proxy file bodies through Netlify Functions or weaken OSS prefix permissions.",
+    "Only the coordinator may modify tasks.json and state.json."
+  ],
+  "workers": [
+    {"worker_id": "W1", "agent": "@code-coder", "suitable_work": ["TypeScript contracts", "Solid client", "tests"], "capacity": 1, "constraints": ["Do not edit messy-work artifacts."]},
+    {"worker_id": "W2", "agent": "@code-coder", "suitable_work": ["Drizzle PostgreSQL", "Elysia backend", "tests"], "capacity": 1, "constraints": ["Do not edit messy-work artifacts."]},
+    {"worker_id": "W3", "agent": "@code-coder", "suitable_work": ["Public APIs", "OSS integration", "tests"], "capacity": 1, "constraints": ["Do not edit messy-work artifacts."]}
+  ],
+  "execution_settings": {
+    "maximum_concurrency": 3,
+    "attempts_allowed_for_one_unchanged_failure": 3,
+    "evaluator_agent": "@laco-critic"
+  },
+  "shared_verification": [
+    {"kind": "command", "command": "pnpm check", "expected": "Biome passes."},
+    {"kind": "command", "command": "pnpm typecheck", "expected": "TypeScript exits 0."},
+    {"kind": "command", "command": "pnpm test", "expected": "Full Vitest suite passes."},
+    {"kind": "command", "command": "pnpm db:check", "expected": "Drizzle schema and migrations are consistent."},
+    {"kind": "command", "command": "pnpm build", "expected": "Netlify-targeted build succeeds."},
+    {"kind": "command", "command": "pnpm test:db", "expected": "Passes on an authorized disposable database or is explicitly gated."},
+    {"kind": "command", "command": "pnpm test:e2e", "expected": "Passes where configured or exact external gates are reported."}
+  ],
+  "waves": [
+    {"wave": 1, "starts_after": [], "task_ids": ["T1", "T2"]},
+    {"wave": 2, "starts_after": [1], "task_ids": ["T3", "T4", "T5"]},
+    {"wave": 3, "starts_after": [2], "task_ids": ["T6", "T7"]},
+    {"wave": 4, "starts_after": [3], "task_ids": ["T8"]}
+  ],
+  "critical_path": ["T1", "T2", "T4", "T6", "T8"],
+  "requirement_coverage": [
+    {"requirement": "No product-level total file-count cap", "task_ids": ["T1", "T4", "T5", "T6", "T8"]},
+    {"requirement": "One prefix-scoped STS credential set per validity window", "task_ids": ["T1", "T3", "T6", "T8"]},
+    {"requirement": "Reuse unchanged prior-version OSS files", "task_ids": ["T4", "T6", "T8"]},
+    {"requirement": "Bounded metadata requests and atomic finalization", "task_ids": ["T2", "T4", "T7", "T8"]},
+    {"requirement": "Scalable public release consumption", "task_ids": ["T1", "T5", "T7", "T8"]},
+    {"requirement": "Preserve existing versions and public v1", "task_ids": ["T2", "T4", "T5", "T8"]}
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Shared contracts and canonical object key",
+      "wave": 1,
+      "objective": "Define draft, bounded upload, and public v2 contracts plus shared canonical OSS keys without a total-count ceiling.",
+      "steps": ["Remove total-count constants and full fileIds contracts.", "Define draft lifecycle/count/finalize, resolve/completion, file-agnostic credentials, and public v2 DTOs.", "Move canonical object-key code to shared code with a temporary server re-export.", "Update shared/object-key tests including Unicode and failures."],
+      "must_not": ["Do not change runtime server behavior, DB schema, or UI.", "Do not expose secrets, DB IDs, object keys, or a total release cap."],
+      "ownership": [
+        {"path": "src/shared/api/uploads.ts", "line_range": null},
+        {"path": "src/shared/api/uploads.test.ts", "line_range": null},
+        {"path": "src/shared/api/versions.ts", "line_range": null},
+        {"path": "src/shared/api/versions.test.ts", "line_range": null},
+        {"path": "src/shared/api/public-releases.ts", "line_range": null},
+        {"path": "src/shared/uploads/object-key.ts", "line_range": null},
+        {"path": "src/server/integrations/oss/object-key.ts", "line_range": null},
+        {"path": "src/server/integrations/oss/oss.test.ts", "line_range": null}
+      ],
+      "references": [{"path": "src/server/integrations/oss/object-key.ts", "reason": "Existing canonical key algorithm."}, {"path": ".harness/019f5bdd-32ab-7261-a90b-cc4aecc09474/tech/tech.md", "reason": "Approved contracts."}],
+      "preferred_worker": "W1",
+      "depends_on": [],
+      "blocks": ["T3", "T4", "T5", "T6"],
+      "dependency_inputs": [],
+      "interface_contracts": ["No product total-count constant.", "Credentials contain bucket/region/uploadPrefix/temporary credentials and no objects.", "Resolve max 100, completion max 25, public page max 500, signing max 100.", "Canonical key is prefix + sha256 + percent-encoded normalized path."],
+      "acceptance_criteria": [
+        {"id": "T1-AC1", "condition": "Shared tests prove browser/server key parity and stable invalid SHA/key-length errors.", "verification": {"kind": "command", "command": "pnpm test -- src/shared/api/uploads.test.ts src/shared/api/versions.test.ts src/server/integrations/oss/oss.test.ts", "expected": "Focused tests pass."}},
+        {"id": "T1-AC2", "condition": "Executable contracts contain no total file ceiling or full fileIds mutation contract.", "verification": {"kind": "command", "command": "rg -n 'MAX_UPLOAD_FILES|VERSION_FILES_MAX_ITEMS|fileIds' src/shared/api", "expected": "Only explicit type-level rejection/runtime absence assertions may remain."}},
+        {"id": "T1-AC3", "condition": "Owned files pass Biome and integrate with TypeScript after dependents land.", "verification": {"kind": "command", "command": "pnpm check", "expected": "No owned Biome errors."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Build a Unicode nested-path key through shared and server imports."], "expected": "Exact parity."}, {"name": "failure_or_edge", "steps": ["Use invalid SHA and excessive key length."], "expected": "Stable errors."}],
+      "verification_commands": ["pnpm test -- src/shared/api/uploads.test.ts src/shared/api/versions.test.ts src/server/integrations/oss/oss.test.ts", "pnpm check"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "medium"
+    },
+    {
+      "id": "T2",
+      "title": "Draft lifecycle schema and migration",
+      "wave": 1,
+      "objective": "Add safe draft/finalized lifecycle columns and migrate all existing versions as finalized without changing activation/public semantics.",
+      "steps": ["Add lifecycle, expected-count, finalized-time, checks/defaults, and lifecycle indexes.", "Generate nullable-add, backfill, then constraint migration.", "Update schema unit/live-DB tests."],
+      "must_not": ["Do not modify file metadata/object keys or delete relations.", "Do not require expected count for migrated rows.", "Do not run on production."],
+      "ownership": [{"path": "src/server/db/schema/business.ts", "line_range": null}, {"path": "src/server/db/schema/schema.test.ts", "line_range": null}, {"path": "src/server/db/schema/schema.db.test.ts", "line_range": null}, {"path": "drizzle", "line_range": null}],
+      "references": [{"path": "src/server/db/schema/business.ts", "reason": "Current version schema."}, {"path": "drizzle/meta/_journal.json", "reason": "Migration pattern."}],
+      "preferred_worker": "W2",
+      "depends_on": [],
+      "blocks": ["T4", "T5"],
+      "dependency_inputs": [],
+      "interface_contracts": ["Lifecycle is draft|finalized.", "Draft is inactive with null finalizedAt.", "Finalized requires finalizedAt; migrated expected count may be null."],
+      "acceptance_criteria": [
+        {"id": "T2-AC1", "condition": "Migration safely backfills before constraints.", "verification": {"kind": "command", "command": "pnpm db:check", "expected": "Passes."}},
+        {"id": "T2-AC2", "condition": "Tests cover defaults, constraints, backfill, and preserved active rows.", "verification": {"kind": "command", "command": "pnpm test -- src/server/db/schema/schema.test.ts", "expected": "Passes."}},
+        {"id": "T2-AC3", "condition": "Live DB tests use only a fail-closed disposable DB.", "verification": {"kind": "command", "command": "pnpm test:db", "expected": "Passes when disposable env is supplied or is explicitly gated."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Migrate an active version."], "expected": "It remains active and finalized."}, {"name": "failure_or_edge", "steps": ["Insert active draft."], "expected": "DB check rejects it."}],
+      "verification_commands": ["pnpm db:check", "pnpm test -- src/server/db/schema/schema.test.ts", "pnpm test:db"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "medium"
+    },
+    {
+      "id": "T3",
+      "title": "File-agnostic STS credential endpoint",
+      "wave": 2,
+      "objective": "Return one prefix-scoped temporary credential set without per-file target generation and preserve secret-free rate/audit behavior.",
+      "steps": ["Make credential request file-agnostic and response prefix-scoped.", "Preserve PutObject/AbortMultipartUpload prefix policy.", "Adjust audit/rate tests for one issuance summary."],
+      "must_not": ["Do not cache credentials server-side, weaken policy, add browser GetObject, or log secrets."],
+      "ownership": [{"path": "src/server/api/modules/uploads.ts", "line_range": null}, {"path": "src/server/api/modules/uploads.test.ts", "line_range": null}, {"path": "src/server/domain/uploads.server.ts", "line_range": null}, {"path": "src/server/domain/uploads.test.ts", "line_range": null}, {"path": "src/server/api/plugins/rate-limit.server.ts", "line_range": null}, {"path": "src/server/api/plugins/rate-limit.test.ts", "line_range": null}, {"path": "src/server/integrations/oss/sts.test.ts", "line_range": null}],
+      "references": [{"path": "src/server/integrations/oss/sts.server.ts", "reason": "Prefix policy."}, {"path": "src/server/domain/uploads.server.ts", "reason": "Current credential coupling."}],
+      "preferred_worker": "W3",
+      "depends_on": ["T1"],
+      "blocks": ["T6", "T7"],
+      "dependency_inputs": ["T1 credential DTOs and shared key."],
+      "interface_contracts": ["Empty credential request.", "One prefix-wide credential set, no object list.", "Secret-free audit/error output."],
+      "acceptance_criteria": [
+        {"id": "T3-AC1", "condition": "API/domain accepts no file list and returns no targets.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/uploads.test.ts src/server/api/modules/uploads.test.ts", "expected": "Passes."}},
+        {"id": "T3-AC2", "condition": "STS policy remains uploadPrefix-scoped.", "verification": {"kind": "command", "command": "pnpm test -- src/server/integrations/oss/sts.test.ts", "expected": "Passes."}},
+        {"id": "T3-AC3", "condition": "Rate/audit behavior is bounded and secret-free.", "verification": {"kind": "command", "command": "pnpm test -- src/server/api/plugins/rate-limit.test.ts", "expected": "Passes."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Request credentials once."], "expected": "Bucket/region/prefix/expiration returned."}, {"name": "failure_or_edge", "steps": ["Simulate STS failure."], "expected": "Secret-free unavailable problem."}],
+      "verification_commands": ["pnpm test -- src/server/domain/uploads.test.ts src/server/api/modules/uploads.test.ts src/server/integrations/oss/sts.test.ts src/server/api/plugins/rate-limit.test.ts", "pnpm check"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "medium"
+    },
+    {
+      "id": "T4",
+      "title": "Draft lifecycle and incremental association backend",
+      "wave": 2,
+      "objective": "Implement draft creation, bounded resolve/completion, program-scoped reuse, atomic finalization, immutable finalized membership, and paged admin files.",
+      "steps": ["Add draft file repository/domain/module and tests.", "Resolve reusable candidates with bounded HEAD outside transactions.", "Complete uploaded files and associate transactionally.", "Finalize atomically and make version/latest/activation lifecycle-aware.", "Store summary-only audits."],
+      "must_not": ["Do not call OSS in a DB transaction.", "Do not accept full fileIds replacement.", "Do not reuse draft/deleted/cross-program candidates.", "Do not expose object keys."],
+      "ownership": [{"path": "src/server/db/repositories/draft-version-files.server.ts", "line_range": null}, {"path": "src/server/db/repositories/draft-version-files.server.db.test.ts", "line_range": null}, {"path": "src/server/domain/draft-version-files.server.ts", "line_range": null}, {"path": "src/server/domain/draft-version-files.test.ts", "line_range": null}, {"path": "src/server/api/modules/draft-version-files.ts", "line_range": null}, {"path": "src/server/api/modules/draft-version-files.test.ts", "line_range": null}, {"path": "src/server/db/repositories/versions.server.ts", "line_range": null}, {"path": "src/server/db/repositories/versions.server.test.ts", "line_range": null}, {"path": "src/server/db/repositories/versions.server.db.test.ts", "line_range": null}, {"path": "src/server/domain/versions.server.ts", "line_range": null}, {"path": "src/server/domain/versions.test.ts", "line_range": null}, {"path": "src/server/api/modules/versions.ts", "line_range": null}, {"path": "src/server/api/modules/versions.test.ts", "line_range": null}],
+      "references": [{"path": "src/server/db/repositories/uploads.server.ts", "reason": "Idempotent transaction pattern."}, {"path": "src/server/domain/uploads.server.ts", "reason": "HEAD proof."}, {"path": "src/server/db/repositories/versions.server.ts", "reason": "Current lifecycle/audit."}],
+      "preferred_worker": "W2",
+      "depends_on": ["T1", "T2"],
+      "blocks": ["T6", "T7"],
+      "dependency_inputs": ["T1 DTOs.", "T2 lifecycle schema/migration."],
+      "interface_contracts": ["Resolve max 100 and complete max 25.", "Append is draft-only and idempotent.", "Finalize uses ETag and expected count.", "Finalized membership is immutable."],
+      "acceptance_criteria": [
+        {"id": "T4-AC1", "condition": "All-reused and mixed workflows produce complete manifests.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/draft-version-files.test.ts src/server/api/modules/draft-version-files.test.ts", "expected": "Passes."}},
+        {"id": "T4-AC2", "condition": "Missing object falls back, replay is idempotent, path conflict is stable.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/draft-version-files.test.ts", "expected": "Passes."}},
+        {"id": "T4-AC3", "condition": "Finalize is atomic and lifecycle-safe.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/versions.test.ts src/server/api/modules/versions.test.ts", "expected": "Passes; disposable DB tests separately gated."}},
+        {"id": "T4-AC4", "condition": "Audits contain bounded summaries only.", "verification": {"kind": "command", "command": "rg -n 'fileIds|credentials|secretAccessKey|securityToken' src/server/db/repositories/draft-version-files.server.ts src/server/db/repositories/versions.server.ts", "expected": "No full-list/secret audit values."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Reuse A, upload B and C, finalize three files."], "expected": "Complete self-contained manifest."}, {"name": "failure_or_edge", "steps": ["Candidate OSS object missing."], "expected": "uploadRequired then normal completion."}],
+      "verification_commands": ["pnpm test -- src/server/domain/draft-version-files.test.ts src/server/api/modules/draft-version-files.test.ts src/server/domain/versions.test.ts src/server/api/modules/versions.test.ts", "pnpm test:db", "pnpm check"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "high"
+    },
+    {
+      "id": "T5",
+      "title": "Public v2 cursor manifest and selective signing",
+      "wave": 2,
+      "objective": "Expose finalized active release headers, immutable path-cursor metadata pages, and bounded selective URL signing while keeping v1.",
+      "steps": ["Filter on finalized/active/live versions.", "Implement header and path-keyset page.", "Sign only exact requested path/SHA items.", "Preserve v1 and add repository/domain/API tests."],
+      "must_not": ["Do not sign every metadata page item.", "Do not expose DB IDs/object keys/ETags.", "Do not truncate v1 or select drafts."],
+      "ownership": [{"path": "src/server/db/repositories/public-releases.server.ts", "line_range": null}, {"path": "src/server/db/repositories/public-releases.server.test.ts", "line_range": null}, {"path": "src/server/db/repositories/public-releases.server.db.test.ts", "line_range": null}, {"path": "src/server/domain/public-releases.server.ts", "line_range": null}, {"path": "src/server/domain/public-releases.test.ts", "line_range": null}, {"path": "src/server/api/modules/public-releases.ts", "line_range": null}, {"path": "src/server/api/modules/public-releases.test.ts", "line_range": null}],
+      "references": [{"path": "src/server/db/repositories/public-releases.server.ts", "reason": "Current selection/join."}, {"path": "src/server/domain/public-releases.server.ts", "reason": "Current signing."}],
+      "preferred_worker": "W3",
+      "depends_on": ["T1", "T2"],
+      "blocks": ["T7", "T8"],
+      "dependency_inputs": ["T1 v2 DTOs.", "T2 lifecycle schema."],
+      "interface_contracts": ["Header + page + selective URL contracts.", "Page order is canonical path.", "Explicit version traversal is immutable."],
+      "acceptance_criteria": [
+        {"id": "T5-AC1", "condition": "Cursor pages traverse without duplicates or omissions.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/public-releases.test.ts src/server/api/modules/public-releases.test.ts", "expected": "Passes."}},
+        {"id": "T5-AC2", "condition": "Only requested exact path/SHA items are signed and tampering fails.", "verification": {"kind": "command", "command": "pnpm test -- src/server/domain/public-releases.test.ts", "expected": "Passes."}},
+        {"id": "T5-AC3", "condition": "Drafts are excluded and v1 behavior is preserved.", "verification": {"kind": "command", "command": "pnpm test -- src/server/api/modules/public-releases.test.ts", "expected": "Passes."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Traverse three pages and sign two changed paths."], "expected": "Complete metadata and two URLs."}, {"name": "failure_or_edge", "steps": ["Tamper cursor/path/hash."], "expected": "Bounded 400/404."}],
+      "verification_commands": ["pnpm test -- src/server/domain/public-releases.test.ts src/server/api/modules/public-releases.test.ts", "pnpm test:db", "pnpm check"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "high"
+    },
+    {
+      "id": "T6",
+      "title": "Incremental and resumable administrator upload UI",
+      "wave": 3,
+      "objective": "Create/resume/finalize drafts, resolve before upload, skip reuse, lazily share refreshable STS, and remove total-count UI limits.",
+      "steps": ["Add a single-flight credential manager and SDK refresh wiring.", "Resolve selected metadata before upload and skip associated/reused items.", "Create/resume/finalize drafts and remove total-count checks.", "Add progress/draft UI and tests including 1001/10001 scale cases."],
+      "must_not": ["Do not persist File/checkpoint/credentials.", "Do not acquire STS for all-reused folders.", "Do not replace finalized files."],
+      "ownership": [{"path": "src/features/versions", "line_range": null}, {"path": "src/lib/i18n/catalogs.ts", "line_range": null}],
+      "references": [{"path": "src/features/versions/upload-workflow.client.ts", "reason": "Current batching."}, {"path": "src/features/versions/oss-uploader.client.ts", "reason": "OSS SDK setup."}],
+      "preferred_worker": "W1",
+      "depends_on": ["T1", "T3", "T4"],
+      "blocks": ["T8"],
+      "dependency_inputs": ["T1 contracts/shared key.", "T3 credentials.", "T4 draft APIs."],
+      "interface_contracts": ["One manager per workflow.", "60-second validity threshold and single-flight refresh.", "Resolve statuses map deterministically to queue states."],
+      "acceptance_criteria": [
+        {"id": "T6-AC1", "condition": "1001 new files use one valid-window STS request and 10001 metadata items stay batched.", "verification": {"kind": "command", "command": "pnpm exec vitest run src/features/versions/upload-workflow.client.test.ts src/features/versions/credential-manager.client.test.ts", "expected": "Passes within the default timeout."}},
+        {"id": "T6-AC2", "condition": "All-reused uses zero STS/PUT and mixed/resume uploads only missing files.", "verification": {"kind": "command", "command": "pnpm exec vitest run src/features/versions/upload-workflow.client.test.ts src/features/versions/version-form.test.tsx", "expected": "Passes."}},
+        {"id": "T6-AC3", "condition": "Concurrent refresh coalesces to one backend call.", "verification": {"kind": "command", "command": "pnpm exec vitest run src/features/versions/credential-manager.client.test.ts src/features/versions/oss-uploader.client.test.ts", "expected": "Passes."}},
+        {"id": "T6-AC4", "condition": "Folder/dialog/page lifecycle has no total-count error and handles drafts.", "verification": {"kind": "command", "command": "pnpm exec vitest run src/features/versions/folder-picker.test.tsx src/features/versions/version-form.test.tsx src/features/versions/version-dialogs.test.tsx src/features/versions/versions-page.test.tsx", "expected": "Passes."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Reselect a partial draft."], "expected": "Prior/reused items complete and only missing upload."}, {"name": "failure_or_edge", "steps": ["STS refresh fails mid-multipart."], "expected": "Retry is offered and draft stays incomplete."}],
+      "verification_commands": ["pnpm exec vitest run src/features/versions", "pnpm check", "pnpm typecheck"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "high"
+    },
+    {
+      "id": "T7",
+      "title": "Server route integration and cross-module API tests",
+      "wave": 3,
+      "objective": "Mount draft modules and public v2 in Elysia/TanStack Start with existing auth, CORS, cache, and rate boundaries.",
+      "steps": ["Mount draft and public v2 modules.", "Add TanStack public v2 forwarding route.", "Update exact route matching as needed.", "Add app contract tests and regenerate route tree through build."],
+      "must_not": ["Do not weaken admin auth or exact-origin public policy.", "Do not change Better Auth routes."],
+      "ownership": [{"path": "src/server/api/app.server.ts", "line_range": null}, {"path": "src/server/api/app.test.ts", "line_range": null}, {"path": "src/routes/api/public/v2/$.ts", "line_range": null}, {"path": "src/server/api/plugins/public-api.server.ts", "line_range": null}, {"path": "src/server/api/plugins/public-api.server.test.ts", "line_range": null}, {"path": "src/routeTree.gen.ts", "line_range": null}],
+      "references": [{"path": "src/server/api/app.server.ts", "reason": "Module boundaries."}, {"path": "src/routes/api/public/v1/$.ts", "reason": "Forwarding pattern."}],
+      "preferred_worker": "W3",
+      "depends_on": ["T3", "T4", "T5"],
+      "blocks": ["T8"],
+      "dependency_inputs": ["T3/T4/T5 modules."],
+      "interface_contracts": ["Draft routes authenticated/no-store.", "Public v2 anonymous with exact-origin CORS and bounded IP limits."],
+      "acceptance_criteria": [
+        {"id": "T7-AC1", "condition": "Authenticated draft and allowed-origin public v2 routes are reachable with correct cache headers.", "verification": {"kind": "command", "command": "pnpm test -- src/server/api/app.test.ts", "expected": "Passes."}},
+        {"id": "T7-AC2", "condition": "Anonymous draft is 401 and disallowed public origin is 403.", "verification": {"kind": "command", "command": "pnpm test -- src/server/api/app.test.ts src/server/api/plugins/public-api.test.ts", "expected": "Passes."}},
+        {"id": "T7-AC3", "condition": "Route tree and Netlify build include public v2.", "verification": {"kind": "command", "command": "pnpm typecheck && pnpm build", "expected": "Passes."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Call authenticated draft and allowed-origin public v2."], "expected": "Both reach modules."}, {"name": "failure_or_edge", "steps": ["Call anonymous draft and disallowed origin."], "expected": "401 and 403."}],
+      "verification_commands": ["pnpm test -- src/server/api/app.test.ts src/server/api/plugins/public-api.test.ts", "pnpm typecheck", "pnpm build"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "medium"
+    },
+    {
+      "id": "T8",
+      "title": "Acceptance, documentation, and rollout evidence",
+      "wave": 4,
+      "objective": "Add scale/incremental E2E coverage, run the full local matrix, and update durable documentation with exact external gates.",
+      "steps": ["Add A/B/D to A/B-prime/C fixture/spec and scale regression.", "Run static/unit/db-check/build/browser matrix.", "Run external preview/OSS only if authorized and configured.", "Update README/AGENTS/evidence with exact results and v2 client rollout gate."],
+      "must_not": ["Do not claim external success without evidence.", "Do not deploy or mutate production without explicit authorization."],
+      "ownership": [{"path": "tests/e2e/version-management.spec.ts", "line_range": null}, {"path": "tests/e2e/version-incremental-upload.spec.ts", "line_range": null}, {"path": "tests/fixtures", "line_range": null}, {"path": "README.md", "line_range": null}, {"path": "AGENTS.md", "line_range": null}, {"path": ".harness/019f5bdd-32ab-7261-a90b-cc4aecc09474/tech", "line_range": null}],
+      "references": [{"path": "package.json", "reason": "Canonical verification commands."}, {"path": "tests/e2e", "reason": "Existing E2E conventions."}],
+      "preferred_worker": "W1",
+      "depends_on": ["T5", "T6", "T7"],
+      "blocks": [],
+      "dependency_inputs": ["All implemented backend/UI contracts."],
+      "interface_contracts": ["No new runtime contract.", "External checks may be gated but never fabricated."],
+      "acceptance_criteria": [
+        {"id": "T8-AC1", "condition": "Full local static/unit/build matrix passes.", "verification": {"kind": "command", "command": "pnpm check && pnpm typecheck && pnpm test && pnpm db:check && pnpm build", "expected": "Every command exits 0."}},
+        {"id": "T8-AC2", "condition": "DB/browser checks pass where authorized/configured or exact gates are recorded.", "verification": {"kind": "command", "command": "pnpm test:db && pnpm test:e2e", "expected": "Passes or records exact missing condition."}},
+        {"id": "T8-AC3", "condition": "Durable docs remove stale caps and record incremental reuse/public v2.", "verification": {"kind": "command", "command": "rg -n '256 files|1,000-file|5,000-file|incremental|public v2|draft' README.md AGENTS.md", "expected": "Current decision is explicit."}}
+      ],
+      "qa_scenarios": [{"name": "happy_path", "steps": ["Run A/B/D to A/B-prime/C fixture."], "expected": "A reused, B-prime/C uploaded, complete v2 manifest."}, {"name": "failure_or_edge", "steps": ["Remove reuse candidate and leave preview unavailable."], "expected": "Candidate falls back to upload; preview is honestly gated."}],
+      "verification_commands": ["pnpm check", "pnpm typecheck", "pnpm test", "pnpm db:check", "pnpm build", "pnpm test:db", "pnpm test:e2e", "git diff --check"],
+      "expected_report": ["outcome", "summary", "files_changed_or_outputs", "verification_results", "acceptance_criteria_evidence", "remaining_work_or_blocker"],
+      "complexity": "high"
+    }
+  ],
+  "plan_changes": [
+    {"revision": 2, "reason": "@laco-coder is unavailable; use @code-coder without changing scope.", "changed_at": "2026-08-06T14:38:23Z"},
+    {"revision": 3, "reason": "Add the omitted matching src/shared/api/versions.test.ts to T1 ownership.", "changed_at": "2026-08-06T14:53:19Z"},
+    {"revision": 4, "reason": "Add the existing public release repository unit test to T5 ownership because it imports the removed total-cap constant and is part of the matching repository test seam.", "changed_at": "2026-08-06T15:20:23Z"},
+    {"revision": 5, "reason": "Add the existing version repository unit test to T4 ownership because it exercises the repository contract being replaced and must migrate away from fileIds.", "changed_at": "2026-08-06T15:21:33Z"},
+    {"revision": 6, "reason": "Add the public API plugin implementation and its actual existing test filename to T7 because exact-origin CORS and rate matching are hardcoded to v1 and must include v2.", "changed_at": "2026-08-06T16:14:59Z"}
+  ]
+}
